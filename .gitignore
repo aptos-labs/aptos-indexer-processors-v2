@@ -1,1 +1,34 @@
-/target
+config.yaml
+cursor.txt
+build
+node_modules/
+lcov.info
+
+# Rust specific ignores
+# Please follow https://help.github.com/en/articles/ignoring-files to create a global
+# .gitignore file locally for IDE/Emacs/Vim generated files.
+**/target
+**/*.rs.bk
+.idea/
+
+# macOS Specific ignores
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Vim swap files
+*.swp
+*.swo
+
+# Emacs backup files
+*~
+.\#*
+.*\#
+\#*\#
+
+# VSCode settings
+.vscode/

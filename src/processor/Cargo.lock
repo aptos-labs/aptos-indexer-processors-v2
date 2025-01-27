@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "aptos-indexer-processors-v2"
+name = "processor"
 version = "0.1.0"

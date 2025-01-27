@@ -1,0 +1,48 @@
+[package]
+name = "processor"
+version = "0.1.0"
+edition = "2021"
+
+# Workspace inherited keys
+authors = ["Aptos Labs <opensource@aptoslabs.com>"]
+homepage = "https://aptoslabs.com"
+license = "Apache-2.0"
+publish = false
+repository = "https://github.com/aptos-labs/aptos-core"
+# rust-version = { workspace = true }
+
+[dependencies]
+ahash = { workspace = true }
+allocative = { workspace = true }
+allocative_derive = { workspace = true }
+anyhow = { workspace = true }
+aptos-protos = { workspace = true }
+bigdecimal = { workspace = true }
+chrono = { workspace = true }
+const_format = { workspace = true }
+diesel = { workspace = true }
+diesel-async = { workspace = true }
+field_count = { workspace = true }
+indexmap = { workspace = true }
+parquet = { workspace = true }
+parquet_derive = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+# Postgres SSL support
+# native-tls = { workspace = true }
+# postgres-native-tls = { workspace = true }
+# tiny-keccak = { workspace = true }
+# tokio-postgres = { workspace = true }
+
+# [target.'cfg(unix)'.dependencies]
+# jemallocator = { workspace = true }
+
+[features]
+libpq = ["diesel/postgres"]
+# When using the default features we enable the diesel/postgres feature. We configure
+# it in a feature so the CLI can opt out, since it cannot tolerate the libpq dep.
+# Recall that features should always be additive.
+default = ["libpq"]
