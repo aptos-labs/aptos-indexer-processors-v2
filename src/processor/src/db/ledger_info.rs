@@ -3,8 +3,8 @@
 
 #![allow(clippy::extra_unused_lifetimes)]
 
-use crate::{schema::ledger_infos, utils::database::DbPoolConnection};
-use diesel::{OptionalExtension, QueryDsl};
+use crate::{db::schema::ledger_infos, utils::database::DbPoolConnection};
+use diesel::{Identifiable, Insertable, OptionalExtension, QueryDsl, Queryable};
 use diesel_async::RunQueryDsl;
 
 #[derive(Debug, Identifiable, Insertable, Queryable)]

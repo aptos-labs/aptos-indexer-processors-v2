@@ -6,23 +6,26 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    bq_analytics::{GetTimeStamp, HasVersion, NamedTable},
     db::{
-        common::models::token_v2_models::v2_token_utils::TokenStandard,
-        postgres::models::ans_models::{
-            ans_lookup::{AnsLookup, CurrentAnsLookup, AnsPrimaryName, CurrentAnsPrimaryName},
-            ans_utils::{get_token_name, NameRecordV2, SubdomainExtV2, SetReverseLookupEvent},
+        models::{
+            ans_models::{
+                ans_lookup::{AnsLookup, CurrentAnsLookup},
+                ans_utils::{get_token_name, NameRecordV2, SubdomainExtV2},
+            },
+            token_v2_models::v2_token_utils::TokenStandard,
         },
+        schema::{ans_lookup_v2, current_ans_lookup_v2},
     },
     utils::util::standardize_address,
 };
 use ahash::AHashMap;
+use allocative::Allocative;
 use aptos_protos::transaction::v1::WriteResource;
-use serde::{Deserialize, Serialize};
-use crate::bq_analytics::generic_parquet_processor::NamedTable;
-use crate::bq_analytics::generic_parquet_processor::HasVersion;
-use crate::bq_analytics::generic_parquet_processor::GetTimeStamp;
+use diesel::prelude::*;
+use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
-
+use serde::{Deserialize, Serialize};
 
 type Domain = String;
 type Subdomain = String;

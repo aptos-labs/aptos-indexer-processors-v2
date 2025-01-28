@@ -5,20 +5,25 @@
 #![allow(clippy::unused_unit)]
 
 use super::ans_lookup_v2::TokenStandardType;
-use crate::db::{
-    common::models::token_v2_models::v2_token_utils::TokenStandard,
-    postgres::models::ans_models::{
-        ans_lookup::{AnsPrimaryName, CurrentAnsPrimaryName},
-        ans_utils::SetReverseLookupEvent,
+use crate::{
+    bq_analytics::{GetTimeStamp, HasVersion, NamedTable},
+    db::{
+        models::{
+            ans_models::{
+                ans_lookup::{AnsPrimaryName, CurrentAnsPrimaryName},
+                ans_utils::SetReverseLookupEvent,
+            },
+            token_v2_models::v2_token_utils::TokenStandard,
+        },
+        schema::{ans_primary_name_v2, current_ans_primary_name_v2},
     },
 };
+use allocative_derive::Allocative;
 use aptos_protos::transaction::v1::Event;
-use serde::{Deserialize, Serialize};
-use crate::bq_analytics::generic_parquet_processor::NamedTable;
-use crate::bq_analytics::generic_parquet_processor::HasVersion;
-use crate::bq_analytics::generic_parquet_processor::GetTimeStamp;
-
+use diesel::{Identifiable, Insertable};
+use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
+use serde::{Deserialize, Serialize};
 
 type RegisteredAddress = String;
 // PK of current_ans_primary_nameTokenStandard
@@ -151,7 +156,6 @@ impl CurrentAnsPrimaryNameV2Convertible for ParquetCurrentAnsPrimaryNameV2 {
         }
     }
 }
-
 
 #[derive(Clone, Default, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
 #[diesel(primary_key(transaction_version, write_set_change_index))]
