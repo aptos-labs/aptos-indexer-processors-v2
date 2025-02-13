@@ -4,7 +4,8 @@ use crate::{
         ParquetTypeStructs,
     },
     processors::user_transaction::{
-        models::user_transactions::ParquetUserTransaction, user_transaction_parse,
+        models::{signatures::ParquetSignature, user_transactions::ParquetUserTransaction},
+        user_transaction_parse,
     },
     utils::table_flags::TableFlags,
 };
@@ -38,12 +39,15 @@ impl Processable for ParquetUserTransactionExtractor {
         &mut self,
         transactions: TransactionContext<Self::Input>,
     ) -> anyhow::Result<Option<TransactionContext<ParquetTypeMap>>, ProcessorError> {
-        let (user_txns, _) = user_transaction_parse(transactions.data.clone());
+        let (user_txns, signatures) = user_transaction_parse(transactions.data.clone());
 
         let parquet_user_txns: Vec<ParquetUserTransaction> = user_txns
             .into_iter()
             .map(ParquetUserTransaction::from)
             .collect();
+
+        let parquet_signatures: Vec<ParquetSignature> =
+            signatures.into_iter().map(ParquetSignature::from).collect();
 
         // Print the size of each extracted data type
         debug!("Processed data sizes:");
@@ -52,11 +56,18 @@ impl Processable for ParquetUserTransactionExtractor {
         let mut map: HashMap<ParquetTypeEnum, ParquetTypeStructs> = HashMap::new();
 
         // Array of tuples for each data type and its corresponding enum variant and flag
-        let data_types = [(
-            TableFlags::USER_TRANSACTIONS,
-            ParquetTypeEnum::UserTransactions,
-            ParquetTypeStructs::UserTransaction(parquet_user_txns),
-        )];
+        let data_types = [
+            (
+                TableFlags::USER_TRANSACTIONS,
+                ParquetTypeEnum::UserTransactions,
+                ParquetTypeStructs::UserTransaction(parquet_user_txns),
+            ),
+            (
+                TableFlags::SIGNATURES,
+                ParquetTypeEnum::Signatures,
+                ParquetTypeStructs::Signature(parquet_signatures),
+            ),
+        ];
 
         // Populate the map based on opt-in tables
         add_to_map_if_opted_in_for_backfill(self.opt_in_tables, &mut map, data_types.to_vec());

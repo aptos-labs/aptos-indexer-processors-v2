@@ -1,7 +1,7 @@
 use crate::{
     config::processor_config::DefaultProcessorConfig,
     processors::user_transaction::models::{
-        signatures::Signature, user_transactions::PostgresUserTransaction,
+        signatures::PostgresSignature, user_transactions::PostgresUserTransaction,
     },
     schema,
     utils::{
@@ -49,13 +49,13 @@ impl UserTransactionStorer {
 
 #[async_trait]
 impl Processable for UserTransactionStorer {
-    type Input = (Vec<PostgresUserTransaction>, Vec<Signature>);
+    type Input = (Vec<PostgresUserTransaction>, Vec<PostgresSignature>);
     type Output = ();
     type RunType = AsyncRunType;
 
     async fn process(
         &mut self,
-        input: TransactionContext<(Vec<PostgresUserTransaction>, Vec<Signature>)>,
+        input: TransactionContext<(Vec<PostgresUserTransaction>, Vec<PostgresSignature>)>,
     ) -> Result<Option<TransactionContext<()>>, ProcessorError> {
         let (user_txns, signatures) = input.data;
 
@@ -64,7 +64,8 @@ impl Processable for UserTransactionStorer {
             TableFlags::USER_TRANSACTIONS,
             user_txns,
         );
-        let signatures = filter_data(&self.tables_to_write, TableFlags::SIGNATURES, signatures);
+        let signatures: Vec<PostgresSignature> =
+            filter_data(&self.tables_to_write, TableFlags::SIGNATURES, signatures);
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
@@ -82,7 +83,7 @@ impl Processable for UserTransactionStorer {
             self.conn_pool.clone(),
             insert_signatures_query,
             &signatures,
-            get_config_table_chunk_size::<Signature>("signatures", &per_table_chunk_sizes),
+            get_config_table_chunk_size::<PostgresSignature>("signatures", &per_table_chunk_sizes),
         );
 
         futures::try_join!(ut_res, s_res)?;
@@ -125,7 +126,7 @@ pub fn insert_user_transactions_query(
 }
 
 pub fn insert_signatures_query(
-    items_to_insert: Vec<Signature>,
+    items_to_insert: Vec<PostgresSignature>,
 ) -> (
     impl QueryFragment<Pg> + diesel::query_builder::QueryId + Send,
     Option<&'static str>,

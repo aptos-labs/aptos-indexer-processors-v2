@@ -4,9 +4,11 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
+    parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::signatures::{self},
     utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, util::standardize_address},
 };
+use allocative_derive::Allocative;
 use anyhow::{Context, Result};
 use aptos_protos::transaction::v1::{
     account_signature::Signature as AccountSignatureEnum,
@@ -19,17 +21,11 @@ use aptos_protos::transaction::v1::{
     SingleSender as SingleSenderPb,
 };
 use field_count::FieldCount;
+use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
-#[diesel(primary_key(
-    transaction_version,
-    multi_agent_index,
-    multi_sig_index,
-    is_sender_primary
-))]
-#[diesel(table_name = signatures)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Signature {
     pub transaction_version: i64,
     pub multi_agent_index: i64,
@@ -101,27 +97,24 @@ impl Signature {
             return String::from("unknown");
         }
         match t.signature.as_ref().unwrap() {
-            SignatureEnum::Ed25519(_) => String::from("ed25519_signature"),
-            SignatureEnum::MultiEd25519(_) => String::from("multi_ed25519_signature"),
-            SignatureEnum::MultiAgent(_) => String::from("multi_agent_signature"),
-            SignatureEnum::FeePayer(_) => String::from("fee_payer_signature"),
+            SignatureEnum::Ed25519(_) => "ed25519_signature".to_string(),
+            SignatureEnum::MultiEd25519(_) => "multi_ed25519_signature".to_string(),
+            SignatureEnum::MultiAgent(_) => "multi_agent_signature".to_string(),
+            SignatureEnum::FeePayer(_) => "fee_payer_signature".to_string(),
             SignatureEnum::SingleSender(sender) => {
-                let account_signature = sender.sender.as_ref().unwrap();
-                let signature = account_signature.signature.as_ref().unwrap();
-                match signature {
-                    AccountSignatureEnum::Ed25519(_) => String::from("ed25519_signature"),
-                    AccountSignatureEnum::MultiEd25519(_) => {
-                        String::from("multi_ed25519_signature")
-                    },
-                    AccountSignatureEnum::SingleKeySignature(_) => {
-                        String::from("single_key_signature")
-                    },
-                    AccountSignatureEnum::MultiKeySignature(_) => {
-                        String::from("multi_key_signature")
-                    },
-                    AccountSignatureEnum::Abstraction(_) => String::from("abstraction_signature"),
-                }
+                Self::get_account_signature_type(sender.sender.as_ref().unwrap())
             },
+        }
+    }
+
+    fn get_account_signature_type(account_signature: &ProtoAccountSignature) -> String {
+        let signature = account_signature.signature.as_ref().unwrap();
+        match signature {
+            AccountSignatureEnum::Ed25519(_) => "ed25519_signature".to_string(),
+            AccountSignatureEnum::MultiEd25519(_) => "multi_ed25519_signature".to_string(),
+            AccountSignatureEnum::SingleKeySignature(_) => "single_key_signature".to_string(),
+            AccountSignatureEnum::MultiKeySignature(_) => "multi_key_signature".to_string(),
+            AccountSignatureEnum::Abstraction(_) => "abstraction_signature".to_string(),
         }
     }
 
@@ -636,5 +629,101 @@ impl Signature {
             )],
             None => vec![],
         }
+    }
+}
+
+// Postgres version of Signatures
+#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
+#[diesel(primary_key(
+    transaction_version,
+    multi_agent_index,
+    multi_sig_index,
+    is_sender_primary
+))]
+#[diesel(table_name = signatures)]
+pub struct PostgresSignature {
+    pub transaction_version: i64,
+    pub multi_agent_index: i64,
+    pub multi_sig_index: i64,
+    pub transaction_block_height: i64,
+    pub signer: String,
+    pub is_sender_primary: bool,
+    pub type_: String,
+    pub public_key: String,
+    pub signature: String,
+    pub threshold: i64,
+    pub public_key_indices: serde_json::Value,
+}
+
+impl From<Signature> for PostgresSignature {
+    fn from(raw: Signature) -> Self {
+        PostgresSignature {
+            transaction_version: raw.transaction_version,
+            multi_agent_index: raw.multi_agent_index,
+            multi_sig_index: raw.multi_sig_index,
+            transaction_block_height: raw.transaction_block_height,
+            signer: raw.signer,
+            is_sender_primary: raw.is_sender_primary,
+            type_: raw.type_,
+            public_key: raw.public_key,
+            signature: raw.signature,
+            threshold: raw.threshold,
+            public_key_indices: raw.public_key_indices,
+        }
+    }
+}
+
+// Parquet version of Signatures
+#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+pub struct ParquetSignature {
+    pub txn_version: i64,
+    pub block_height: i64,
+    pub signer: String,
+    pub signer_type: String, // enum: sender, fee_payer, or secondary or keyless(maybe it's fee_payer)
+    pub account_type: String,
+    pub auth_type: String,
+    pub public_key: String,
+    pub signature: String,
+    pub threshold: Option<i64>,             // if multi key or multi ed?
+    pub public_key_indices: Option<String>, // if multi key, indices of used public keys?
+    #[allocative(skip)]
+    pub block_timestamp: chrono::NaiveDateTime,
+}
+
+impl NamedTable for ParquetSignature {
+    const TABLE_NAME: &'static str = "signatures";
+}
+
+impl HasVersion for ParquetSignature {
+    fn version(&self) -> i64 {
+        self.txn_version
+    }
+}
+
+impl From<Signature> for ParquetSignature {
+    fn from(raw: Signature) -> Self {
+        let signer_type = get_signer_type(raw.is_sender_primary, &raw.type_);
+
+        ParquetSignature {
+            txn_version: raw.transaction_version,
+            block_height: raw.transaction_block_height,
+            signer: raw.signer,
+            signer_type,
+            account_type: "Placeholder".to_string(), // AccountSignature Type in protos
+            auth_type: "Placeholder".to_string(), // AnySignature Type + AccountSignature Type enum in protos
+            public_key: raw.public_key,
+            signature: raw.signature,
+            threshold: Some(raw.threshold),
+            public_key_indices: Some(serde_json::to_string(&raw.public_key_indices).unwrap()), // Store as JSON string
+            block_timestamp: chrono::NaiveDateTime::default(), // Need to populate separately
+        }
+    }
+}
+
+fn get_signer_type(is_sender_primary: bool, signature_type: &str) -> String {
+    match (is_sender_primary, signature_type) {
+        (true, _) => "sender".to_string(),
+        (false, "fee_payer_signature") => "fee_payer".to_string(),
+        _ => "secondary".to_string(),
     }
 }
