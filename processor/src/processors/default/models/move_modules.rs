@@ -5,6 +5,7 @@
 
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
+    schema::move_modules,
     utils::util::standardize_address,
 };
 use allocative_derive::Allocative;
@@ -14,7 +15,7 @@ use aptos_protos::transaction::v1::{
 use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
-
+use serde_json::Value;
 /// Base model for the move_modules table.
 /// Types of some of the fields were determined using String instead of json since this table is only used for parquet at the time of writing.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -181,6 +182,42 @@ impl From<MoveModule> for ParquetMoveModule {
             structs: move_module.structs,
             is_deleted: move_module.is_deleted,
             block_timestamp: move_module.block_timestamp,
+        }
+    }
+}
+
+// Postgres Model
+#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
+#[diesel(primary_key(transaction_version, write_set_change_index))]
+#[diesel(table_name = move_modules)]
+pub struct PostgresMoveModule {
+    pub transaction_version: i64,
+    pub write_set_change_index: i64,
+    pub transaction_block_height: i64,
+    pub name: String,
+    pub address: String,
+    pub bytecode: Vec<u8>,
+    pub friends: Option<Value>,
+    pub exposed_functions: Option<Value>,
+    pub structs: Option<Value>,
+    pub is_deleted: bool,
+}
+
+impl From<MoveModule> for PostgresMoveModule {
+    fn from(base_item: MoveModule) -> Self {
+        PostgresMoveModule {
+            transaction_version: base_item.txn_version,
+            write_set_change_index: base_item.write_set_change_index,
+            transaction_block_height: base_item.block_height,
+            name: base_item.name,
+            address: base_item.address,
+            bytecode: base_item.bytecode,
+            exposed_functions: base_item
+                .exposed_functions
+                .map(|v| serde_json::from_str(&v).unwrap()),
+            friends: base_item.friends.map(|v| serde_json::from_str(&v).unwrap()),
+            structs: base_item.structs.map(|v| serde_json::from_str(&v).unwrap()),
+            is_deleted: base_item.is_deleted,
         }
     }
 }

@@ -1,3 +1,4 @@
+use super::models::move_modules::PostgresMoveModule;
 use crate::processors::default::{
     models::{
         block_metadata_transactions::PostgresBlockMetadataTransaction,
@@ -25,6 +26,7 @@ impl Processable for DefaultExtractor {
         Vec<PostgresTableItem>,
         Vec<PostgresCurrentTableItem>,
         Vec<PostgresTableMetadata>,
+        Vec<PostgresMoveModule>,
     );
     type RunType = AsyncRunType;
 
@@ -38,6 +40,7 @@ impl Processable for DefaultExtractor {
                 Vec<PostgresTableItem>,
                 Vec<PostgresCurrentTableItem>,
                 Vec<PostgresTableMetadata>,
+                Vec<PostgresMoveModule>,
             )>,
         >,
         ProcessorError,
@@ -47,6 +50,7 @@ impl Processable for DefaultExtractor {
             raw_table_items,
             raw_current_table_items,
             raw_table_metadata,
+            raw_move_modules,
         ) = process_transactions(transactions.data.clone());
 
         let postgres_table_items: Vec<PostgresTableItem> = raw_table_items
@@ -66,6 +70,10 @@ impl Processable for DefaultExtractor {
             .into_iter()
             .map(PostgresTableMetadata::from)
             .collect();
+        let postgres_move_modules: Vec<PostgresMoveModule> = raw_move_modules
+            .into_iter()
+            .map(PostgresMoveModule::from)
+            .collect();
 
         Ok(Some(TransactionContext {
             data: (
@@ -73,6 +81,7 @@ impl Processable for DefaultExtractor {
                 postgres_table_items,
                 postgres_current_table_items,
                 postgres_table_metadata,
+                postgres_move_modules,
             ),
             metadata: transactions.metadata,
         }))

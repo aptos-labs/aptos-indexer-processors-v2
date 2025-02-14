@@ -47,6 +47,7 @@ impl Processable for ParquetDefaultExtractor {
             raw_table_items,
             raw_current_table_items,
             raw_table_metadata,
+            _move_modules,
         ) = process_transactions(transactions.data.clone());
 
         let parquet_table_items: Vec<ParquetTableItem> = raw_table_items

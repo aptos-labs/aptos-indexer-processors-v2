@@ -5,6 +5,7 @@ use crate::{
     config::processor_config::DefaultProcessorConfig,
     processors::default::models::{
         block_metadata_transactions::PostgresBlockMetadataTransaction,
+        move_modules::PostgresMoveModule,
         table_items::{PostgresCurrentTableItem, PostgresTableItem, PostgresTableMetadata},
     },
     schema,
@@ -58,6 +59,7 @@ impl Processable for DefaultStorer {
         Vec<PostgresTableItem>,
         Vec<PostgresCurrentTableItem>,
         Vec<PostgresTableMetadata>,
+        Vec<PostgresMoveModule>,
     );
     type Output = ();
     type RunType = AsyncRunType;
@@ -89,10 +91,16 @@ impl Processable for DefaultStorer {
             Vec<PostgresTableItem>,
             Vec<PostgresCurrentTableItem>,
             Vec<PostgresTableMetadata>,
+            Vec<PostgresMoveModule>,
         )>,
     ) -> Result<Option<TransactionContext<()>>, ProcessorError> {
-        let (block_metadata_transactions, table_items, current_table_items, table_metadata) =
-            input.data;
+        let (
+            block_metadata_transactions,
+            table_items,
+            current_table_items,
+            table_metadata,
+            move_modules,
+        ) = input.data;
 
         let block_metadata_transactions = filter_data(
             &self.tables_to_write,
@@ -109,6 +117,11 @@ impl Processable for DefaultStorer {
             &self.tables_to_write,
             TableFlags::TABLE_METADATA,
             table_metadata,
+        );
+        let move_modules = filter_data(
+            &self.tables_to_write,
+            TableFlags::MOVE_MODULES,
+            move_modules,
         );
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
@@ -151,11 +164,22 @@ impl Processable for DefaultStorer {
             ),
         );
 
+        let move_modules_res = execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_move_modules_query,
+            &move_modules,
+            get_config_table_chunk_size::<PostgresMoveModule>(
+                "move_modules",
+                &per_table_chunk_sizes,
+            ),
+        );
+
         futures::try_join!(
             bmt_res,
             table_items_res,
             current_table_items_res,
-            table_metadata_res
+            table_metadata_res,
+            move_modules_res,
         )?;
 
         Ok(Some(TransactionContext {
@@ -244,6 +268,23 @@ pub fn insert_table_metadata_query(
         diesel::insert_into(schema::table_metadatas::table)
             .values(items_to_insert)
             .on_conflict(handle)
+            .do_nothing(),
+        None,
+    )
+}
+
+pub fn insert_move_modules_query(
+    items_to_insert: Vec<PostgresMoveModule>,
+) -> (
+    impl QueryFragment<Pg> + diesel::query_builder::QueryId + Send,
+    Option<&'static str>,
+) {
+    use schema::move_modules::dsl::*;
+
+    (
+        diesel::insert_into(schema::move_modules::table)
+            .values(items_to_insert)
+            .on_conflict(transaction_version)
             .do_nothing(),
         None,
     )

@@ -18,6 +18,7 @@ use ahash::AHashMap;
 use aptos_protos::transaction::v1::{
     transaction::TxnData, write_set_change::Change as WriteSetChangeEnum, Transaction,
 };
+use models::move_modules::MoveModule;
 
 // TODO: we can further optimize this by passing in a flag to selectively parse only the required data (e.g. table_items for parquet)
 /// Processes a list of transactions and extracts relevant data into different models.
@@ -46,11 +47,13 @@ pub fn process_transactions(
     Vec<TableItem>,
     Vec<CurrentTableItem>,
     Vec<TableMetadata>,
+    Vec<MoveModule>,
 ) {
     let mut block_metadata_transactions = vec![];
     let mut table_items = vec![];
     let mut current_table_items = AHashMap::new();
     let mut table_metadata = AHashMap::new();
+    let mut move_modules = vec![];
 
     for transaction in transactions {
         let version = transaction.version as i64;
@@ -129,6 +132,26 @@ pub fn process_transactions(
                     current_table_items
                         .insert((cti.table_handle.clone(), cti.key_hash.clone()), cti);
                 },
+                WriteSetChangeEnum::WriteModule(inner) => {
+                    let move_module = MoveModule::from_write_module(
+                        inner,
+                        index as i64,
+                        version,
+                        block_height,
+                        block_timestamp,
+                    );
+                    move_modules.push(move_module);
+                },
+                WriteSetChangeEnum::DeleteModule(inner) => {
+                    let move_module = MoveModule::from_delete_module(
+                        inner,
+                        index as i64,
+                        version,
+                        block_height,
+                        block_timestamp,
+                    );
+                    move_modules.push(move_module);
+                },
                 _ => {},
             };
         }
@@ -149,6 +172,7 @@ pub fn process_transactions(
         table_items,
         current_table_items,
         table_metadata,
+        move_modules,
     )
 }
 
@@ -170,6 +194,7 @@ pub fn process_transactions_parquet(
 
     for detail in wsc_details {
         match detail {
+            // TODO: clean up this code w/ above
             WriteSetChangeDetail::Module(module) => {
                 move_modules.push(module);
             },
