@@ -13,7 +13,9 @@ use crate::{
     },
     processors::{
         processor_status_saver::get_processor_status_saver,
-        user_transaction::models::user_transactions::ParquetUserTransaction,
+        user_transaction::models::{
+            signatures::ParquetSignature, user_transactions::ParquetUserTransaction,
+        },
     },
     utils::{
         chain_id::check_or_update_chain_id,
@@ -116,10 +118,13 @@ impl ProcessorTrait for ParquetUserTransactionProcessor {
         let gcs_client =
             initialize_gcs_client(parquet_db_config.google_application_credentials.clone()).await;
 
-        let parquet_type_to_schemas: HashMap<ParquetTypeEnum, Arc<Type>> = [(
-            ParquetTypeEnum::UserTransactions,
-            ParquetUserTransaction::schema(),
-        )]
+        let parquet_type_to_schemas: HashMap<ParquetTypeEnum, Arc<Type>> = [
+            (
+                ParquetTypeEnum::UserTransactions,
+                ParquetUserTransaction::schema(),
+            ),
+            (ParquetTypeEnum::Signatures, ParquetSignature::schema()),
+        ]
         .into_iter()
         .collect();
 
