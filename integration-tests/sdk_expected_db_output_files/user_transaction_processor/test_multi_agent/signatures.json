@@ -10,7 +10,9 @@
     "public_key": "0xd05b8b53a772f04de5d9e839fdc452a0e034cf4c9ef3c4ba6604694d899db12a",
     "signature": "0xe5e6bb12fce4c841dbaf5160d8808b897a29eed50009bc86421910db20ac0f19ecf1452e131a2928ea2c3108fad16fa8af44e29b3fe697fb08c056a1e2ba2a0c",
     "threshold": 1,
-    "public_key_indices": []
+    "public_key_indices": [],
+    "public_key_type": null,
+    "any_signature_type": null
   },
   {
     "transaction_version": 103958588,
@@ -26,7 +28,9 @@
     "public_key_indices": [
       0,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   },
   {
     "transaction_version": 103958588,
@@ -42,6 +46,8 @@
     "public_key_indices": [
       0,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   }
 ]

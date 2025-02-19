@@ -30,6 +30,8 @@ pub struct Signature {
     pub threshold: i64,
     pub public_key_indices: serde_json::Value,
     pub inserted_at: chrono::NaiveDateTime,
+    pub any_signature_type: Option<String>,
+    pub public_key_type: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug, FieldCount, Identifiable, Insertable, Serialize, Queryable)]

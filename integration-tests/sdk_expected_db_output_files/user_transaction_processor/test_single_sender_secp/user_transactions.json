@@ -2,7 +2,7 @@
   {
     "version": 527013476,
     "block_height": 162964512,
-    "parent_signature_type": "single_key_signature",
+    "parent_signature_type": "single_sender_signature",
     "sender": "0x12cb0b6725601b943da69cfaee34e4952ff569c26943602a88029f446c7ef165",
     "sequence_number": 6,
     "max_gas_amount": "48",

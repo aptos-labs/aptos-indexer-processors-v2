@@ -49,7 +49,9 @@ use crate::{
                 v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
             },
         },
-        user_transaction::models::user_transactions::ParquetUserTransaction,
+        user_transaction::models::{
+            signatures::ParquetSignature, user_transactions::ParquetUserTransaction,
+        },
     },
     utils::{
         database::{new_db_pool, ArcDbPool},
@@ -120,6 +122,7 @@ pub enum ParquetTypeEnum {
     Events,
     // user transactions
     UserTransactions,
+    Signatures,
     // ANS types
     AnsPrimaryNameV2,
     CurrentAnsPrimaryNameV2,
@@ -211,6 +214,7 @@ impl_parquet_trait!(
 impl_parquet_trait!(ParquetTableMetadata, ParquetTypeEnum::TableMetadata);
 impl_parquet_trait!(ParquetEvent, ParquetTypeEnum::Events);
 impl_parquet_trait!(ParquetUserTransaction, ParquetTypeEnum::UserTransactions);
+impl_parquet_trait!(ParquetSignature, ParquetTypeEnum::Signatures);
 impl_parquet_trait!(ParquetAnsPrimaryNameV2, ParquetTypeEnum::AnsPrimaryNameV2);
 impl_parquet_trait!(
     ParquetCurrentAnsPrimaryNameV2,
@@ -301,6 +305,7 @@ pub enum ParquetTypeStructs {
     TableMetadata(Vec<ParquetTableMetadata>),
     // User txn
     UserTransaction(Vec<ParquetUserTransaction>),
+    Signature(Vec<ParquetSignature>),
     // Events
     Event(Vec<ParquetEvent>),
     // ANS types
@@ -352,6 +357,7 @@ impl ParquetTypeStructs {
             },
             ParquetTypeEnum::TableMetadata => ParquetTypeStructs::TableMetadata(Vec::new()),
             ParquetTypeEnum::UserTransactions => ParquetTypeStructs::UserTransaction(Vec::new()),
+            ParquetTypeEnum::Signatures => ParquetTypeStructs::Signature(Vec::new()),
             ParquetTypeEnum::Events => ParquetTypeStructs::Event(Vec::new()),
             ParquetTypeEnum::AnsPrimaryNameV2 => ParquetTypeStructs::AnsPrimaryNameV2(Vec::new()),
             ParquetTypeEnum::CurrentAnsPrimaryNameV2 => {
@@ -478,6 +484,12 @@ impl ParquetTypeStructs {
             (
                 ParquetTypeStructs::UserTransaction(self_data),
                 ParquetTypeStructs::UserTransaction(other_data),
+            ) => {
+                handle_append!(self_data, other_data)
+            },
+            (
+                ParquetTypeStructs::Signature(self_data),
+                ParquetTypeStructs::Signature(other_data),
             ) => {
                 handle_append!(self_data, other_data)
             },

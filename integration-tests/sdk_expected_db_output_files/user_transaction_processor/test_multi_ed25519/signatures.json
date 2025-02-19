@@ -15,7 +15,9 @@
       1,
       2,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   },
   {
     "transaction_version": 2175935,
@@ -33,7 +35,9 @@
       1,
       2,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   },
   {
     "transaction_version": 2175935,
@@ -51,7 +55,9 @@
       1,
       2,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   },
   {
     "transaction_version": 2175935,
@@ -69,6 +75,8 @@
       1,
       2,
       3
-    ]
+    ],
+    "public_key_type": null,
+    "any_signature_type": null
   }
 ]

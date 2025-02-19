@@ -11,15 +11,16 @@ use super::{
     coin_utils::{CoinEvent, EventGuidResource},
 };
 use crate::{
-    processors::fungible_asset::fungible_asset_models::{
-        v2_fungible_asset_activities::{
-            CoinType, CurrentCoinBalancePK, EventToCoinType, BURN_GAS_EVENT_CREATION_NUM,
-            BURN_GAS_EVENT_INDEX, GAS_FEE_EVENT,
+    processors::{
+        fungible_asset::fungible_asset_models::{
+            v2_fungible_asset_activities::{
+                CoinType, CurrentCoinBalancePK, EventToCoinType, BURN_GAS_EVENT_CREATION_NUM,
+                BURN_GAS_EVENT_INDEX, GAS_FEE_EVENT,
+            },
+            v2_fungible_asset_utils::FeeStatement,
         },
-        v2_fungible_asset_utils::FeeStatement,
+        user_transaction::models::signature_utils::parent_signature_utils::get_fee_payer_address,
     },
-    // TODO: update this to use the new signatures after refactoring
-    processors::user_transaction::models::signatures::Signature,
     schema::coin_activities,
     utils::{
         counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
@@ -300,7 +301,7 @@ impl CoinActivity {
         let aptos_coin_burned =
             BigDecimal::from(txn_info.gas_used * user_transaction_request.gas_unit_price);
         let gas_fee_payer_address = match user_transaction_request.signature.as_ref() {
-            Some(signature) => Signature::get_fee_payer_address(signature, transaction_version),
+            Some(signature) => get_fee_payer_address(signature, transaction_version),
             None => None,
         };
 

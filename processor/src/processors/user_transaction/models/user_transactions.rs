@@ -7,7 +7,10 @@
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
 
-use super::signatures::Signature;
+use super::{
+    signature_utils::parent_signature_utils::{get_fee_payer_address, get_parent_signature_type},
+    signatures::Signature,
+};
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FeeStatement,
@@ -74,7 +77,7 @@ impl UserTransaction {
             .as_ref()
             .expect("Sends is not present in user txn");
         let gas_fee_payer_address = match user_request.signature.as_ref() {
-            Some(signature) => Signature::get_fee_payer_address(signature, version),
+            Some(signature) => get_fee_payer_address(signature, version),
             None => None,
         };
         let num_signatures =
@@ -90,7 +93,7 @@ impl UserTransaction {
                     .unwrap()
                     .signature
                     .as_ref()
-                    .map(|sig| Signature::get_signature_type(sig, version))
+                    .map(|sig| get_parent_signature_type(sig, version))
                     .unwrap_or_default(),
                 sender: standardize_address(&user_request.sender),
                 sequence_number: user_request.sequence_number as i64,
@@ -136,7 +139,6 @@ impl UserTransaction {
             .as_ref()
             .map(|s| {
                 Signature::from_user_transaction(s, &user_request.sender, version, block_height)
-                    .unwrap()
             })
             .unwrap_or_default()
     }

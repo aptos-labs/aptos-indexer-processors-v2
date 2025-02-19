@@ -1028,6 +1028,8 @@ diesel::table! {
         threshold -> Int8,
         public_key_indices -> Jsonb,
         inserted_at -> Timestamp,
+        any_signature_type -> Nullable<Varchar>,
+        public_key_type -> Nullable<Varchar>,
     }
 }
 

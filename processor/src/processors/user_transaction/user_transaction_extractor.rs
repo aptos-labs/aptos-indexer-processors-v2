@@ -1,5 +1,5 @@
 use crate::processors::user_transaction::{
-    models::{signatures::Signature, user_transactions::PostgresUserTransaction},
+    models::{signatures::PostgresSignature, user_transactions::PostgresUserTransaction},
     user_transaction_parse,
 };
 use aptos_indexer_processor_sdk::{
@@ -17,14 +17,14 @@ where
 #[async_trait]
 impl Processable for UserTransactionExtractor {
     type Input = Vec<Transaction>;
-    type Output = (Vec<PostgresUserTransaction>, Vec<Signature>);
+    type Output = (Vec<PostgresUserTransaction>, Vec<PostgresSignature>);
     type RunType = AsyncRunType;
 
     async fn process(
         &mut self,
         item: TransactionContext<Vec<Transaction>>,
     ) -> Result<
-        Option<TransactionContext<(Vec<PostgresUserTransaction>, Vec<Signature>)>>,
+        Option<TransactionContext<(Vec<PostgresUserTransaction>, Vec<PostgresSignature>)>>,
         ProcessorError,
     > {
         let (user_transactions, signatures) = user_transaction_parse(item.data);
@@ -34,8 +34,13 @@ impl Processable for UserTransactionExtractor {
             .map(PostgresUserTransaction::from)
             .collect();
 
+        let postgres_signatures = signatures
+            .into_iter()
+            .map(PostgresSignature::from)
+            .collect();
+
         Ok(Some(TransactionContext {
-            data: (postgres_user_transactions, signatures),
+            data: (postgres_user_transactions, postgres_signatures),
             metadata: item.metadata,
         }))
     }
