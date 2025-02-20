@@ -747,7 +747,10 @@ pub fn parse_account_restoration_models_from_transaction(
             } else {
                 (None, vec![])
             };
-        if auth_key_account_address.is_some() || auth_key_multikey_layout.is_some() || !public_key_auth_keys.is_empty() {
+        if auth_key_account_address.is_some()
+            || auth_key_multikey_layout.is_some()
+            || !public_key_auth_keys.is_empty()
+        {
             results.push((
                 auth_key_account_address,
                 public_key_auth_keys,

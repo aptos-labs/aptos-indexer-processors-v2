@@ -55,8 +55,9 @@ impl Processable for AccountRestorationStorer {
     ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
         let (auth_key_address, public_key_auth_key, auth_key_multikey) = input.data;
 
-        let auth_key_address: Vec<AuthKeyAccountAddress> =
-            deduplicate_auth_key_account_addresses(auth_key_address.into_iter().flatten().collect());
+        let auth_key_address: Vec<AuthKeyAccountAddress> = deduplicate_auth_key_account_addresses(
+            auth_key_address.into_iter().flatten().collect(),
+        );
         let auth_key_multikey: Vec<AuthKeyMultikeyLayout> = deduplicate_auth_key_multikey_layouts(
             auth_key_multikey.into_iter().flatten().collect(),
         );
