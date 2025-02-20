@@ -1,12 +1,19 @@
 use crate::{
     config::db_config::DbConfig,
-    db::models::{
-        account_transaction_models::account_transactions::ParquetAccountTransaction,
-        ans_models::{
+    parquet_processors::{
+        parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
+        parquet_utils::{
+            gcs_uploader::{create_new_writer, GCSUploader},
+            parquet_buffer_step::ParquetBufferStep,
+        },
+    },
+    processors::{
+        account_transactions::account_transactions_model::ParquetAccountTransaction,
+        ans::models::{
             ans_lookup_v2::{ParquetAnsLookupV2, ParquetCurrentAnsLookupV2},
             ans_primary_name_v2::{ParquetAnsPrimaryNameV2, ParquetCurrentAnsPrimaryNameV2},
         },
-        default_models::{
+        default::models::{
             block_metadata_transactions::ParquetBlockMetadataTransaction,
             move_modules::ParquetMoveModule,
             move_resources::ParquetMoveResource,
@@ -14,37 +21,35 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
-        event_models::events::ParquetEvent,
-        fungible_asset_models::{
+        events::events_model::ParquetEvent,
+        fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::{
                 ParquetCurrentFungibleAssetBalance, ParquetCurrentUnifiedFungibleAssetBalance,
                 ParquetFungibleAssetBalance,
             },
+            v2_fungible_asset_to_coin_mappings::ParquetFungibleAssetToCoinMapping,
             v2_fungible_metadata::ParquetFungibleAssetMetadataModel,
         },
-        object_models::v2_objects::{ParquetCurrentObject, ParquetObject},
-        stake_models::{
+        objects::v2_objects_models::{ParquetCurrentObject, ParquetObject},
+        stake::models::{
             delegator_activities::ParquetDelegatedStakingActivity,
             delegator_balances::{ParquetCurrentDelegatorBalance, ParquetDelegatorBalance},
             proposal_votes::ParquetProposalVote,
         },
-        token_models::{
-            token_claims::ParquetCurrentTokenPendingClaim,
-            token_royalty::ParquetCurrentTokenRoyaltyV1,
+        token_v2::{
+            token_models::{
+                token_claims::ParquetCurrentTokenPendingClaim,
+                token_royalty::ParquetCurrentTokenRoyaltyV1,
+            },
+            token_v2_models::{
+                v2_token_activities::ParquetTokenActivityV2,
+                v2_token_datas::{ParquetCurrentTokenDataV2, ParquetTokenDataV2},
+                v2_token_metadata::ParquetCurrentTokenV2Metadata,
+                v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
+            },
         },
-        token_v2_models::{
-            v2_token_activities::ParquetTokenActivityV2,
-            v2_token_datas::{ParquetCurrentTokenDataV2, ParquetTokenDataV2},
-            v2_token_metadata::ParquetCurrentTokenV2Metadata,
-            v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
-        },
-        transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
-        user_transaction_models::user_transactions::ParquetUserTransaction,
-    },
-    steps::common::{
-        gcs_uploader::{create_new_writer, GCSUploader},
-        parquet_buffer_step::ParquetBufferStep,
+        user_transaction::models::user_transactions::ParquetUserTransaction,
     },
     utils::{
         database::{new_db_pool, ArcDbPool},
@@ -65,16 +70,17 @@ use std::{
 };
 use strum::{Display, EnumIter};
 
-pub mod parquet_account_transactions_processor;
-pub mod parquet_ans_processor;
-pub mod parquet_default_processor;
-pub mod parquet_events_processor;
-pub mod parquet_fungible_asset_processor;
-pub mod parquet_objects_processor;
-pub mod parquet_stake_processor;
-pub mod parquet_token_v2_processor;
-pub mod parquet_transaction_metadata_processor;
-pub mod parquet_user_transaction_processor;
+pub mod parquet_account_transactions;
+pub mod parquet_ans;
+pub mod parquet_default;
+pub mod parquet_events;
+pub mod parquet_fungible_asset;
+pub mod parquet_objects;
+pub mod parquet_stake;
+pub mod parquet_token_v2;
+pub mod parquet_transaction_metadata;
+pub mod parquet_user_transaction;
+pub mod parquet_utils; // This will import the directory as a module
 
 const GOOGLE_APPLICATION_CREDENTIALS: &str = "GOOGLE_APPLICATION_CREDENTIALS";
 
@@ -125,6 +131,7 @@ pub enum ParquetTypeEnum {
     FungibleAssetBalances,
     CurrentFungibleAssetBalances,
     CurrentFungibleAssetBalancesLegacy,
+    FungibleAssetToCoinMappings,
     // txn metadata,
     WriteSetSize,
     // account transactions
@@ -234,6 +241,10 @@ impl_parquet_trait!(
     ParquetCurrentFungibleAssetBalance,
     ParquetTypeEnum::CurrentFungibleAssetBalancesLegacy
 );
+impl_parquet_trait!(
+    ParquetFungibleAssetToCoinMapping,
+    ParquetTypeEnum::FungibleAssetToCoinMappings
+);
 impl_parquet_trait!(ParquetWriteSetSize, ParquetTypeEnum::WriteSetSize);
 impl_parquet_trait!(
     ParquetAccountTransaction,
@@ -303,6 +314,7 @@ pub enum ParquetTypeStructs {
     FungibleAssetBalance(Vec<ParquetFungibleAssetBalance>),
     CurrentFungibleAssetBalance(Vec<ParquetCurrentFungibleAssetBalance>),
     CurrentUnifiedFungibleAssetBalance(Vec<ParquetCurrentUnifiedFungibleAssetBalance>),
+    FungibleAssetToCoinMappings(Vec<ParquetFungibleAssetToCoinMapping>),
     // Txn metadata
     WriteSetSize(Vec<ParquetWriteSetSize>),
     // account txn
@@ -363,6 +375,9 @@ impl ParquetTypeStructs {
             },
             ParquetTypeEnum::CurrentFungibleAssetBalances => {
                 ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(Vec::new())
+            },
+            ParquetTypeEnum::FungibleAssetToCoinMappings => {
+                ParquetTypeStructs::FungibleAssetToCoinMappings(Vec::new())
             },
             ParquetTypeEnum::WriteSetSize => ParquetTypeStructs::WriteSetSize(Vec::new()),
             ParquetTypeEnum::AccountTransactions => {
@@ -493,6 +508,12 @@ impl ParquetTypeStructs {
             (
                 ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(self_data),
                 ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(other_data),
+            ) => {
+                handle_append!(self_data, other_data)
+            },
+            (
+                ParquetTypeStructs::FungibleAssetToCoinMappings(self_data),
+                ParquetTypeStructs::FungibleAssetToCoinMappings(other_data),
             ) => {
                 handle_append!(self_data, other_data)
             },

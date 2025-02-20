@@ -21,6 +21,7 @@ bitflags! {
         const FUNGIBLE_ASSET_METADATA = 1 << 14;
         const CURRENT_UNIFIED_FUNGIBLE_ASSET_BALANCES = 1 << 15;
         const CURRENT_FUNGIBLE_ASSET_BALANCES_LEGACY = 1 << 16;
+        const FUNGIBLE_ASSET_TO_COIN_MAPPINGS = 1 << 17;
         // TODO:: Add new v1 to v2 fa mapping table when migrating fa processor
 
         // Objects Processor: 21-30

@@ -4,7 +4,7 @@
 use super::database::DbPoolConnection;
 use crate::{
     db::property_map::{PropertyMap, TokenObjectPropertyMap},
-    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
+    utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, table_flags::TableFlags},
 };
 use aptos_protos::{
     transaction::v1::{
@@ -550,6 +550,19 @@ pub struct AggregatorSnapshot {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DerivedStringSnapshot {
     pub value: String,
+}
+
+/**
+ * This is a helper function to filter data based on the tables_to_write set.
+ * If the tables_to_write set is empty or contains the flag, return the data so that they are written to the database.
+ * Otherwise, return an empty vector so that they are not written to the database.
+ */
+pub fn filter_data<T>(tables_to_write: &TableFlags, flag: TableFlags, data: Vec<T>) -> Vec<T> {
+    if tables_to_write.is_empty() || tables_to_write.contains(flag) {
+        data
+    } else {
+        vec![]
+    }
 }
 
 #[cfg(test)]

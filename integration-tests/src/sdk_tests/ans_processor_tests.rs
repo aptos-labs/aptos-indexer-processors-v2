@@ -6,7 +6,7 @@ use processor::{
         indexer_processor_config::IndexerProcessorConfig,
         processor_config::{DefaultProcessorConfig, ProcessorConfig},
     },
-    processors::ans_processor::AnsProcessorConfig,
+    processors::ans::ans_processor::AnsProcessorConfig,
 };
 use std::collections::HashSet;
 
@@ -65,7 +65,7 @@ mod tests {
         IMPORTED_MAINNET_TXNS_438536688_ANS_CURRENT_ANS_LOOKUP_V2,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
-    use processor::processors::ans_processor::AnsProcessor;
+    use processor::processors::ans::ans_processor::AnsProcessor;
 
     /**
      * This test includes processing for the following:
@@ -125,9 +125,8 @@ mod tests {
 
     // Helper function to abstract out the single transaction processing
     async fn process_single_mainnet_event_txn(txn: &[u8], test_case_name: Option<String>) {
-        let (diff_flag, custom_output_path) = get_test_config();
-        let output_path = custom_output_path
-            .unwrap_or_else(|| format!("{}/imported_mainnet_txns", DEFAULT_OUTPUT_FOLDER));
+        let (generate_flag, custom_output_path) = get_test_config();
+        let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(&[txn]).await;
 
@@ -144,7 +143,7 @@ mod tests {
             ans_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )

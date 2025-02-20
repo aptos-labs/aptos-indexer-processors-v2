@@ -62,7 +62,7 @@ mod sdk_user_txn_processor_tests {
         IMPORTED_TESTNET_TXNS_769222973_MULTISIG,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
-    use processor::processors::user_transaction_processor::UserTransactionProcessor;
+    use processor::processors::user_transaction::user_transaction_processor::UserTransactionProcessor;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_multi_key_keyless_signature() {
@@ -165,7 +165,7 @@ mod sdk_user_txn_processor_tests {
 
     // Helper function to abstract out the transaction processing
     async fn process_single_transactions(txn: &[u8], test_case_name: Option<String>) {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(&[txn]).await;
@@ -183,7 +183,7 @@ mod sdk_user_txn_processor_tests {
             user_txn_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )

@@ -47,44 +47,44 @@ mod tests {
 
     #[tokio::test]
     async fn test_all_testnet_txns_for_all_processors() {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path
             .unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string() + "/imported_testnet_txns");
 
         let (db, test_context) = setup_test_environment(ALL_IMPORTED_TESTNET_TXNS).await;
         let db_url = db.get_db_url();
 
-        run_processors_with_test_context(test_context, db_url, diff_flag, output_path).await;
+        run_processors_with_test_context(test_context, db_url, generate_flag, output_path).await;
     }
 
     #[tokio::test]
     async fn test_all_mainnet_txns_for_all_processors() {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path
             .unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string() + "/imported_testnet_txns");
 
         let (db, test_context) = setup_test_environment(ALL_IMPORTED_MAINNET_TXNS).await;
         let db_url = db.get_db_url();
 
-        run_processors_with_test_context(test_context, db_url, diff_flag, output_path).await;
+        run_processors_with_test_context(test_context, db_url, generate_flag, output_path).await;
     }
 
     #[tokio::test]
     async fn test_all_scripted_txns_for_all_processors() {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path
             .unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string() + "/imported_testnet_txns");
 
         let (db, test_context) = setup_test_environment(ALL_SCRIPTED_TRANSACTIONS).await;
         let db_url = db.get_db_url();
 
-        run_processors_with_test_context(test_context, db_url, diff_flag, output_path).await;
+        run_processors_with_test_context(test_context, db_url, generate_flag, output_path).await;
     }
 
     async fn run_processors_with_test_context(
         mut test_context: SdkTestContext,
         db_url: String,
-        diff_flag: bool,
+        generate_flag: bool,
         output_path: String,
     ) {
         let processors_map: HashMap<String, ProcessorWrapper> = [
@@ -181,7 +181,7 @@ mod tests {
                     &mut test_context,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                 )
                 .await

@@ -6,7 +6,7 @@ use processor::{
         indexer_processor_config::IndexerProcessorConfig,
         processor_config::{DefaultProcessorConfig, ProcessorConfig},
     },
-    processors::objects_processor::ObjectsProcessorConfig,
+    processors::objects::objects_processor::ObjectsProcessorConfig,
 };
 use std::collections::HashSet;
 
@@ -64,7 +64,7 @@ mod sdk_objects_processor_tests {
         IMPORTED_MAINNET_TXNS_578366445_TOKEN_V2_BURN_EVENT_V2,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
-    use processor::processors::objects_processor::ObjectsProcessor;
+    use processor::processors::objects::objects_processor::ObjectsProcessor;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_objects_write_and_delete_resource() {
@@ -96,7 +96,7 @@ mod sdk_objects_processor_tests {
 
     // Helper function to abstract out the transaction processing
     async fn process_object_txns(txns: &[&[u8]], test_case_name: Option<String>) {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(txns).await;
@@ -114,7 +114,7 @@ mod sdk_objects_processor_tests {
             objects_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )

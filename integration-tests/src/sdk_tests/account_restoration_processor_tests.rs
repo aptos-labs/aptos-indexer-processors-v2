@@ -61,7 +61,7 @@ mod sdk_account_restoration_processor_tests {
     };
     use processor::{
         config::processor_config::ProcessorConfig,
-        processors::account_restoration_processor::AccountRestorationProcessor,
+        processors::account_restoration::account_restoration_processor::AccountRestorationProcessor,
     };
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

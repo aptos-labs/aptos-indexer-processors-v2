@@ -6,7 +6,7 @@ use processor::{
         indexer_processor_config::IndexerProcessorConfig,
         processor_config::{DefaultProcessorConfig, ProcessorConfig},
     },
-    processors::token_v2_processor::TokenV2ProcessorConfig,
+    processors::token_v2::token_v2_processor::TokenV2ProcessorConfig,
 };
 use std::collections::HashSet;
 
@@ -77,7 +77,7 @@ mod sdk_token_v2_processor_tests {
         IMPORTED_MAINNET_TXNS_999930475_TOKEN_V2_CONCURRENT_MINT,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
-    use processor::processors::token_v2_processor::TokenV2Processor;
+    use processor::processors::token_v2::token_v2_processor::TokenV2Processor;
 
     /**
     * This test includes processing for the following:
@@ -382,7 +382,7 @@ mod sdk_token_v2_processor_tests {
 
     // Helper function to abstract out the transaction processing
     async fn process_single_transaction(txn: &[u8], test_case_name: Option<String>) {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(&[txn]).await;
@@ -400,7 +400,7 @@ mod sdk_token_v2_processor_tests {
             token_v2_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )

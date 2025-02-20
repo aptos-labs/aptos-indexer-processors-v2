@@ -10,12 +10,10 @@ use aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Chan
 use diesel::{Identifiable, Insertable, Queryable};
 use field_count::FieldCount;
 use processor::{
-    db::{
-        models::{
-            object_models::v2_object_utils::ObjectWithMetadata,
-            user_transaction_models::user_transactions::UserTransaction,
-        },
-        resources::FromWriteResource,
+    db::resources::FromWriteResource,
+    processors::{
+        objects::v2_object_utils::ObjectWithMetadata,
+        user_transaction::models::user_transactions::UserTransaction,
     },
     schema::account_transactions,
     utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, util::standardize_address},

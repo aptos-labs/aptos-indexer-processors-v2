@@ -3,14 +3,21 @@
 
 // TODO: add back all models and configs back as we migrate
 use crate::{
-    bq_analytics::NamedTable,
-    db::models::{
-        account_transaction_models::account_transactions::ParquetAccountTransaction,
-        ans_models::{
-            ans_lookup_v2::{ParquetAnsLookupV2, ParquetCurrentAnsLookupV2},
-            ans_primary_name_v2::{ParquetAnsPrimaryNameV2, ParquetCurrentAnsPrimaryNameV2},
+    parquet_processors::{
+        parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
+        parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
+        parquet_utils::util::{format_table_name, NamedTable, VALID_TABLE_NAMES},
+    },
+    processors::{
+        account_transactions::account_transactions_model::ParquetAccountTransaction,
+        ans::{
+            ans_processor::AnsProcessorConfig,
+            models::{
+                ans_lookup_v2::{ParquetAnsLookupV2, ParquetCurrentAnsLookupV2},
+                ans_primary_name_v2::{ParquetAnsPrimaryNameV2, ParquetCurrentAnsPrimaryNameV2},
+            },
         },
-        default_models::{
+        default::models::{
             block_metadata_transactions::ParquetBlockMetadataTransaction,
             move_modules::ParquetMoveModule,
             move_resources::ParquetMoveResource,
@@ -18,8 +25,8 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
-        event_models::events::ParquetEvent,
-        fungible_asset_models::{
+        events::events_model::ParquetEvent,
+        fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::{
                 ParquetCurrentFungibleAssetBalance, ParquetCurrentUnifiedFungibleAssetBalance,
@@ -27,30 +34,33 @@ use crate::{
             },
             v2_fungible_metadata::ParquetFungibleAssetMetadataModel,
         },
-        object_models::v2_objects::{ParquetCurrentObject, ParquetObject},
-        stake_models::{
-            delegator_activities::ParquetDelegatedStakingActivity,
-            delegator_balances::{ParquetCurrentDelegatorBalance, ParquetDelegatorBalance},
-            proposal_votes::ParquetProposalVote,
+        objects::{
+            objects_processor::ObjectsProcessorConfig,
+            v2_objects_models::{ParquetCurrentObject, ParquetObject},
         },
-        token_models::{
-            token_claims::ParquetCurrentTokenPendingClaim,
-            token_royalty::ParquetCurrentTokenRoyaltyV1,
+        stake::{
+            models::{
+                delegator_activities::ParquetDelegatedStakingActivity,
+                delegator_balances::{ParquetCurrentDelegatorBalance, ParquetDelegatorBalance},
+                proposal_votes::ParquetProposalVote,
+            },
+            stake_processor::StakeProcessorConfig,
         },
-        token_v2_models::{
-            v2_token_activities::ParquetTokenActivityV2,
-            v2_token_datas::{ParquetCurrentTokenDataV2, ParquetTokenDataV2},
-            v2_token_metadata::ParquetCurrentTokenV2Metadata,
-            v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
+        token_v2::{
+            token_models::{
+                token_claims::ParquetCurrentTokenPendingClaim,
+                token_royalty::ParquetCurrentTokenRoyaltyV1,
+            },
+            token_v2_models::{
+                v2_token_activities::ParquetTokenActivityV2,
+                v2_token_datas::{ParquetCurrentTokenDataV2, ParquetTokenDataV2},
+                v2_token_metadata::ParquetCurrentTokenV2Metadata,
+                v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
+            },
+            token_v2_processor::TokenV2ProcessorConfig,
         },
-        user_transaction_models::user_transactions::ParquetUserTransaction,
+        user_transaction::models::user_transactions::ParquetUserTransaction,
     },
-    parquet_processors::parquet_ans_processor::ParquetAnsProcessorConfig,
-    processors::{
-        ans_processor::AnsProcessorConfig, objects_processor::ObjectsProcessorConfig,
-        stake_processor::StakeProcessorConfig, token_v2_processor::TokenV2ProcessorConfig,
-    },
-    utils::parquet_processor_table_mapping::{format_table_name, VALID_TABLE_NAMES},
 };
 use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
@@ -133,8 +143,8 @@ impl ProcessorConfig {
             | ProcessorConfig::ParquetTransactionMetadataProcessor(config)
             | ProcessorConfig::ParquetAccountTransactionsProcessor(config)
             | ProcessorConfig::ParquetTokenV2Processor(config)
-            | ProcessorConfig::ParquetStakeProcessor(config) => config,
-            ProcessorConfig::ParquetObjectsProcessor(config)
+            | ProcessorConfig::ParquetStakeProcessor(config)
+            | ProcessorConfig::ParquetObjectsProcessor(config)
             | ProcessorConfig::ParquetFungibleAssetProcessor(config)
             | ProcessorConfig::ParquetUserTransactionProcessor(config) => config,
             ProcessorConfig::ParquetAnsProcessor(config) => &config.default,
@@ -198,9 +208,9 @@ impl ProcessorConfig {
                 ParquetCurrentUnifiedFungibleAssetBalance::TABLE_NAME.to_string(),
                 ParquetFungibleAssetMetadataModel::TABLE_NAME.to_string(),
             ]),
-            // ProcessorName::ParquetTransactionMetadataProcessor => {
-            //     HashSet::from([WriteSetSize::TABLE_NAME.to_string()])
-            // },
+            ProcessorName::ParquetTransactionMetadataProcessor => {
+                HashSet::from([ParquetWriteSetSize::TABLE_NAME.to_string()])
+            },
             ProcessorName::ParquetAccountTransactionsProcessor => {
                 HashSet::from([ParquetAccountTransaction::TABLE_NAME.to_string()])
             },

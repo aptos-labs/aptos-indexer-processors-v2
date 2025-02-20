@@ -72,7 +72,7 @@ mod sdk_fungible_asset_processor_tests {
         database::{PostgresTestDatabase, TestDatabase},
         sdk_test_context::SdkTestContext,
     };
-    use processor::processors::fungible_asset_processor::FungibleAssetProcessor;
+    use processor::processors::fungible_asset::fungible_asset_processor::FungibleAssetProcessor;
 
     // Test case for processing a specific testnet transaction (Validator Transaction)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

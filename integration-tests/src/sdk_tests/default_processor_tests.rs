@@ -54,7 +54,7 @@ mod tests {
         IMPORTED_MAINNET_TXNS_513424821_DEFAULT_BLOCK_METADATA_TRANSACTIONS,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
-    use processor::processors::default_processor::DefaultProcessor;
+    use processor::processors::default::default_processor::DefaultProcessor;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn mainnet_table_items() {
@@ -94,7 +94,7 @@ mod tests {
 
     // Helper function to abstract out the single transaction processing
     async fn process_single_mainnet_event_txn(txn: &[u8], test_case_name: Option<String>) {
-        let (diff_flag, custom_output_path) = get_test_config();
+        let (generate_flag, custom_output_path) = get_test_config();
         let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(&[txn]).await;
@@ -112,7 +112,7 @@ mod tests {
             default_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )

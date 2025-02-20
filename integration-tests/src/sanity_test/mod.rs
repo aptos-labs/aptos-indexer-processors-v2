@@ -34,7 +34,7 @@ impl ProcessorWrapper {
         test_context: &mut SdkTestContext,
         db_values_fn: F,
         db_url: String,
-        diff_flag: bool,
+        generate_flag: bool,
         output_path: String,
     ) -> anyhow::Result<HashMap<String, Value>>
     where
@@ -50,7 +50,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -62,7 +62,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -74,7 +74,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -86,7 +86,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -98,7 +98,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -110,7 +110,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -122,7 +122,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -134,7 +134,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )
@@ -146,7 +146,7 @@ impl ProcessorWrapper {
                     processor,
                     db_values_fn,
                     db_url.clone(),
-                    diff_flag,
+                    generate_flag,
                     output_path.clone(),
                     None,
                 )

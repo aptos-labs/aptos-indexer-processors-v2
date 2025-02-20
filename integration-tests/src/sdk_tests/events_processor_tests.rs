@@ -62,7 +62,7 @@ mod tests {
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
     use aptos_protos::transaction::v1::Transaction;
-    use processor::processors::events_processor::EventsProcessor;
+    use processor::processors::events::events_processor::EventsProcessor;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn testnet_events_processor_genesis_txn() {
@@ -168,9 +168,8 @@ mod tests {
     // Example 2: Test for multiple transactions handling
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn testnet_events_processor_db_output_scenario_testing() {
-        let (diff_flag, custom_output_path) = get_test_config();
-        let output_path = custom_output_path
-            .unwrap_or_else(|| format!("{}/imported_testnet_txns", DEFAULT_OUTPUT_FOLDER));
+        let (generate_flag, custom_output_path) = get_test_config();
+        let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let imported = [
             IMPORTED_TESTNET_TXNS_5523474016_VALIDATOR_TXN,
@@ -199,7 +198,7 @@ mod tests {
             events_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             Some("multi_txns_handling_test".to_string()),
         )
@@ -225,26 +224,21 @@ mod tests {
     }
 
     async fn process_single_devnet_event_txn(txn: &[u8], test_case_name: Option<String>) {
-        process_single_event_txn(txn, test_case_name, "imported_devnet_txns").await
+        process_single_event_txn(txn, test_case_name).await
     }
 
     async fn process_single_testnet_event_txn(txn: &[u8], test_case_name: Option<String>) {
-        process_single_event_txn(txn, test_case_name, "imported_testnet_txns").await
+        process_single_event_txn(txn, test_case_name).await
     }
 
     async fn process_single_mainnet_event_txn(txn: &[u8], test_case_name: Option<String>) {
-        process_single_event_txn(txn, test_case_name, "imported_mainnet_txns").await
+        process_single_event_txn(txn, test_case_name).await
     }
 
     // Helper function to abstract out the single transaction processing
-    async fn process_single_event_txn(
-        txn: &[u8],
-        test_case_name: Option<String>,
-        folder_name: &str,
-    ) {
-        let (diff_flag, custom_output_path) = get_test_config();
-        let output_path = custom_output_path
-            .unwrap_or_else(|| format!("{}/{}", DEFAULT_OUTPUT_FOLDER, folder_name));
+    async fn process_single_event_txn(txn: &[u8], test_case_name: Option<String>) {
+        let (generate_flag, custom_output_path) = get_test_config();
+        let output_path = custom_output_path.unwrap_or_else(|| DEFAULT_OUTPUT_FOLDER.to_string());
 
         let (db, mut test_context) = setup_test_environment(&[txn]).await;
 
@@ -261,7 +255,7 @@ mod tests {
             events_processor,
             load_data,
             db_url,
-            diff_flag,
+            generate_flag,
             output_path.clone(),
             test_case_name.clone(),
         )
