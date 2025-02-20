@@ -25,7 +25,7 @@ where
 impl Processable for AccountRestorationExtractor {
     type Input = Vec<Transaction>;
     type Output = (
-        Vec<AuthKeyAccountAddress>,
+        Vec<Option<AuthKeyAccountAddress>>,
         Vec<Vec<PublicKeyAuthKey>>,
         Vec<Option<AuthKeyMultikeyLayout>>,
     );
