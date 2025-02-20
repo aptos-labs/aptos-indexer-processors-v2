@@ -607,7 +607,7 @@ fn is_transaction_success(txn: &Transaction) -> bool {
 pub fn parse_account_restoration_models_from_transaction(
     txn: &Transaction,
 ) -> Vec<(
-    AuthKeyAccountAddress,
+    Option<AuthKeyAccountAddress>,
     Vec<PublicKeyAuthKey>,
     Option<AuthKeyMultikeyLayout>,
 )> {
@@ -633,7 +633,7 @@ pub fn parse_account_restoration_models_from_transaction(
                 verified: false,
                 last_transaction_version: txn_version,
             };
-            return vec![(auth_key_account_address, vec![], None)];
+            return vec![(Some(auth_key_account_address), vec![], None)];
         }
         // Handle the public entry function for verified key rotation
         if let Some(verified_key_rotation_signature_info) =
@@ -657,11 +657,15 @@ pub fn parse_account_restoration_models_from_transaction(
         let address = signature_info.address.clone();
         let auth_key = signature_info.auth_key().unwrap_or_default();
 
-        let auth_key_account_address = AuthKeyAccountAddress {
-            auth_key: auth_key.clone(),
-            address: address.clone(),
-            verified: true,
-            last_transaction_version: txn_version,
+        let auth_key_account_address = if address != auth_key {
+            Some(AuthKeyAccountAddress {
+                auth_key: auth_key.clone(),
+                address: address.clone(),
+                verified: true,
+                last_transaction_version: txn_version,
+            })
+        } else {
+            None
         };
 
         let (auth_key_multikey_layout, public_key_auth_keys) =
@@ -743,12 +747,13 @@ pub fn parse_account_restoration_models_from_transaction(
             } else {
                 (None, vec![])
             };
-
-        results.push((
-            auth_key_account_address,
-            public_key_auth_keys,
-            auth_key_multikey_layout,
-        ));
+        if auth_key_account_address.is_some() || auth_key_multikey_layout.is_some() || !public_key_auth_keys.is_empty() {
+            results.push((
+                auth_key_account_address,
+                public_key_auth_keys,
+                auth_key_multikey_layout,
+            ));
+        }
     }
 
     results
