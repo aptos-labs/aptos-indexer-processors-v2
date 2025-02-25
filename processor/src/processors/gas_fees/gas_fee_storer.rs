@@ -5,11 +5,7 @@ use super::models::GasFee;
 use crate::{
     config::processor_config::DefaultProcessorConfig,
     schema,
-    utils::{
-        database::{execute_in_chunks, get_config_table_chunk_size, ArcDbPool},
-        table_flags::TableFlags,
-        util::filter_data,
-    },
+    utils::database::{execute_in_chunks, get_config_table_chunk_size, ArcDbPool},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -19,13 +15,7 @@ use aptos_indexer_processor_sdk::{
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use diesel::{
-    dsl::sql,
-    pg::{upsert::excluded, Pg},
-    query_builder::QueryFragment,
-    sql_types::{Nullable, Text},
-    ExpressionMethods,
-};
+use diesel::{pg::Pg, query_builder::QueryFragment};
 
 pub struct GasFeeStorer
 where
@@ -33,19 +23,13 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: DefaultProcessorConfig,
-    tables_to_write: TableFlags,
 }
 
 impl GasFeeStorer {
-    pub fn new(
-        conn_pool: ArcDbPool,
-        processor_config: DefaultProcessorConfig,
-        tables_to_write: TableFlags,
-    ) -> Self {
+    pub fn new(conn_pool: ArcDbPool, processor_config: DefaultProcessorConfig) -> Self {
         Self {
             conn_pool,
             processor_config,
-            tables_to_write,
         }
     }
 }
@@ -64,8 +48,6 @@ impl Processable for GasFeeStorer {
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
-
-        let gas_fees = filter_data(&self.tables_to_write, TableFlags::GAS_FEE_EVENTS, gas_fees);
 
         let gf = execute_in_chunks(
             self.conn_pool.clone(),
@@ -113,7 +95,7 @@ fn insert_gas_fee_query(
     (
         diesel::insert_into(schema::gas_fees::table)
             .values(items_to_insert)
-            .on_conflict((transaction_version))
+            .on_conflict(transaction_version)
             .do_nothing(),
         None,
     )
