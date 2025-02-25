@@ -1,11 +1,8 @@
-use crate::models::account_restoration_models::{
-    AuthKeyAccountAddress, AuthKeyMultikeyLayout, PublicKeyAuthKey,
-};
+use crate::models::account_restoration_models::{AuthKeyAccountAddress, PublicKeyAuthKey};
 use anyhow::Result;
 use diesel::{query_dsl::methods::ThenOrderDsl, ExpressionMethods, PgConnection, RunQueryDsl};
 use processor::schema::{
-    auth_key_account_addresses::dsl as aa_dsl, auth_key_multikey_layout::dsl as am_dsl,
-    public_key_auth_keys::dsl as pa_dsl,
+    auth_key_account_addresses::dsl as aa_dsl, public_key_auth_keys::dsl as pa_dsl,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -20,14 +17,6 @@ pub fn load_data(conn: &mut PgConnection) -> Result<HashMap<String, Value>> {
     result_map.insert(
         "auth_key_account_addresses".to_string(),
         serde_json::to_value(&aa_result)?,
-    );
-
-    let am_result = am_dsl::auth_key_multikey_layout
-        .then_order_by(am_dsl::last_transaction_version.asc())
-        .load::<AuthKeyMultikeyLayout>(conn)?;
-    result_map.insert(
-        "auth_key_multikey_layout".to_string(),
-        serde_json::to_value(&am_result)?,
     );
 
     let pa_result = pa_dsl::public_key_auth_keys

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::processors::{
+    account_restoration::account_restoration_processor_helpers::Account,
     default::models::move_resources::MoveResource,
     fungible_asset::fungible_asset_models::v2_fungible_asset_utils::{
         ConcurrentFungibleAssetBalance, ConcurrentFungibleAssetSupply, FungibleAssetMetadata,
@@ -36,10 +37,11 @@ pub const TYPE_COLLECTION: &str = formatcp!("{TOKEN_V2_ADDR}::collection::Collec
 pub const TYPE_CONCURRENT_SUPPLY: &str = formatcp!("{TOKEN_V2_ADDR}::collection::ConcurrentSupply");
 pub const TYPE_FIXED_SUPPLY: &str = formatcp!("{TOKEN_V2_ADDR}::collection::FixedSupply");
 pub const TYPE_UNLIMITED_SUPPLY: &str = formatcp!("{TOKEN_V2_ADDR}::collection::UnlimitedSupply");
-pub const TYPE_APOTS_COLLECTION: &str = formatcp!("{TOKEN_V2_ADDR}::aptos_token::AptosCollection");
+pub const TYPE_APTOS_COLLECTION: &str = formatcp!("{TOKEN_V2_ADDR}::aptos_token::AptosCollection");
 pub const TYPE_TOKEN_V2: &str = formatcp!("{TOKEN_V2_ADDR}::token::Token");
 pub const TYPE_TOKEN_IDENTIFIERS: &str = formatcp!("{TOKEN_V2_ADDR}::token::TokenIdentifiers");
 pub const TYPE_PROPERTY_MAP: &str = formatcp!("{TOKEN_V2_ADDR}::property_map::PropertyMap");
+pub const TYPE_ACCOUNT: &str = formatcp!("{COIN_ADDR}::account::Account");
 
 pub trait Resource {
     fn type_str() -> &'static str;
@@ -130,11 +132,12 @@ pub enum V2TokenResource {
     TokenV2(TokenV2),
     UnlimitedSupply(UnlimitedSupply),
     Untransferable(Untransferable),
+    Account(Account),
 }
 
 impl Resource for AptosCollection {
     fn type_str() -> &'static str {
-        TYPE_APOTS_COLLECTION
+        TYPE_APTOS_COLLECTION
     }
 }
 
@@ -192,11 +195,18 @@ impl Resource for Untransferable {
     }
 }
 
+impl Resource for Account {
+    fn type_str() -> &'static str {
+        TYPE_ACCOUNT
+    }
+}
+
 impl V2TokenResource {
     pub fn from_write_resource(write_resource: &WriteResource) -> Result<Option<Self>> {
         let type_str = MoveResource::get_outer_type_from_write_resource(write_resource);
         Ok(Some(match type_str.as_str() {
-            TYPE_APOTS_COLLECTION => Self::AptosCollection(write_resource.try_into()?),
+            TYPE_ACCOUNT => Self::Account(write_resource.try_into()?),
+            TYPE_APTOS_COLLECTION => Self::AptosCollection(write_resource.try_into()?),
             TYPE_COLLECTION => Self::Collection(write_resource.try_into()?),
             TYPE_CONCURRENT_SUPPLY => Self::ConcurrentSupply(write_resource.try_into()?),
             TYPE_FIXED_SUPPLY => Self::FixedSupply(write_resource.try_into()?),

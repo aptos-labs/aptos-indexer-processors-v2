@@ -260,7 +260,6 @@ mod sdk_fungible_asset_processor_tests {
         .await;
     }
 
-    // TODO: I really want to make this work but it doesn't right now
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fungible_asset_processor_fa_migration_different_batch() {
         sequential_multi_transaction_helper_function(

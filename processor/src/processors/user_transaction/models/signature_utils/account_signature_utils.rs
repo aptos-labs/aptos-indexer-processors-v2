@@ -161,8 +161,7 @@ pub fn parse_multi_key_signature(
     let signer = standardize_address(override_address.unwrap_or(sender));
     let mut signatures = Vec::default();
 
-    let public_key_indices: Vec<usize> =
-        s.signatures.iter().map(|key| key.index as usize).collect();
+    let public_key_indices = get_public_key_indices_from_multi_key_signature(s);
 
     for (index, signature) in s.signatures.iter().enumerate() {
         let any_public_key = s.public_keys.as_slice().get(index).unwrap();
@@ -194,6 +193,10 @@ pub fn parse_multi_key_signature(
         });
     }
     signatures
+}
+
+pub fn get_public_key_indices_from_multi_key_signature(s: &MultiKeySignature) -> Vec<usize> {
+    s.signatures.iter().map(|key| key.index as usize).collect()
 }
 
 pub fn parse_abstraction_signature(

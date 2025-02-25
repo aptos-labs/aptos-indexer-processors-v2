@@ -16,15 +16,8 @@ use aptos_protos::transaction::v1::{
 use tracing::warn;
 
 /// Signatures has multiple layers in the proto. This is the top layer. It's only used in user_transactions table
-pub fn get_parent_signature_type(t: &SignaturePb, transaction_version: i64) -> String {
-    if t.signature.as_ref().is_none() {
-        warn!(
-            transaction_version = transaction_version,
-            "Transaction signature is unknown"
-        );
-        return String::from("unknown");
-    }
-    get_parent_signature_type_from_enum(&SignatureTypeEnum::try_from(t.r#type).unwrap())
+pub fn get_parent_signature_type(t: &SignaturePb) -> String {
+    get_parent_signature_type_from_enum(&t.r#type())
 }
 
 fn get_parent_signature_type_from_enum(t: &SignatureTypeEnum) -> String {
@@ -124,11 +117,7 @@ pub fn parse_multi_ed25519_signature(
     let mut signatures = Vec::default();
     let signer = standardize_address(override_address.unwrap_or(sender));
 
-    let public_key_indices: Vec<usize> = s
-        .public_key_indices
-        .iter()
-        .map(|index| *index as usize)
-        .collect();
+    let public_key_indices = get_public_key_indices_from_multi_ed25519_signature(s);
     for (index, signature) in s.signatures.iter().enumerate() {
         let public_key = s
             .public_keys
@@ -157,6 +146,15 @@ pub fn parse_multi_ed25519_signature(
         });
     }
     signatures
+}
+
+pub fn get_public_key_indices_from_multi_ed25519_signature(
+    s: &MultiEd25519Signature,
+) -> Vec<usize> {
+    s.public_key_indices
+        .iter()
+        .map(|index| *index as usize)
+        .collect()
 }
 
 pub fn parse_multi_agent_signature(
