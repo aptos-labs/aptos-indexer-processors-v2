@@ -7,7 +7,6 @@ use aptos_indexer_processor_sdk::{
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use rayon::prelude::*;
 
 /// Extracts gas fee events from transactions
 pub struct GasFeeExtractor
@@ -26,12 +25,11 @@ impl Processable for GasFeeExtractor {
     ) -> Result<Option<TransactionContext<Vec<GasFee>>>, ProcessorError> {
         let mut gas_fees = Vec::new();
 
-        gas_fees.extend(
-            transactions
-                .data
-                .par_iter()
-                .filter_map(|transaction| GasFee::from_transaction(transaction)),
-        );
+        for transaction in transactions.data.iter() {
+            if let Some(gas_fee) = GasFee::from_transaction(transaction) {
+                gas_fees.push(gas_fee);
+            }
+        }
 
         Ok(Some(TransactionContext {
             data: gas_fees,

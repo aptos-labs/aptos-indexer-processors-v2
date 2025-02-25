@@ -13,7 +13,7 @@ use aptos_indexer_processor_sdk::utils::{
 use aptos_protos::transaction::v1::{
     transaction::TxnData, Transaction, TransactionInfo, UserTransactionRequest,
 };
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDateTime;
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};

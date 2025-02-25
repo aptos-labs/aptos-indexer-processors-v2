@@ -11,7 +11,6 @@ use crate::{
         chain_id::check_or_update_chain_id,
         database::{new_db_pool, run_migrations, ArcDbPool},
         starting_version::get_starting_version,
-        table_flags::TableFlags,
     },
 };
 use anyhow::Result;
@@ -90,7 +89,6 @@ impl ProcessorTrait for GasFeeProcessor {
             _ => return Err(anyhow::anyhow!("Processor config is wrong type")),
         };
         let channel_size = processor_config.channel_size;
-        let deprecated_table_flags = TableFlags::from_set(&processor_config.tables_to_write);
 
         // Define processor steps
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
@@ -99,12 +97,8 @@ impl ProcessorTrait for GasFeeProcessor {
         })
         .await?;
 
-        let gas_fee_extractor = GasFeeExtractor::new();
-        let gas_fee_storer = GasFeeStorer::new(
-            self.db_pool.clone(),
-            processor_config.clone(),
-            deprecated_table_flags,
-        );
+        let gas_fee_extractor = GasFeeExtractor {};
+        let gas_fee_storer = GasFeeStorer::new(self.db_pool.clone(), processor_config.clone());
         let version_tracker = VersionTrackerStep::new(
             get_processor_status_saver(self.db_pool.clone(), self.config.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
