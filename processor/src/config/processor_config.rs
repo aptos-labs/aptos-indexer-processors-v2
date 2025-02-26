@@ -111,6 +111,7 @@ pub enum ProcessorConfig {
     TokenV2Processor(TokenV2ProcessorConfig),
     ObjectsProcessor(ObjectsProcessorConfig),
     MonitoringProcessor(DefaultProcessorConfig),
+    GasFeeProcessor(DefaultProcessorConfig),
     // ParquetProcessor
     ParquetDefaultProcessor(ParquetDefaultProcessorConfig),
     ParquetObjectsProcessor(ParquetDefaultProcessorConfig),

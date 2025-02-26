@@ -879,6 +879,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    gas_fees (transaction_version) {
+        transaction_version -> Int8,
+        #[max_length = 66]
+        owner_address -> Nullable<Varchar>,
+        amount -> Nullable<Numeric>,
+        #[max_length = 66]
+        gas_fee_payer_address -> Nullable<Varchar>,
+        is_transaction_success -> Bool,
+        #[max_length = 1000]
+        entry_function_id_str -> Nullable<Varchar>,
+        block_height -> Int8,
+        transaction_timestamp -> Timestamp,
+        storage_refund_amount -> Numeric,
+    }
+}
+
+diesel::table! {
     indexer_status (db) {
         #[max_length = 50]
         db -> Varchar,
@@ -1383,6 +1400,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     fungible_asset_balances,
     fungible_asset_metadata,
     fungible_asset_to_coin_mappings,
+    gas_fees,
     indexer_status,
     ledger_infos,
     move_modules,
