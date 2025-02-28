@@ -1,12 +1,11 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::utils::util;
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::utils::convert::{convert_bcs_hex, convert_bcs_hex_new};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PropertyValue {
     value: String,
@@ -15,7 +14,7 @@ pub struct PropertyValue {
 
 pub fn create_property_value(typ: String, value: String) -> Result<PropertyValue> {
     Ok(PropertyValue {
-        value: util::convert_bcs_hex(typ.clone(), value.clone()).unwrap_or(value),
+        value: convert_bcs_hex(typ.clone(), value.clone()).unwrap_or(value),
         typ,
     })
 }
@@ -65,7 +64,7 @@ pub fn create_token_object_property_value(
     value: String,
 ) -> Result<TokenObjectPropertyValue> {
     Ok(TokenObjectPropertyValue {
-        value: util::convert_bcs_hex_new(typ, value.clone()).unwrap_or(value),
+        value: convert_bcs_hex_new(typ, value.clone()).unwrap_or(value),
         typ,
     })
 }

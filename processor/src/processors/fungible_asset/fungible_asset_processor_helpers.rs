@@ -23,12 +23,12 @@ use crate::{
             ObjectAggregatedData, ObjectAggregatedDataMapping, ObjectWithMetadata,
         },
     },
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{get_entry_function_from_user_request, standardize_address},
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::utils::{
+    convert::standardize_address, extract::get_entry_function_from_user_request,
+};
 use aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Change, Transaction};
 use chrono::NaiveDateTime;
 use rayon::prelude::*;

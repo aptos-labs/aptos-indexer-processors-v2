@@ -15,10 +15,10 @@ use crate::{
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::{ans_lookup_v2, current_ans_lookup_v2},
-    utils::util::standardize_address,
 };
 use ahash::AHashMap;
 use allocative::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::WriteResource;
 use diesel::prelude::*;
 use field_count::FieldCount;

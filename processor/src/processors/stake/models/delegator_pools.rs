@@ -10,12 +10,13 @@ use crate::{
         current_delegated_staking_pool_balances, delegated_staking_pool_balances,
         delegated_staking_pools,
     },
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{parse_timestamp, standardize_address},
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::transaction::v1::{
     transaction::TxnData, write_set_change::Change, Transaction, WriteResource, WriteTableItem,
 };
@@ -128,7 +129,7 @@ impl DelegatorPool {
             .as_ref()
             .expect("Transaction timestamp doesn't exist!");
 
-        let block_timestamp = parse_timestamp(timestamp, txn_version);
+        let block_timestamp = parse_timestamp(timestamp, txn_version).naive_utc();
 
         // Do a first pass to get the mapping of active_share table handles to staking pool addresses
         if let TxnData::User(_) = txn_data {

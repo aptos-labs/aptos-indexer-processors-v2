@@ -11,8 +11,9 @@ use super::{
 };
 use crate::{
     schema::{collection_datas, current_collection_datas},
-    utils::{database::DbPoolConnection, util::standardize_address},
+    utils::database::DbPoolConnection,
 };
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::WriteTableItem;
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;

@@ -21,14 +21,12 @@ use crate::{
         },
     },
     schema::current_token_ownerships_v2,
-    utils::{
-        database::{DbContext, DbPoolConnection},
-        util::{ensure_not_negative, standardize_address},
-    },
+    utils::database::{DbContext, DbPoolConnection},
 };
 use ahash::AHashMap;
 use allocative_derive::Allocative;
 use anyhow::Context;
+use aptos_indexer_processor_sdk::utils::convert::{ensure_not_negative, standardize_address};
 use aptos_protos::transaction::v1::{
     DeleteResource, DeleteTableItem, WriteResource, WriteTableItem,
 };

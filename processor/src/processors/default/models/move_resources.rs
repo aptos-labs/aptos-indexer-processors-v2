@@ -3,12 +3,10 @@
 
 #![allow(clippy::extra_unused_lifetimes)]
 
-use crate::{
-    parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
-    utils::util::standardize_address,
-};
+use crate::parquet_processors::parquet_utils::util::{HasVersion, NamedTable};
 use allocative_derive::Allocative;
 use anyhow::{Context, Result};
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{
     DeleteResource, MoveStructTag as MoveStructTagPB, WriteResource,
 };

@@ -240,7 +240,7 @@ mod tests {
     };
     use ahash::AHashMap;
     use aptos_indexer_processor_sdk::aptos_indexer_transaction_stream::{
-        utils::AdditionalHeaders, TransactionStreamConfig,
+        utils::additional_headers::AdditionalHeaders, TransactionStreamConfig,
     };
     use aptos_indexer_testing_framework::database::{PostgresTestDatabase, TestDatabase};
     use diesel_async::RunQueryDsl;

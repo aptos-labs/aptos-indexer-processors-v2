@@ -16,14 +16,20 @@ use crate::{
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FeeStatement,
     schema::user_transactions,
     utils::util::{
-        bigdecimal_to_u64, get_entry_function_contract_address_from_user_request,
-        get_entry_function_from_user_request, get_entry_function_function_name_from_user_request,
-        get_entry_function_module_name_from_user_request, parse_timestamp, standardize_address,
-        u64_to_bigdecimal,
+        get_entry_function_contract_address_from_user_request,
+        get_entry_function_function_name_from_user_request,
+        get_entry_function_module_name_from_user_request,
     },
 };
 use allocative::Allocative;
 use anyhow::Result;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::{
+        convert::{bigdecimal_to_u64, standardize_address, u64_to_bigdecimal},
+        extract::get_entry_function_from_user_request,
+    },
+};
 use aptos_protos::{
     transaction::v1::{
         TransactionInfo, UserTransaction as UserTransactionPB, UserTransactionRequest,
@@ -100,7 +106,7 @@ impl UserTransaction {
                 max_gas_amount: u64_to_bigdecimal(user_request.max_gas_amount),
                 expiration_timestamp_secs: user_request.expiration_timestamp_secs.unwrap(),
                 gas_unit_price: u64_to_bigdecimal(user_request.gas_unit_price),
-                block_timestamp: parse_timestamp(timestamp, version),
+                block_timestamp: parse_timestamp(timestamp, version).naive_utc(),
                 entry_function_id_str: get_entry_function_from_user_request(user_request)
                     .unwrap_or_default(),
                 epoch,
@@ -235,7 +241,8 @@ impl From<UserTransaction> for PostgresUserTransaction {
             expiration_timestamp_secs: parse_timestamp(
                 &user_transaction.expiration_timestamp_secs,
                 user_transaction.txn_version,
-            ),
+            )
+            .naive_utc(),
             gas_unit_price: user_transaction.gas_unit_price,
             timestamp: user_transaction.block_timestamp,
             entry_function_id_str: user_transaction.entry_function_id_str,

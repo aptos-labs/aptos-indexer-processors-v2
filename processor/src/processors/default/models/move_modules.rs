@@ -6,9 +6,9 @@
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::move_modules,
-    utils::util::standardize_address,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{
     DeleteModule, MoveModule as MoveModulePB, MoveModuleBytecode, WriteModule,
 };

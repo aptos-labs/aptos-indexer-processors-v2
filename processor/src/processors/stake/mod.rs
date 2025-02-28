@@ -20,12 +20,13 @@ use crate::{
         stake_utils::DelegationVoteGovernanceRecordsResource,
         staking_pool_voter::{CurrentStakingPoolVoter, StakingPoolVoterMap},
     },
-    utils::{
-        database::DbPoolConnection,
-        util::{parse_timestamp, standardize_address},
-    },
+    utils::database::DbPoolConnection,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::transaction::v1::{write_set_change::Change, Transaction};
 
 pub async fn parse_stake_data(
@@ -62,7 +63,8 @@ pub async fn parse_stake_data(
     let mut all_vote_delegation_handle_to_pool_address = AHashMap::new();
 
     for txn in transactions {
-        let block_timestamp = parse_timestamp(txn.timestamp.as_ref().unwrap(), txn.version as i64);
+        let block_timestamp =
+            parse_timestamp(txn.timestamp.as_ref().unwrap(), txn.version as i64).naive_utc();
 
         // Add votes data
         let current_stake_pool_voter = CurrentStakingPoolVoter::from_transaction(txn).unwrap();
@@ -85,7 +87,8 @@ pub async fn parse_stake_data(
         // Currently only delegator voting follows this paradigm
         // TODO: refactor all the other staking code to follow this paradigm
         let txn_version = txn.version as i64;
-        let txn_timestamp = parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version);
+        let txn_timestamp =
+            parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version).naive_utc();
         let transaction_info = txn.info.as_ref().expect("Transaction info doesn't exist!");
         // adding some metadata for subsequent parsing
         for wsc in &transaction_info.changes {

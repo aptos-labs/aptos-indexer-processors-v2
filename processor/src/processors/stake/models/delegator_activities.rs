@@ -7,12 +7,13 @@ use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::stake::models::stake_utils::StakeEvent,
     schema::delegated_staking_activities,
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{parse_timestamp, standardize_address, u64_to_bigdecimal},
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::{standardize_address, u64_to_bigdecimal},
+};
 use aptos_protos::transaction::v1::{transaction::TxnData, Transaction};
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;
@@ -55,7 +56,8 @@ impl DelegatedStakingActivity {
             TxnData::Validator(txn) => &txn.events,
             _ => return Ok(delegator_activities),
         };
-        let block_timestamp = parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version);
+        let block_timestamp =
+            parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version).naive_utc();
         for (index, event) in events.iter().enumerate() {
             let event_index = index as i64;
             if let Some(staking_event) =

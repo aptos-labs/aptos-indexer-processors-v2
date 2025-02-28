@@ -3,12 +3,13 @@
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::events,
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{parse_timestamp, standardize_address, truncate_str},
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::{standardize_address, truncate_str},
+};
 use aptos_protos::transaction::v1::{
     transaction::TxnData, Event as EventPB, EventSizeInfo, Transaction,
 };
@@ -71,7 +72,7 @@ impl Event {
 pub fn parse_events(txn: &Transaction, processor_name: &str) -> Vec<Event> {
     let txn_version = txn.version as i64;
     let block_height = txn.block_height as i64;
-    let block_timestamp = parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version);
+    let block_timestamp = parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version).naive_utc();
     let size_info = match txn.size_info.as_ref() {
         Some(size_info) => Some(size_info),
         None => {

@@ -18,9 +18,9 @@ use crate::{
         },
     },
     schema::token_activities_v2,
-    utils::util::standardize_address,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::Event;
 use bigdecimal::{BigDecimal, One, ToPrimitive, Zero};
 use field_count::FieldCount;

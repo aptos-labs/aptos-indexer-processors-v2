@@ -9,9 +9,9 @@ use super::coin_utils::{CoinInfoType, CoinResource};
 use crate::{
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_activities::EventToCoinType,
     schema::{coin_balances, current_coin_balances},
-    utils::util::standardize_address,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::WriteResource;
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;

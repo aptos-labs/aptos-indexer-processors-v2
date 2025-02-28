@@ -5,11 +5,13 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
-    processors::stake::models::stake_utils::StakeResource,
-    schema::current_staking_pool_voter,
-    utils::util::{parse_timestamp, standardize_address},
+    processors::stake::models::stake_utils::StakeResource, schema::current_staking_pool_voter,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::transaction::v1::{write_set_change::Change, Transaction};
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};
@@ -34,7 +36,7 @@ impl CurrentStakingPoolVoter {
             .timestamp
             .as_ref()
             .expect("Transaction timestamp doesn't exist!");
-        let block_timestamp = parse_timestamp(timestamp, txn_version);
+        let block_timestamp = parse_timestamp(timestamp, txn_version).naive_utc();
         for wsc in &transaction.info.as_ref().unwrap().changes {
             if let Change::WriteResource(write_resource) = wsc.change.as_ref().unwrap() {
                 if let Some(StakeResource::StakePool(inner)) = StakeResource::from_write_resource(

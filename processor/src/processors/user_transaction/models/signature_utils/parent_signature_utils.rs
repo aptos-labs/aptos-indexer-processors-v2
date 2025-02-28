@@ -4,9 +4,8 @@
 use super::account_signature_utils::{
     from_account_signature, get_account_signature_type_from_enum,
 };
-use crate::{
-    processors::user_transaction::models::signatures::Signature, utils::util::standardize_address,
-};
+use crate::processors::user_transaction::models::signatures::Signature;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{
     account_signature::Type as AccountSignatureTypeEnum,
     signature::{Signature as SignatureEnum, Type as SignatureTypeEnum},

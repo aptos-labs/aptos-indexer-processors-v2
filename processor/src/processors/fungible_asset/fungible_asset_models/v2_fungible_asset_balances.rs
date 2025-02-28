@@ -27,13 +27,13 @@ use crate::{
         current_fungible_asset_balances, current_fungible_asset_balances_legacy,
         fungible_asset_balances,
     },
-    utils::util::{
-        hex_to_raw_bytes, sha3_256, standardize_address, APTOS_COIN_TYPE_STR,
-        APT_METADATA_ADDRESS_HEX, APT_METADATA_ADDRESS_RAW,
-    },
 };
 use ahash::AHashMap;
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::{
+    constants::{APTOS_COIN_TYPE_STR, APT_METADATA_ADDRESS_HEX, APT_METADATA_ADDRESS_RAW},
+    convert::{hex_to_raw_bytes, sha3_256, standardize_address},
+};
 use aptos_protos::transaction::v1::{DeleteResource, WriteResource};
 use bigdecimal::{BigDecimal, Zero};
 use field_count::FieldCount;
