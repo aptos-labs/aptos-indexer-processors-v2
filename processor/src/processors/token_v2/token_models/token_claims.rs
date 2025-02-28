@@ -12,10 +12,10 @@ use crate::{
         token_v2_models::v2_token_activities::TokenActivityHelperV1,
     },
     schema::current_token_pending_claims,
-    utils::util::standardize_address,
 };
 use ahash::AHashMap;
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{DeleteTableItem, WriteTableItem};
 use bigdecimal::{BigDecimal, ToPrimitive, Zero};
 use field_count::FieldCount;

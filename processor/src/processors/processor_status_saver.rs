@@ -12,9 +12,9 @@ use crate::{
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    common_steps::ProcessorStatusSaver,
-    types::transaction_context::TransactionContext,
-    utils::{errors::ProcessorError, time::parse_timestamp},
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    common_steps::ProcessorStatusSaver, types::transaction_context::TransactionContext,
+    utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
 use diesel::{upsert::excluded, ExpressionMethods};

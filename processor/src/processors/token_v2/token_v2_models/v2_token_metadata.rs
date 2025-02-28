@@ -15,10 +15,10 @@ use crate::{
             token_models::token_utils::NAME_LENGTH, token_v2_models::v2_token_utils::DEFAULT_NONE,
         },
     },
-    utils::util::{standardize_address, truncate_str},
 };
 use allocative_derive::Allocative;
 use anyhow::Context;
+use aptos_indexer_processor_sdk::utils::convert::{standardize_address, truncate_str};
 use aptos_protos::transaction::v1::WriteResource;
 use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;

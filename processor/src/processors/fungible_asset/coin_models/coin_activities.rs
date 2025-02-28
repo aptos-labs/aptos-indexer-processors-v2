@@ -22,15 +22,14 @@ use crate::{
         user_transaction::models::signature_utils::parent_signature_utils::get_fee_payer_address,
     },
     schema::coin_activities,
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{
-            get_entry_function_from_user_request, standardize_address, u64_to_bigdecimal,
-            APTOS_COIN_TYPE_STR,
-        },
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::utils::{
+    constants::APTOS_COIN_TYPE_STR,
+    convert::{standardize_address, u64_to_bigdecimal},
+    extract::get_entry_function_from_user_request,
+};
 use aptos_protos::transaction::v1::{
     transaction::TxnData, write_set_change::Change as WriteSetChangeEnum, Event as EventPB,
     Transaction as TransactionPB, TransactionInfo, UserTransactionRequest,

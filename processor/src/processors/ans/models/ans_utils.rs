@@ -5,13 +5,12 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
-    processors::default::models::move_resources::MoveResource,
-    utils::util::{
-        bigdecimal_to_u64, deserialize_from_string, parse_timestamp_secs, standardize_address,
-        truncate_str,
-    },
+    processors::default::models::move_resources::MoveResource, utils::util::parse_timestamp_secs,
 };
 use anyhow::Context;
+use aptos_indexer_processor_sdk::utils::convert::{
+    bigdecimal_to_u64, deserialize_from_string, standardize_address, truncate_str,
+};
 use aptos_protos::transaction::v1::{Event, WriteResource};
 use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};

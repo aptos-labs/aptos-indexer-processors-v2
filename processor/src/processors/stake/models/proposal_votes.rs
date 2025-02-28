@@ -8,12 +8,13 @@ use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::stake::models::stake_utils::StakeEvent,
     schema::proposal_votes,
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        util::{parse_timestamp, standardize_address},
-    },
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::transaction::v1::{transaction::TxnData, Transaction};
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;
@@ -66,7 +67,8 @@ impl ProposalVote {
                         transaction_timestamp: parse_timestamp(
                             transaction.timestamp.as_ref().unwrap(),
                             txn_version,
-                        ),
+                        )
+                        .naive_utc(),
                     });
                 }
             }

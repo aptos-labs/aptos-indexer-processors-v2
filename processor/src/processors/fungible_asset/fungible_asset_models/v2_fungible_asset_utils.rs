@@ -4,13 +4,14 @@
 // This is required because a diesel macro makes clippy sad
 #![allow(clippy::extra_unused_lifetimes)]
 
-use crate::{
-    processors::token_v2::{
-        token_models::token_utils::URI_LENGTH, token_v2_models::v2_token_utils::ResourceReference,
-    },
-    utils::util::{deserialize_from_string, truncate_str, Aggregator},
+use crate::processors::token_v2::{
+    token_models::token_utils::URI_LENGTH, token_v2_models::v2_token_utils::ResourceReference,
 };
 use anyhow::{Context, Result};
+use aptos_indexer_processor_sdk::utils::{
+    convert::{deserialize_from_string, truncate_str},
+    extract::Aggregator,
+};
 use aptos_protos::transaction::v1::WriteResource;
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;

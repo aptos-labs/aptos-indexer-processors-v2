@@ -11,14 +11,15 @@ use crate::{
         },
     },
     schema::{current_delegator_balances, delegator_balances},
-    utils::{
-        database::DbPoolConnection,
-        util::{parse_timestamp, standardize_address},
-    },
+    utils::database::DbPoolConnection,
 };
 use ahash::AHashMap;
 use allocative::Allocative;
 use anyhow::Context;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::transaction::v1::{
     write_set_change::Change, DeleteTableItem, Transaction, WriteResource, WriteTableItem,
 };
@@ -447,7 +448,8 @@ impl CurrentDelegatorBalance {
         let mut current_delegator_balances: CurrentDelegatorBalanceMap = AHashMap::new();
         let mut delegator_balances = vec![];
         let txn_version = transaction.version as i64;
-        let txn_timestamp = parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version);
+        let txn_timestamp =
+            parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version).naive_utc();
 
         let changes = &transaction.info.as_ref().unwrap().changes;
         // Do a first pass to get the mapping of active_share table handles to staking pool resource        let txn_version = transaction.version as i64;

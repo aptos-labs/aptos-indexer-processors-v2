@@ -12,10 +12,12 @@ use super::{
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::default::models::move_resources::MoveResource,
-    utils::util::{standardize_address, standardize_address_from_bytes},
 };
 use allocative_derive::Allocative;
 use anyhow::Context;
+use aptos_indexer_processor_sdk::utils::convert::{
+    standardize_address, standardize_address_from_bytes,
+};
 use aptos_protos::transaction::v1::{
     write_set_change::{Change as WriteSetChangeEnum, Type as WriteSetChangeTypeEnum},
     WriteSetChange as WriteSetChangePB,

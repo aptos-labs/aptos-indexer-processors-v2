@@ -22,11 +22,11 @@ use crate::{
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::fungible_asset_activities,
-    utils::util::{bigdecimal_to_u64, standardize_address},
 };
 use ahash::AHashMap;
 use allocative::Allocative;
 use anyhow::Context;
+use aptos_indexer_processor_sdk::utils::convert::{bigdecimal_to_u64, standardize_address};
 use aptos_protos::transaction::v1::{Event, TransactionInfo, UserTransactionRequest};
 use bigdecimal::{BigDecimal, Zero};
 use field_count::FieldCount;

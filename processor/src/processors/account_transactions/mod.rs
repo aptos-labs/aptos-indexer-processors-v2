@@ -6,10 +6,8 @@ pub mod account_transactions_storer;
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    processors::account_transactions::account_transactions_model::AccountTransaction,
-    utils::util::parse_timestamp,
-};
+use crate::processors::account_transactions::account_transactions_model::AccountTransaction;
+use aptos_indexer_processor_sdk::aptos_indexer_transaction_stream::utils::time::parse_timestamp;
 use aptos_protos::transaction::v1::Transaction;
 use rayon::prelude::*;
 
@@ -18,7 +16,7 @@ pub fn parse_account_transactions(txns: Vec<Transaction>) -> Vec<AccountTransact
         .map(|txn| {
             let transaction_version = txn.version as i64;
             let block_timestamp =
-                parse_timestamp(txn.timestamp.as_ref().unwrap(), transaction_version);
+                parse_timestamp(txn.timestamp.as_ref().unwrap(), transaction_version).naive_utc();
             let accounts = AccountTransaction::get_accounts(&txn);
             accounts
                 .into_iter()

@@ -14,13 +14,13 @@ use super::{
 use crate::{
     processors::default::models::move_resources::MoveResource,
     schema::tokens,
-    utils::{
-        counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
-        database::DbPoolConnection,
-        util::{ensure_not_negative, parse_timestamp, standardize_address},
-    },
+    utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, database::DbPoolConnection},
 };
 use ahash::AHashMap;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::{ensure_not_negative, standardize_address},
+};
 use aptos_protos::transaction::v1::{
     transaction::TxnData, write_set_change::Change as WriteSetChangeEnum, DeleteTableItem,
     Transaction, WriteResource, WriteTableItem,
@@ -122,7 +122,7 @@ impl Token {
 
             let txn_version = transaction.version as i64;
             let txn_timestamp =
-                parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version);
+                parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version).naive_utc();
             let transaction_info = transaction
                 .info
                 .as_ref()
@@ -356,12 +356,13 @@ impl TableMetadataForToken {
                     .as_ref()
                     .expect("Transaction info doesn't exist!");
                 let block_timestamp =
-                    parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version);
+                    parse_timestamp(transaction.timestamp.as_ref().unwrap(), txn_version)
+                        .naive_utc();
                 for wsc in &transaction_info.changes {
                     if let WriteSetChangeEnum::WriteResource(write_resource) =
                         wsc.change.as_ref().unwrap()
                     {
-                        let maybe_map = TableMetadataForToken::get_table_handle_to_owner(
+                        let maybe_map = Self::get_table_handle_to_owner(
                             write_resource,
                             txn_version,
                             block_timestamp,

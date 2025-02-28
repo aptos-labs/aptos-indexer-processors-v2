@@ -13,10 +13,11 @@ use crate::{
         user_transaction::models::user_transactions::UserTransaction,
     },
     schema::account_transactions,
-    utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, util::standardize_address},
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashSet;
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Change, Transaction};
 use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;

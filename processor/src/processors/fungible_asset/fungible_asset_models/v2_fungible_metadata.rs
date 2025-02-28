@@ -17,10 +17,10 @@ use crate::{
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::fungible_asset_metadata,
-    utils::util::standardize_address,
 };
 use ahash::AHashMap;
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use aptos_protos::transaction::v1::{DeleteResource, WriteResource};
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;

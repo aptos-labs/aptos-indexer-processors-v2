@@ -14,13 +14,13 @@ use crate::{
             ans_utils::{RenewNameEvent, SubdomainExtV2},
         },
     },
-    utils::{counters::PROCESSOR_UNKNOWN_TYPE_COUNT, util::standardize_address},
+    utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
     types::transaction_context::TransactionContext,
-    utils::errors::ProcessorError,
+    utils::{convert::standardize_address, errors::ProcessorError},
 };
 use aptos_protos::transaction::v1::{
     transaction::TxnData, write_set_change::Change as WriteSetChange, Transaction,

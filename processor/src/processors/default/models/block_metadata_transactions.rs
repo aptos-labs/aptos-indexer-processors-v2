@@ -8,9 +8,13 @@
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::block_metadata_transactions,
-    utils::util::{compute_nanos_since_epoch, parse_timestamp, standardize_address},
+    utils::util::compute_nanos_since_epoch,
 };
 use allocative_derive::Allocative;
+use aptos_indexer_processor_sdk::{
+    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
+    utils::convert::standardize_address,
+};
 use aptos_protos::{
     transaction::v1::BlockMetadataTransaction as ProtoBlockMetadataTransaction,
     util::timestamp::Timestamp,
@@ -40,7 +44,7 @@ impl BlockMetadataTransaction {
         epoch: i64,
         timestamp: &Timestamp,
     ) -> Self {
-        let block_timestamp = parse_timestamp(timestamp, version);
+        let block_timestamp = parse_timestamp(timestamp, version).naive_utc();
         Self {
             version,
             block_height,

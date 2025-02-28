@@ -5,11 +5,13 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
-    db::resources::COIN_ADDR,
-    processors::default::models::move_resources::MoveResource,
-    utils::util::{deserialize_from_string, hash_str, standardize_address, truncate_str},
+    db::resources::COIN_ADDR, processors::default::models::move_resources::MoveResource,
+    utils::util::hash_str,
 };
 use anyhow::{bail, Context, Result};
+use aptos_indexer_processor_sdk::utils::convert::{
+    deserialize_from_string, standardize_address, truncate_str,
+};
 use aptos_protos::transaction::v1::{move_type::Content, DeleteResource, MoveType, WriteResource};
 use bigdecimal::BigDecimal;
 use once_cell::sync::Lazy;

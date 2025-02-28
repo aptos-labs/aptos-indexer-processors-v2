@@ -1,10 +1,8 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    parquet_processors::parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
-    utils::util::parse_timestamp,
-};
+use crate::parquet_processors::parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize;
+use aptos_indexer_processor_sdk::aptos_indexer_transaction_stream::utils::time::parse_timestamp;
 use aptos_protos::transaction::v1::Transaction;
 use tracing::warn;
 
@@ -13,7 +11,8 @@ pub fn process_transactions(transactions: Vec<Transaction>) -> Vec<ParquetWriteS
 
     for txn in transactions {
         let txn_version = txn.version as i64;
-        let block_timestamp = parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version);
+        let block_timestamp =
+            parse_timestamp(txn.timestamp.as_ref().unwrap(), txn_version).naive_utc();
         let size_info = match txn.size_info.as_ref() {
             Some(size_info) => size_info,
             None => {
