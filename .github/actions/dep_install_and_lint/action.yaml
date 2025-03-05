@@ -15,9 +15,8 @@ runs:
         sudo apt update && sudo apt install libdw-dev
         cargo install cargo-sort
         rustup update
-        rustup toolchain install nightly
-        rustup component add clippy --toolchain nightly
-        rustup component add rustfmt --toolchain nightly
+        rustup component add clippy
+        rustup component add rustfmt
       shell: bash
       working-directory: ${{ inputs.working-directory }}
 
