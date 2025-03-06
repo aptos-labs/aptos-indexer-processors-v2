@@ -49,7 +49,6 @@ mod sdk_fungible_asset_processor_tests {
         },
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
-        IMPORTED_DEVNET_TXNS_78753811_COIN_TRANSFER_WITH_V2_EVENTS,
         IMPORTED_MAINNET_TXNS_1680592683_FA_MIGRATION_COIN_INFO,
         IMPORTED_MAINNET_TXNS_1737056775_COIN_TRANSFER_BURN_EVENT,
         IMPORTED_MAINNET_TXNS_1957950162_FA_MIGRATION_V2_STORE_ONLY,
@@ -66,6 +65,8 @@ mod sdk_fungible_asset_processor_tests {
         IMPORTED_TESTNET_TXNS_5523474016_VALIDATOR_TXN,
         IMPORTED_TESTNET_TXNS_5979639459_COIN_REGISTER,
         IMPORTED_TESTNET_TXNS_5992795934_FA_ACTIVITIES, IMPORTED_TESTNET_TXNS_646928741_NO_EVENTS,
+        IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
+        IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2,
     };
     use aptos_indexer_testing_framework::{
         cli_parser::get_test_config,
@@ -175,8 +176,33 @@ mod sdk_fungible_asset_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fungible_asset_processor_coin_v2_events() {
         process_single_batch_txns(
-            &[IMPORTED_DEVNET_TXNS_78753811_COIN_TRANSFER_WITH_V2_EVENTS],
+            &[IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2],
             Some("coin_v2_events".to_string()),
+        )
+        .await;
+    }
+
+    // Test case for processing out of order balances
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_out_of_order_balances_single_batch() {
+        process_single_batch_txns(
+            &[
+                IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2,
+                IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
+            ],
+            Some("out_of_order_balances_single_batch".to_string()),
+        )
+        .await;
+    }
+
+    // Test case for processing out of order balances
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_out_of_order_balances_multiple_batches() {
+        sequential_multi_transaction_helper_function(
+            &[&[IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2], &[
+                IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
+            ]],
+            "out_of_order_balances_multiple_batches",
         )
         .await;
     }
