@@ -49,7 +49,6 @@ mod tests {
     };
     use aptos_indexer_processor_sdk::traits::processor_trait::ProcessorTrait;
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
-        IMPORTED_DEVNET_TXNS_78753811_COIN_TRANSFER_WITH_V2_EVENTS,
         IMPORTED_DEVNET_TXNS_78753831_TOKEN_V1_MINT_TRANSFER_WITH_V2_EVENTS,
         IMPORTED_DEVNET_TXNS_78753832_TOKEN_V2_MINT_TRANSFER_WITH_V2_EVENTS,
         IMPORTED_MAINNET_TXNS_554229017_EVENTS_WITH_NO_EVENT_SIZE_INFO,
@@ -59,6 +58,7 @@ mod tests {
         IMPORTED_TESTNET_TXNS_5523474016_VALIDATOR_TXN,
         IMPORTED_TESTNET_TXNS_5979639459_COIN_REGISTER,
         IMPORTED_TESTNET_TXNS_5992795934_FA_ACTIVITIES,
+        IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
     };
     use aptos_indexer_testing_framework::{cli_parser::get_test_config, database::TestDatabase};
     use aptos_protos::transaction::v1::Transaction;
@@ -128,7 +128,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn devnet_events_processor_coin_module_events() {
         process_single_devnet_event_txn(
-            IMPORTED_DEVNET_TXNS_78753811_COIN_TRANSFER_WITH_V2_EVENTS,
+            IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
             Some("coin_event_v2".to_string()),
         )
         .await;
