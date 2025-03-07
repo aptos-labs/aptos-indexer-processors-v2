@@ -21,6 +21,7 @@ use crate::{
         ans::ans_processor::AnsProcessor, default::default_processor::DefaultProcessor,
         events::events_processor::EventsProcessor,
         fungible_asset::fungible_asset_processor::FungibleAssetProcessor,
+        gas_fees::gas_fee_processor::GasFeeProcessor,
         monitoring::monitoring_processor::MonitoringProcessor,
         objects::objects_processor::ObjectsProcessor, stake::stake_processor::StakeProcessor,
         token_v2::token_v2_processor::TokenV2Processor,
@@ -95,6 +96,10 @@ impl RunnableConfig for IndexerProcessorConfig {
             ProcessorConfig::ObjectsProcessor(_) => {
                 let objects_processor = ObjectsProcessor::new(self.clone()).await?;
                 objects_processor.run_processor().await
+            },
+            ProcessorConfig::GasFeeProcessor(_) => {
+                let gas_fee_processor = GasFeeProcessor::new(self.clone()).await?;
+                gas_fee_processor.run_processor().await
             },
             ProcessorConfig::ParquetDefaultProcessor(_) => {
                 let parquet_default_processor = ParquetDefaultProcessor::new(self.clone()).await?;

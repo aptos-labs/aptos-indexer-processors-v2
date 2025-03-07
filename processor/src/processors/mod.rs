@@ -4,6 +4,7 @@ pub mod ans;
 pub mod default;
 pub mod events;
 pub mod fungible_asset;
+pub mod gas_fees;
 pub mod monitoring;
 pub mod objects;
 pub mod processor_status_saver;
