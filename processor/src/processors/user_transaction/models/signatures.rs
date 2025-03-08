@@ -101,6 +101,9 @@ impl From<Signature> for PostgresSignature {
 #[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetSignature {
     pub txn_version: i64,
+    pub multi_agent_index: i64,
+    pub multi_sig_index: i64,
+    pub is_sender_primary: bool,
     pub block_height: i64,
     pub signer: String,
     pub account_signature_type: String,
@@ -127,6 +130,9 @@ impl From<Signature> for ParquetSignature {
     fn from(raw: Signature) -> Self {
         ParquetSignature {
             txn_version: raw.transaction_version,
+            multi_agent_index: raw.multi_agent_index,
+            multi_sig_index: raw.multi_sig_index,
+            is_sender_primary: raw.is_sender_primary,
             block_height: raw.transaction_block_height,
             signer: raw.signer,
             account_signature_type: raw.account_signature_type,
