@@ -114,6 +114,14 @@ impl ProcessorTrait for ClickhouseGasFeeProcessor {
 
         self.client.query("CREATE TABLE IF NOT EXISTS test (
             transaction_version Int64,
+            owner_address Nullable(String),
+            amount Nullable(Decimal(38, 9)),
+            gas_fee_payer_address Nullable(String),
+            is_transaction_success Bool,
+            entry_function_id_str Nullable(String),
+            block_height Int64,
+            transaction_timestamp DateTime64(6),
+            storage_refund_amount Decimal(38, 9),
         ) ENGINE = MergeTree() ORDER BY (transaction_version);").execute().await?;
 
         let gas_fee_extractor = GasFeeExtractor {};

@@ -56,9 +56,8 @@ impl Processable for ClickhouseGasFeeStorer {
         })?;
 
         for row in gas_fees {
-            let test_row = TestRow {transaction_version: row.transaction_version};
         insert
-            .write(&test_row)
+            .write(&row)
             .await.map_err(|e| ProcessorError::DBStoreError {
                 message: e.to_string(),
                 query: None,
