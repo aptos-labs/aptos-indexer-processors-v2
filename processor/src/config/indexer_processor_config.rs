@@ -3,7 +3,7 @@
 
 use super::{db_config::DbConfig, processor_config::ProcessorConfig};
 use crate::{
-    parquet_processors::{
+    clickhouse_processors::clickhouse_gas_fees::clickhouse_gas_fees_processor::ClickhouseGasFeeProcessor, parquet_processors::{
         parquet_account_transactions::parquet_account_transactions_processor::ParquetAccountTransactionsProcessor,
         parquet_ans::parquet_ans_processor::ParquetAnsProcessor,
         parquet_default::parquet_default_processor::ParquetDefaultProcessor,
@@ -14,8 +14,7 @@ use crate::{
         parquet_token_v2::parquet_token_v2_processor::ParquetTokenV2Processor,
         parquet_transaction_metadata::parquet_transaction_metadata_processor::ParquetTransactionMetadataProcessor,
         parquet_user_transaction::parquet_user_transaction_processor::ParquetUserTransactionProcessor,
-    },
-    processors::{
+    }, processors::{
         account_restoration::account_restoration_processor::AccountRestorationProcessor,
         account_transactions::account_transactions_processor::AccountTransactionsProcessor,
         ans::ans_processor::AnsProcessor, default::default_processor::DefaultProcessor,
@@ -26,7 +25,7 @@ use crate::{
         objects::objects_processor::ObjectsProcessor, stake::stake_processor::StakeProcessor,
         token_v2::token_v2_processor::TokenV2Processor,
         user_transaction::user_transaction_processor::UserTransactionProcessor,
-    },
+    }
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
@@ -144,6 +143,10 @@ impl RunnableConfig for IndexerProcessorConfig {
             ProcessorConfig::ParquetObjectsProcessor(_) => {
                 let parquet_objects_processor = ParquetObjectsProcessor::new(self.clone()).await?;
                 parquet_objects_processor.run_processor().await
+            },
+            ProcessorConfig::ClickhouseGasFeeProcessor(_) => {
+                let clickhouse_gas_fee_processor = ClickhouseGasFeeProcessor::new(self.clone()).await?;
+                clickhouse_gas_fee_processor.run_processor().await
             },
         }
     }

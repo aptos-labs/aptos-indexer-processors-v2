@@ -47,6 +47,7 @@ jemallocator = { workspace = true }
 kanal = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
+clickhouse = { version = "0.13.2", features = ["test-util", "native-tls", "rustls-tls-native-roots"] }
 
 # Postgres SSL support
 native-tls = { workspace = true }

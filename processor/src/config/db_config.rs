@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 pub enum DbConfig {
     PostgresConfig(PostgresConfig),
     ParquetConfig(ParquetConfig),
+    ClickhouseConfig(ClickhouseConfig),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -64,4 +65,32 @@ pub struct ParquetConfig {
     pub bucket_name: String,
     #[serde(default)]
     pub bucket_root: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClickhouseConfig {
+    // postgres configs
+    pub pg_connection_string: String,
+    // Size of the pool for writes/reads to the DB. Limits maximum number of queries in flight
+    #[serde(default = "PostgresConfig::default_db_pool_size")]
+    pub pg_db_pool_size: u32,
+
+    // clickhouse configs
+    pub url: String,
+    pub password: String,
+    #[serde(default = "ClickhouseConfig::default_user")]
+    pub user: String,
+    #[serde(default = "ClickhouseConfig::default_database")]
+    pub database: String,
+}
+
+impl ClickhouseConfig {
+    pub fn default_user() -> String {
+        "default".to_string()
+    }
+
+    pub fn default_database() -> String {
+        "default".to_string()
+    }
 }

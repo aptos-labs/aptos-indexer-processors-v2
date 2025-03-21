@@ -19,8 +19,8 @@ use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDateTime;
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
+use clickhouse::Row;
+#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize, Row)]
 #[diesel(primary_key(transaction_version))]
 #[diesel(table_name = gas_fees)]
 pub struct GasFee {

@@ -123,6 +123,8 @@ pub enum ProcessorConfig {
     ParquetAccountTransactionsProcessor(ParquetDefaultProcessorConfig),
     ParquetTokenV2Processor(ParquetDefaultProcessorConfig),
     ParquetStakeProcessor(ParquetDefaultProcessorConfig),
+    // ClickhouseProcessor
+    ClickhouseGasFeeProcessor(ClickhouseDefaultProcessorConfig),
 }
 
 impl ProcessorConfig {
@@ -320,6 +322,35 @@ impl ParquetDefaultProcessorConfig {
     /// Default upload interval for parquet files in seconds
     pub const fn default_parquet_upload_interval() -> u64 {
         1800 // 30 minutes
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClickhouseDefaultProcessorConfig {
+    #[serde(default = "ClickhouseDefaultProcessorConfig::default_channel_size")]
+    pub channel_size: usize,
+    #[serde(default = "ClickhouseDefaultProcessorConfig::default_max_buffer_size")]
+    pub max_buffer_size: usize,
+    #[serde(default = "ClickhouseDefaultProcessorConfig::default_parquet_upload_interval")]
+    pub upload_interval: u64,
+}
+
+impl ClickhouseDefaultProcessorConfig {
+    /// Make the default very large on purpose so that by default it's not chunked
+    /// This prevents any unexpected changes in behavior
+    pub const fn default_channel_size() -> usize {
+        100_000
+    }
+
+    /// Default maximum buffer size for clickhouse batch in bytes
+    pub const fn default_max_buffer_size() -> usize {
+        1024 * 1024 * 100 // 100 MB
+    }
+
+    /// Default batch upload interval for clickhouse
+    pub const fn default_parquet_upload_interval() -> u64 {
+        30 // 30 seconds
     }
 }
 

@@ -17,3 +17,4 @@ pub mod config;
 pub mod processors;
 
 pub mod parquet_processors;
+pub mod clickhouse_processors;
