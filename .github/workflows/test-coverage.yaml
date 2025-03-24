@@ -33,7 +33,6 @@ jobs:
       - name: rust setup
         run: |
           sudo apt update && sudo apt install libdw-dev
-          cargo update
         working-directory: .
 
       - run: rustup component add llvm-tools-preview
