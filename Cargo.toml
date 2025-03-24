@@ -5,6 +5,7 @@ resolver = "2"
 members = ["integration-tests", "processor"]
 
 [workspace.package]
+authors = ["Aptos Labs <opensource@aptoslabs.com>"]
 version = "0.1.0"
 edition = "2021"
 homepage = "https://aptoslabs.com"
