@@ -1,0 +1,20 @@
+# This is a template config.yaml for a processor
+health_check_port: 8085
+server_config:
+  processor_config:
+    type: fungible_asset_processor
+    channel_size: 100
+  transaction_stream_config:
+    indexer_grpc_data_service_address: "https://grpc.mainnet.aptoslabs.com:443"
+    auth_token: {AUTH_TOKEN}
+    request_name_header: "fungible_asset_processor"
+  processor_mode:
+    type: "backfill" # Backfill mode is used to backfill data from a specific starting version
+    backfill_alias: {BACKFILL_ID} # Backfill will be tracked in backfill_processor_status table with this unique id.
+    initial_starting_version: {BACKFILL_STARTING_VERSION}
+    ending_version: {BACKFILL_ENDING_VERSION} # Optional. Defaults to the latest version in processor_status table. 
+    overwrite_checkpoint: {OVERWRITE_CHECKPOINT} # Overwrite backfill checkpoint. Defaults to false
+
+  db_config:
+    type: postgres_config
+    connection_string: postgresql://postgres:@localhost:5432/example
