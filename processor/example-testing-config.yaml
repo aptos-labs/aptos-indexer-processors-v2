@@ -6,11 +6,12 @@ server_config:
     channel_size: 100
   transaction_stream_config:
     indexer_grpc_data_service_address: "https://grpc.mainnet.aptoslabs.com:443"
-    auth_token: "AUTH_TOKEN"
+    auth_token: {AUTH_TOKEN}
     request_name_header: "fungible_asset_processor"
   processor_mode:
-    type: "default" # Default mode is used to bootstrap the processor from an initial starting version. For backfills, use backfill mode.
-    initial_starting_version: 0
+    type: "testing" # Testing mode is used to replay the processor for specific transaction versions.
+    override_starting_version: {OVERRIDE_STARTING_VERSION}
+    ending_version: {ENDING_VERSION} # Optional. Defaults to override_starting_version
   db_config:
     type: postgres_config
     connection_string: postgresql://postgres:@localhost:5432/example
