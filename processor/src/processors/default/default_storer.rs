@@ -259,6 +259,6 @@ pub fn insert_move_modules_query(
 
     diesel::insert_into(schema::move_modules::table)
         .values(items_to_insert)
-        .on_conflict(transaction_version)
+        .on_conflict((transaction_version, write_set_change_index))
         .do_nothing()
 }

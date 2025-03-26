@@ -118,24 +118,30 @@ impl MoveModule {
             address: standardize_address(&move_module.address.to_string()),
             name: move_module.name.clone(),
             bytecode,
-            exposed_functions: move_module
-                .exposed_functions
-                .iter()
-                .map(|move_func| serde_json::to_value(move_func).unwrap())
-                .map(|value| canonical_json::to_string(&value).unwrap())
-                .collect(),
-            friends: move_module
-                .friends
-                .iter()
-                .map(|move_module_id| serde_json::to_value(move_module_id).unwrap())
-                .map(|value| canonical_json::to_string(&value).unwrap())
-                .collect(),
-            structs: move_module
-                .structs
-                .iter()
-                .map(|move_struct| serde_json::to_value(move_struct).unwrap())
-                .map(|value| canonical_json::to_string(&value).unwrap())
-                .collect(),
+            exposed_functions: canonical_json::to_string(&serde_json::Value::Array(
+                move_module
+                    .exposed_functions
+                    .iter()
+                    .map(|move_func| serde_json::to_value(move_func).unwrap())
+                    .collect(),
+            ))
+            .unwrap(),
+            friends: canonical_json::to_string(&serde_json::Value::Array(
+                move_module
+                    .friends
+                    .iter()
+                    .map(|move_module_id| serde_json::to_value(move_module_id).unwrap())
+                    .collect(),
+            ))
+            .unwrap(),
+            structs: canonical_json::to_string(&serde_json::Value::Array(
+                move_module
+                    .structs
+                    .iter()
+                    .map(|move_struct| serde_json::to_value(move_struct).unwrap())
+                    .collect(),
+            ))
+            .unwrap(),
         }
     }
 }
