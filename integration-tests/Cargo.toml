@@ -25,12 +25,13 @@ field_count = { workspace = true }
 processor = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-testcontainers = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
 ahash = { workspace = true }
-aptos-indexer-processor-sdk = { workspace = true }
+aptos-indexer-processor-sdk = { workspace = true, features = [
+    "testing_framework",
+] }
 futures = { workspace = true }
 processor = { workspace = true }
 tempfile = { workspace = true }

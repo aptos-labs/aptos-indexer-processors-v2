@@ -29,4 +29,4 @@ jobs:
           rustup component add rustfmt --toolchain nightly
           scripts/rust_lint.sh --check
       - name: Ensure the --no-default-features build passes too
-        run: cargo build --no-default-features
+        run: cargo build --all-targets --no-default-features
