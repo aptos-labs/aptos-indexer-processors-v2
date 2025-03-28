@@ -12,7 +12,8 @@ homepage = "https://aptoslabs.com"
 license = "Apache-2.0"
 publish = false
 repository = "https://github.com/aptos-labs/aptos-indexer-processors-v2"
-rust-version = "1.81"
+# This needs to match aptos-core's version to run the processors in the CLI. 
+rust-version = "1.78"
 
 [workspace.dependencies]
 processor = { path = "processor" }
@@ -24,7 +25,6 @@ anyhow = "1.0.86"
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
 aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", rev = "27ac3611a917f3a5e181ea78d72c1acc5c449141", features = [
     "postgres_partial",
-    "testing_framework",
 ] }
 aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "ba63c8b8f0d41b02fed23a5cf5982404c5eda195" }
 async-trait = "0.1.53"
@@ -99,7 +99,6 @@ sha2 = "0.10.8"
 sha3 = "0.10.8"
 strum = { version = "0.24.1", features = ["derive"] }
 tempfile = "3.3.0"
-testcontainers = "0.20.1"
 toml = "0.7.4"
 tracing-subscriber = { version = "0.3.17", features = ["json", "env-filter"] }
 tiny-keccak = { version = "2.0.2", features = ["keccak", "sha3"] }
