@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
-
+use super::models::GasFee;
 use crate::{
-    config::processor_config::DefaultProcessorConfig, processors::gas_fees::models::GasFee, schema
+    config::processor_config::DefaultProcessorConfig, schema
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
@@ -15,19 +15,12 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use clickhouse::Client;
 use tracing::{error, info};
-use serde::{Deserialize, Serialize};
-use clickhouse::Row;
 
 pub struct ClickhouseGasFeeStorer
 where
     Self: Sized + Send + 'static,
 {
     client: Arc<Client>,
-}
-
-#[derive(Debug, Serialize, Row)]
-pub struct TestRow {
-    transaction_version: i64,
 }
 
 impl ClickhouseGasFeeStorer {

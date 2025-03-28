@@ -6,7 +6,6 @@ use crate::{
         processor_config::ProcessorConfig,
     },
     processors::{
-        gas_fees::{gas_fee_extractor::GasFeeExtractor},
         processor_status_saver::get_processor_status_saver,
     },
     utils::{
@@ -27,7 +26,7 @@ use aptos_indexer_processor_sdk::{
 use tracing::{debug, info};
 use clickhouse::Client;
 use super::clickhouse_gas_fees_storer::ClickhouseGasFeeStorer;
-
+use super::clickhouse_gas_fees_extractor::ClickhouseGasFeeExtractor;
 pub struct ClickhouseGasFeeProcessor {
     pub config: IndexerProcessorConfig,
     pub client: Arc<Client>,
@@ -114,17 +113,12 @@ impl ProcessorTrait for ClickhouseGasFeeProcessor {
 
         self.client.query("CREATE TABLE IF NOT EXISTS test (
             transaction_version Int64,
-            owner_address Nullable(String),
-            amount Nullable(Decimal(38, 9)),
+            amount UInt64,
             gas_fee_payer_address Nullable(String),
             is_transaction_success Bool,
-            entry_function_id_str Nullable(String),
-            block_height Int64,
-            transaction_timestamp DateTime64(6),
-            storage_refund_amount Decimal(38, 9),
         ) ENGINE = MergeTree() ORDER BY (transaction_version);").execute().await?;
 
-        let gas_fee_extractor = GasFeeExtractor {};
+        let gas_fee_extractor = ClickhouseGasFeeExtractor {};
         let gas_fee_storer = ClickhouseGasFeeStorer::new(self.client.clone());
         let version_tracker = VersionTrackerStep::new(
             get_processor_status_saver(self.db_pool.clone(), self.config.clone()),

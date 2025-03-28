@@ -3,7 +3,6 @@ use crate::{
         fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FeeStatement,
         user_transaction::models::signature_utils::parent_signature_utils::get_fee_payer_address,
     },
-    schema::gas_fees,
 };
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
@@ -15,24 +14,19 @@ use aptos_indexer_processor_sdk::{
 use aptos_protos::transaction::v1::{
     transaction::TxnData, Transaction, TransactionInfo, UserTransactionRequest,
 };
-use bigdecimal::{BigDecimal, Zero};
 use chrono::NaiveDateTime;
-use field_count::FieldCount;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use clickhouse::Row;
 
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
-#[diesel(primary_key(transaction_version))]
-#[diesel(table_name = gas_fees)]
+#[derive(Serialize, Row)]
 pub struct GasFee {
     pub transaction_version: i64,
-    pub owner_address: Option<String>,
-    pub amount: Option<BigDecimal>,
+    pub amount: u64,
     pub gas_fee_payer_address: Option<String>,
     pub is_transaction_success: bool,
-    pub entry_function_id_str: Option<String>,
-    pub block_height: i64,
-    pub transaction_timestamp: NaiveDateTime,
-    pub storage_refund_amount: BigDecimal,
+    // pub entry_function_id_str: Option<String>,
+    // pub block_height: i64,
+    // pub transaction_timestamp: NaiveDateTime,
 }
 
 impl GasFee {
@@ -88,7 +82,7 @@ impl GasFee {
         fee_statement: Option<FeeStatement>,
     ) -> Self {
         let aptos_coin_burned =
-            BigDecimal::from(txn_info.gas_used * user_transaction_request.gas_unit_price);
+            txn_info.gas_used * user_transaction_request.gas_unit_price;
         let gas_fee_payer_address = match user_transaction_request.signature.as_ref() {
             Some(signature) => get_fee_payer_address(signature, transaction_version),
             None => None,
@@ -96,18 +90,14 @@ impl GasFee {
 
         Self {
             transaction_version,
-            owner_address: Some(standardize_address(
-                &user_transaction_request.sender.to_string(),
-            )),
-            amount: Some(aptos_coin_burned),
+            // owner_address: Some(standardize_address(
+            //     &user_transaction_request.sender.to_string(),
+            // )),
+            amount: aptos_coin_burned,
             gas_fee_payer_address,
             is_transaction_success: txn_info.success,
-            entry_function_id_str: entry_function_id_str.clone(),
-            block_height,
-            transaction_timestamp,
-            storage_refund_amount: fee_statement
-                .map(|fs| u64_to_bigdecimal(fs.storage_fee_refund_octas))
-                .unwrap_or(BigDecimal::zero()),
+            // block_height,
+            // transaction_timestamp,
         }
     }
 }
