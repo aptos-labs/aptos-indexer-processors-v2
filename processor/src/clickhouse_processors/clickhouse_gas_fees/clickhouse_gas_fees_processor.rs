@@ -5,9 +5,7 @@ use crate::{
         db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig,
         processor_config::ProcessorConfig,
     },
-    processors::{
-        processor_status_saver::get_processor_status_saver,
-    },
+    processors::processor_status_saver::get_processor_status_saver,
     utils::{
         chain_id::check_or_update_chain_id,
         database::{new_db_pool, run_migrations, ArcDbPool},
@@ -115,7 +113,9 @@ impl ProcessorTrait for ClickhouseGasFeeProcessor {
             transaction_version Int64,
             amount UInt64,
             gas_fee_payer_address Nullable(String),
+            owner_address Nullable(String),
             is_transaction_success Bool,
+            transaction_unix_ts_secs UInt64,
         ) ENGINE = MergeTree() ORDER BY (transaction_version);").execute().await?;
 
         let gas_fee_extractor = ClickhouseGasFeeExtractor {};
