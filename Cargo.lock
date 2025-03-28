@@ -142,7 +142,7 @@ checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 [[package]]
 name = "aptos-indexer-processor-sdk"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?rev=27ac3611a917f3a5e181ea78d72c1acc5c449141#27ac3611a917f3a5e181ea78d72c1acc5c449141"
+source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.0.0#7f2dbeb0e482d274d8de1a55472159cb74f92cad"
 dependencies = [
  "ahash",
  "anyhow",
@@ -207,7 +207,7 @@ dependencies = [
 [[package]]
 name = "aptos-indexer-transaction-stream"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?rev=27ac3611a917f3a5e181ea78d72c1acc5c449141#27ac3611a917f3a5e181ea78d72c1acc5c449141"
+source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.0.0#7f2dbeb0e482d274d8de1a55472159cb74f92cad"
 dependencies = [
  "anyhow",
  "aptos-moving-average",
@@ -229,7 +229,7 @@ dependencies = [
 [[package]]
 name = "aptos-moving-average"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?rev=27ac3611a917f3a5e181ea78d72c1acc5c449141#27ac3611a917f3a5e181ea78d72c1acc5c449141"
+source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.0.0#7f2dbeb0e482d274d8de1a55472159cb74f92cad"
 dependencies = [
  "chrono",
 ]
@@ -2348,7 +2348,7 @@ dependencies = [
 [[package]]
 name = "instrumented-channel"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?rev=27ac3611a917f3a5e181ea78d72c1acc5c449141#27ac3611a917f3a5e181ea78d72c1acc5c449141"
+source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.0.0#7f2dbeb0e482d274d8de1a55472159cb74f92cad"
 dependencies = [
  "delegate",
  "derive_builder",
@@ -2510,9 +2510,9 @@ dependencies = [
 
 [[package]]
 name = "kanal"
-version = "0.1.0"
+version = "0.1.0-pre8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b13526b910349296b1d3537ae62d5f83def9b6d6974e26d62b80ee2bb1b4794"
+checksum = "b05d55519627edaf7fd0f29981f6dc03fb52df3f5b257130eb8d0bf2801ea1d7"
 dependencies = [
  "futures-core",
  "lock_api",
@@ -4214,7 +4214,7 @@ checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
 [[package]]
 name = "sample"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?rev=27ac3611a917f3a5e181ea78d72c1acc5c449141#27ac3611a917f3a5e181ea78d72c1acc5c449141"
+source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.0.0#7f2dbeb0e482d274d8de1a55472159cb74f92cad"
 dependencies = [
  "tracing",
 ]

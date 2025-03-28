@@ -72,6 +72,7 @@ url = { workspace = true }
 aptos-indexer-processor-sdk = { workspace = true, features = [
     "testing_framework",
 ] }
+
 [target.'cfg(unix)'.dependencies]
 jemallocator = { workspace = true }
 
