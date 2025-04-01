@@ -27,23 +27,23 @@ use super::clickhouse_gas_fees_storer::ClickhouseGasFeeStorer;
 use super::clickhouse_gas_fees_extractor::ClickhouseGasFeeExtractor;
 pub struct ClickhouseGasFeeProcessor {
     pub config: IndexerProcessorConfig,
-    pub client: Arc<Client>,
-    pub db_pool: ArcDbPool,
+    pub ch_client: Arc<Client>,
+    pub pg_db_pool: ArcDbPool,
 }
 
 impl ClickhouseGasFeeProcessor {
     pub async fn new(config: IndexerProcessorConfig) -> Result<Self> {
         match config.db_config {
             DbConfig::ClickhouseConfig(ref clickhouse_config) => {
-                let client = Arc::new(
+                let ch_client = Arc::new(
                     Client::default()
-                        .with_url(clickhouse_config.url.clone())
-                        .with_user(clickhouse_config.user.clone())
-                        .with_password(clickhouse_config.password.clone())
-                        .with_database(clickhouse_config.database.clone()),
+                        .with_url(clickhouse_config.ch_url.clone())
+                        .with_user(clickhouse_config.ch_user.clone())
+                        .with_password(clickhouse_config.ch_password.clone())
+                        .with_database(clickhouse_config.ch_database.clone()),
                 );
 
-                let conn_pool = new_db_pool(
+                let pg_db_pool = new_db_pool(
                     &clickhouse_config.pg_connection_string,
                     Some(clickhouse_config.pg_db_pool_size),
                 )
@@ -57,8 +57,8 @@ impl ClickhouseGasFeeProcessor {
 
                 Ok(Self {
                     config,
-                    client,
-                    db_pool: conn_pool,
+                    ch_client,
+                    pg_db_pool,
                 })
             },
             _ => Err(anyhow::anyhow!(
@@ -80,20 +80,20 @@ impl ProcessorTrait for ClickhouseGasFeeProcessor {
         if let DbConfig::PostgresConfig(ref postgres_config) = self.config.db_config {
             run_migrations(
                 postgres_config.connection_string.clone(),
-                self.db_pool.clone(),
+                self.pg_db_pool.clone(),
             )
             .await;
         }
 
         // Merge the starting version from config and the latest processed version from the DB
-        let starting_version = get_starting_version(&self.config, self.db_pool.clone()).await?;
+        let starting_version = get_starting_version(&self.config, self.pg_db_pool.clone()).await?;
 
         // Check and update the ledger chain id to ensure we're indexing the correct chain
         let grpc_chain_id = TransactionStream::new(self.config.transaction_stream_config.clone())
             .await?
             .get_chain_id()
             .await?;
-        check_or_update_chain_id(grpc_chain_id as i64, self.db_pool.clone()).await?;
+        check_or_update_chain_id(grpc_chain_id as i64, self.pg_db_pool.clone()).await?;
 
         let processor_config = match &self.config.processor_config {
             ProcessorConfig::ClickhouseGasFeeProcessor(processor_config) => processor_config,
@@ -108,20 +108,20 @@ impl ProcessorTrait for ClickhouseGasFeeProcessor {
         })
         .await?;
 
-
-        self.client.query("CREATE TABLE IF NOT EXISTS test (
+        // Create table if it doesn't exist
+        self.ch_client.query("CREATE TABLE IF NOT EXISTS test (
             transaction_version Int64,
             amount UInt64,
             gas_fee_payer_address Nullable(String),
             owner_address Nullable(String),
             is_transaction_success Bool,
             transaction_unix_ts_secs UInt64,
-        ) ENGINE = MergeTree() ORDER BY (transaction_version);").execute().await?;
+        ) ENGINE = ReplacingMergeTree() ORDER BY (gas_fee_payer_address, transaction_unix_ts_secs);").execute().await?;
 
         let gas_fee_extractor = ClickhouseGasFeeExtractor {};
-        let gas_fee_storer = ClickhouseGasFeeStorer::new(self.client.clone());
+        let gas_fee_storer = ClickhouseGasFeeStorer::new(self.ch_client.clone());
         let version_tracker = VersionTrackerStep::new(
-            get_processor_status_saver(self.db_pool.clone(), self.config.clone()),
+            get_processor_status_saver(self.pg_db_pool.clone(), self.config.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
         );
         // Connect processor steps together

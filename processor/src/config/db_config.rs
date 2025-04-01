@@ -77,20 +77,20 @@ pub struct ClickhouseConfig {
     pub pg_db_pool_size: u32,
 
     // clickhouse configs
-    pub url: String,
-    pub password: String,
-    #[serde(default = "ClickhouseConfig::default_user")]
-    pub user: String,
-    #[serde(default = "ClickhouseConfig::default_database")]
-    pub database: String,
+    pub ch_url: String,
+    pub ch_password: String,
+    #[serde(default = "ClickhouseConfig::default_ch_user")]
+    pub ch_user: String,
+    #[serde(default = "ClickhouseConfig::default_ch_database")]
+    pub ch_database: String,
 }
 
 impl ClickhouseConfig {
-    pub fn default_user() -> String {
+    pub fn default_ch_user() -> String {
         "default".to_string()
     }
 
-    pub fn default_database() -> String {
+    pub fn default_ch_database() -> String {
         "default".to_string()
     }
 }
