@@ -9,9 +9,25 @@ permissions:
   id-token: write #required for GCP Workload Identity federation
 
 jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Install Dependencies and Run Linter
+        uses: ./.github/actions/dep_install_and_lint
+        with:
+          working-directory: .
+
+      - name: Run Integration Tests for Specific Crate
+        run: cargo test --manifest-path integration-tests/Cargo.toml
+        working-directory: .
+
   copy-processor-images:
     # Run on a machine with more local storage for large docker images
     runs-on: ubuntu-latest
+    needs: lint-test
     steps:
       - uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8 # pin@v3
 
@@ -37,15 +53,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
         working-directory: scripts
-
-      - name: Install Dependencies and Run Linter
-        uses: ./.github/actions/dep_install_and_lint
-        with:
-          working-directory: .
-
-      - name: Run Integration Tests for Specific Crate
-        run: cargo test --manifest-path integration-tests/Cargo.toml
-        working-directory: .
 
       - name: Release Images
         env:
