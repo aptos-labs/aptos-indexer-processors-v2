@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        
+
       - name: Install Dependencies and Run Linter
         uses: ./.github/actions/dep_install_and_lint
         with:
@@ -59,5 +59,5 @@ jobs:
           FORCE_COLOR: 3 # Force color output as per https://github.com/google/zx#using-github-actions
           GIT_SHA: ${{ github.sha }}
           GCP_DOCKER_ARTIFACT_REPO: ${{ vars.GCP_DOCKER_ARTIFACT_REPO }}
-        run: pnpm release-processor-images --language=${{ inputs.processor_language }} --version-tag=${{ github.ref_name }} --wait-for-image-seconds=3600
+        run: pnpm release-processor-images --language=rust --version-tag=${{ github.ref_name }} --wait-for-image-seconds=3600
         working-directory: scripts
