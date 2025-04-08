@@ -9,6 +9,7 @@ use crate::{
             get_end_version, get_starting_version, PostgresProcessorStatusSaver,
         },
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -105,8 +106,13 @@ impl ProcessorTrait for GasFeeProcessor {
         })
         .await?;
 
+        let opt_in_tables = TableFlags::from_set(&processor_config.tables_to_write);
         let gas_fee_extractor = GasFeeExtractor {};
-        let gas_fee_storer = GasFeeStorer::new(self.db_pool.clone(), processor_config.clone());
+        let gas_fee_storer = GasFeeStorer::new(
+            self.db_pool.clone(),
+            processor_config.clone(),
+            opt_in_tables,
+        );
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

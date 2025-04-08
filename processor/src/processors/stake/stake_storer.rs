@@ -1,4 +1,5 @@
 use crate::{
+    filter_datasets,
     processors::stake::{
         models::{
             current_delegated_voter::CurrentDelegatedVoter,
@@ -13,6 +14,7 @@ use crate::{
         stake_processor::StakeProcessorConfig,
     },
     schema,
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -36,13 +38,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: StakeProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl StakeStorer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: StakeProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: StakeProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -94,6 +102,28 @@ impl Processable for StakeStorer {
             current_delegator_pool_balances,
             current_delegated_voter,
         ) = input.data;
+
+        let (
+            current_stake_pool_voters,
+            proposal_votes,
+            delegator_activities,
+            delegator_balances,
+            current_delegator_balances,
+            delegator_pools,
+            delegator_pool_balances,
+            current_delegator_pool_balances,
+            current_delegated_voter,
+        ) = filter_datasets!(self, {
+            current_stake_pool_voters => TableFlags::CURRENT_STAKING_POOL_VOTER,
+            proposal_votes => TableFlags::PROPOSAL_VOTES,
+            delegator_activities => TableFlags::DELEGATED_STAKING_ACTIVITIES,
+            delegator_balances => TableFlags::DELEGATOR_BALANCES,
+            current_delegator_balances => TableFlags::CURRENT_DELEGATOR_BALANCES,
+            delegator_pools => TableFlags::DELEGATED_STAKING_POOLS,
+            delegator_pool_balances => TableFlags::DELEGATED_STAKING_POOL_BALANCES,
+            current_delegator_pool_balances => TableFlags::CURRENT_DELEGATED_STAKING_POOL_BALANCES,
+            current_delegated_voter => TableFlags::CURRENT_DELEGATED_VOTER,
+        });
 
         let cspv = execute_in_chunks(
             self.conn_pool.clone(),

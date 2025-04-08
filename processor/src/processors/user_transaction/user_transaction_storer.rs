@@ -1,5 +1,6 @@
 use crate::{
     config::processor_config::DefaultProcessorConfig,
+    filter_datasets,
     processors::user_transaction::models::{
         signatures::PostgresSignature, user_transactions::PostgresUserTransaction,
     },
@@ -56,16 +57,13 @@ impl Processable for UserTransactionStorer {
     ) -> Result<Option<TransactionContext<()>>, ProcessorError> {
         let (user_txns, signatures) = input.data;
 
-        let user_txns = filter_data(
-            &self.tables_to_write,
-            TableFlags::USER_TRANSACTIONS,
-            user_txns,
-        );
-        let signatures: Vec<PostgresSignature> =
-            filter_data(&self.tables_to_write, TableFlags::SIGNATURES, signatures);
-
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
+
+        let (user_txns, signatures) = filter_datasets!(self, {
+            user_txns => TableFlags::USER_TRANSACTIONS,
+            signatures => TableFlags::SIGNATURES,
+        });
 
         let ut_res = execute_in_chunks(
             self.conn_pool.clone(),

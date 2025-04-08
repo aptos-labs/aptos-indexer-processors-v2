@@ -3,6 +3,7 @@
 
 use crate::{
     config::processor_config::DefaultProcessorConfig,
+    filter_datasets,
     processors::default::models::{
         block_metadata_transactions::PostgresBlockMetadataTransaction,
         move_modules::PostgresMoveModule,
@@ -100,27 +101,19 @@ impl Processable for DefaultStorer {
             move_modules,
         ) = input.data;
 
-        let block_metadata_transactions = filter_data(
-            &self.tables_to_write,
-            TableFlags::BLOCK_METADATA_TRANSACTIONS,
+        let (
             block_metadata_transactions,
-        );
-        let table_items = filter_data(&self.tables_to_write, TableFlags::TABLE_ITEMS, table_items);
-        let current_table_items = filter_data(
-            &self.tables_to_write,
-            TableFlags::CURRENT_TABLE_ITEMS,
+            table_items,
             current_table_items,
-        );
-        let table_metadata = filter_data(
-            &self.tables_to_write,
-            TableFlags::TABLE_METADATA,
             table_metadata,
-        );
-        let move_modules = filter_data(
-            &self.tables_to_write,
-            TableFlags::MOVE_MODULES,
             move_modules,
-        );
+        ) = filter_datasets!(self, {
+            block_metadata_transactions => TableFlags::BLOCK_METADATA_TRANSACTIONS,
+            table_items => TableFlags::TABLE_ITEMS,
+            current_table_items => TableFlags::CURRENT_TABLE_ITEMS,
+            table_metadata => TableFlags::TABLE_METADATA,
+            move_modules => TableFlags::MOVE_MODULES,
+        });
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();

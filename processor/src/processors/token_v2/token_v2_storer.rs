@@ -1,20 +1,24 @@
-use crate::processors::token_v2::{
-    token_models::{
-        token_claims::PostgresCurrentTokenPendingClaim,
-        token_royalty::PostgresCurrentTokenRoyaltyV1,
+use crate::{
+    filter_datasets,
+    processors::token_v2::{
+        token_models::{
+            token_claims::PostgresCurrentTokenPendingClaim,
+            token_royalty::PostgresCurrentTokenRoyaltyV1,
+        },
+        token_v2_models::{
+            v2_collections::CurrentCollectionV2, v2_token_activities::PostgresTokenActivityV2,
+            v2_token_datas::PostgresCurrentTokenDataV2,
+            v2_token_ownerships::PostgresCurrentTokenOwnershipV2,
+        },
+        token_v2_processor::TokenV2ProcessorConfig,
+        token_v2_processor_queries::{
+            insert_current_collections_v2_query, insert_current_deleted_token_datas_v2_query,
+            insert_current_deleted_token_ownerships_v2_query, insert_current_token_claims_query,
+            insert_current_token_datas_v2_query, insert_current_token_ownerships_v2_query,
+            insert_current_token_royalties_v1_query, insert_token_activities_v2_query,
+        },
     },
-    token_v2_models::{
-        v2_collections::CurrentCollectionV2, v2_token_activities::PostgresTokenActivityV2,
-        v2_token_datas::PostgresCurrentTokenDataV2,
-        v2_token_ownerships::PostgresCurrentTokenOwnershipV2,
-    },
-    token_v2_processor::TokenV2ProcessorConfig,
-    token_v2_processor_queries::{
-        insert_current_collections_v2_query, insert_current_deleted_token_datas_v2_query,
-        insert_current_deleted_token_ownerships_v2_query, insert_current_token_claims_query,
-        insert_current_token_datas_v2_query, insert_current_token_ownerships_v2_query,
-        insert_current_token_royalties_v1_query, insert_token_activities_v2_query,
-    },
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -33,13 +37,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: TokenV2ProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl TokenV2Storer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: TokenV2ProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: TokenV2ProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -82,6 +92,26 @@ impl Processable for TokenV2Storer {
             current_token_royalties_v1,
             current_token_claims,
         ) = input.data;
+
+        let (
+            current_collections_v2,
+            current_token_datas_v2,
+            current_deleted_token_datas_v2,
+            current_token_ownerships_v2,
+            current_deleted_token_ownerships_v2,
+            token_activities_v2,
+            current_token_royalties_v1,
+            current_token_claims,
+        ) = filter_datasets!(self, {
+            current_collections_v2 => TableFlags::CURRENT_COLLECTIONS_V2,
+            current_token_datas_v2 => TableFlags::CURRENT_TOKEN_DATAS_V2,
+            current_deleted_token_datas_v2 => TableFlags::CURRENT_TOKEN_DATAS_V2,
+            current_token_ownerships_v2 => TableFlags::CURRENT_TOKEN_OWNERSHIPS_V2,
+            current_deleted_token_ownerships_v2 => TableFlags::CURRENT_TOKEN_OWNERSHIPS_V2,
+            token_activities_v2 => TableFlags::TOKEN_ACTIVITIES_V2,
+            current_token_royalties_v1 => TableFlags::CURRENT_TOKEN_ROYALTY_V1,
+            current_token_claims => TableFlags::CURRENT_TOKEN_PENDING_CLAIMS,
+        });
 
         let per_table_chunk_sizes: AHashMap<String, usize> = self
             .processor_config

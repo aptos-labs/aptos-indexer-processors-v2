@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    filter_datasets,
     processors::ans::{
         ans_processor::AnsProcessorConfig,
         models::{
@@ -10,6 +11,7 @@ use crate::{
         },
     },
     schema,
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -33,13 +35,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: AnsProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl AnsStorer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: AnsProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: AnsProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -64,6 +72,11 @@ impl Processable for AnsStorer {
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.default.per_table_chunk_sizes.clone();
+
+        let (current_ans_lookups_v2, current_ans_primary_names_v2) = filter_datasets!(self, {
+            current_ans_lookups_v2 => TableFlags::CURRENT_ANS_LOOKUP_V2,
+            current_ans_primary_names_v2 => TableFlags::CURRENT_ANS_PRIMARY_NAME_V2,
+        });
 
         let cal_v2 = execute_in_chunks(
             self.conn_pool.clone(),

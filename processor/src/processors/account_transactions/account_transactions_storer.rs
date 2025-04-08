@@ -5,6 +5,7 @@ use crate::{
     config::processor_config::DefaultProcessorConfig,
     processors::account_transactions::account_transactions_model::PostgresAccountTransaction,
     schema,
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -24,13 +25,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: DefaultProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl AccountTransactionsStorer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: DefaultProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: DefaultProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -48,10 +55,16 @@ impl Processable for AccountTransactionsStorer {
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
 
+        let account_transactions = filter_data(
+            &self.tables_to_write,
+            TableFlags::ACCOUNT_TRANSACTIONS,
+            input.data,
+        );
+
         let res = execute_in_chunks(
             self.conn_pool.clone(),
             insert_account_transactions_query,
-            &input.data,
+            &account_transactions,
             get_config_table_chunk_size::<PostgresAccountTransaction>(
                 "account_transactions",
                 &per_table_chunk_sizes,

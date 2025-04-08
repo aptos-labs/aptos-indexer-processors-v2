@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::models::GasFee;
-use crate::{config::processor_config::DefaultProcessorConfig, schema};
+use crate::{
+    config::processor_config::DefaultProcessorConfig,
+    schema,
+    utils::table_flags::{filter_data, TableFlags},
+};
 use ahash::AHashMap;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
@@ -20,13 +24,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: DefaultProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl GasFeeStorer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: DefaultProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: DefaultProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -45,6 +55,8 @@ impl Processable for GasFeeStorer {
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
+
+        let gas_fees = filter_data(&self.tables_to_write, TableFlags::GAS_FEES, gas_fees);
 
         let gf = execute_in_chunks(
             self.conn_pool.clone(),

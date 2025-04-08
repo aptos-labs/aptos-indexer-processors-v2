@@ -1,6 +1,8 @@
 use crate::{
+    filter_datasets,
     processors::objects::v2_objects_models::{PostgresCurrentObject, PostgresObject},
     schema,
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -24,13 +26,19 @@ where
 {
     conn_pool: ArcDbPool,
     per_table_chunk_sizes: AHashMap<String, usize>,
+    tables_to_write: TableFlags,
 }
 
 impl ObjectsStorer {
-    pub fn new(conn_pool: ArcDbPool, per_table_chunk_sizes: AHashMap<String, usize>) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        per_table_chunk_sizes: AHashMap<String, usize>,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             per_table_chunk_sizes,
+            tables_to_write,
         }
     }
 }
@@ -46,6 +54,19 @@ impl Processable for ObjectsStorer {
         input: TransactionContext<(Vec<PostgresObject>, Vec<PostgresCurrentObject>)>,
     ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
         let (objects, current_objects) = input.data;
+
+        let objects = filter_data(&self.tables_to_write, TableFlags::OBJECTS, objects);
+
+        let current_objects = filter_data(
+            &self.tables_to_write,
+            TableFlags::CURRENT_OBJECTS,
+            current_objects,
+        );
+
+        let (objects, current_objects) = filter_datasets!(self, {
+            objects => TableFlags::OBJECTS,
+            current_objects => TableFlags::CURRENT_OBJECTS,
+        });
 
         let io = execute_in_chunks(
             self.conn_pool.clone(),

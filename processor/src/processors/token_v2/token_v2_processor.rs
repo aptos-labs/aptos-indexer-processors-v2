@@ -12,6 +12,7 @@ use crate::{
         },
         token_v2::{token_v2_extractor::TokenV2Extractor, token_v2_storer::TokenV2Storer},
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -133,7 +134,12 @@ impl ProcessorTrait for TokenV2Processor {
             processor_config.query_retry_delay_ms,
             self.db_pool.clone(),
         );
-        let token_v2_storer = TokenV2Storer::new(self.db_pool.clone(), processor_config.clone());
+        let opt_in_tables = TableFlags::from_set(&processor_config.default_config.tables_to_write);
+        let token_v2_storer = TokenV2Storer::new(
+            self.db_pool.clone(),
+            processor_config.clone(),
+            opt_in_tables,
+        );
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

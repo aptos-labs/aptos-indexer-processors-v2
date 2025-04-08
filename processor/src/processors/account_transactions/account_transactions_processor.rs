@@ -12,6 +12,7 @@ use crate::{
             get_end_version, get_starting_version, PostgresProcessorStatusSaver,
         },
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -113,8 +114,10 @@ impl ProcessorTrait for AccountTransactionsProcessor {
         })
         .await?;
         let acc_txns_extractor = AccountTransactionsExtractor {};
+        let opt_in_tables = TableFlags::from_set(&processor_config.tables_to_write);
+
         let acc_txns_storer =
-            AccountTransactionsStorer::new(self.db_pool.clone(), processor_config);
+            AccountTransactionsStorer::new(self.db_pool.clone(), processor_config, opt_in_tables);
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

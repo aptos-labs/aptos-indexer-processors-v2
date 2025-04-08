@@ -9,6 +9,7 @@ use crate::{
             get_end_version, get_starting_version, PostgresProcessorStatusSaver,
         },
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -102,6 +103,7 @@ impl ProcessorTrait for AccountRestorationProcessor {
             },
         };
         let channel_size = processor_config.channel_size;
+        let opt_in_tables = TableFlags::from_set(&processor_config.tables_to_write);
 
         // Define processor steps.
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
@@ -111,7 +113,8 @@ impl ProcessorTrait for AccountRestorationProcessor {
         })
         .await?;
         let acc_rest_extractor = AccountRestorationExtractor {};
-        let acc_rest_storer = AccountRestorationStorer::new(self.db_pool.clone(), processor_config);
+        let acc_rest_storer =
+            AccountRestorationStorer::new(self.db_pool.clone(), processor_config, opt_in_tables);
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

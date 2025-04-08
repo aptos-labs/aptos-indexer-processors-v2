@@ -76,6 +76,11 @@ bitflags! {
         const ANS_PRIMARY_NAME_V2 = 1 << 104;
         const ANS_LOOKUP = 1 << 105;
         const ANS_PRIMARY_NAME = 1 << 106;
+
+        // Account Restoration Processor: 111-120
+        const AUTH_KEY_ACCOUNT_ADDRESSES = 1 << 111;
+        const PUBLIC_KEY_AUTH_KEYS = 1 << 112;
+        const GAS_FEES = 1 << 123;
     }
 }
 
@@ -102,4 +107,16 @@ pub fn filter_data<T>(tables_to_write: &TableFlags, flag: TableFlags, data: Vec<
     } else {
         vec![]
     }
+}
+
+/// Macro to filter multiple data sets with their corresponding table flags in one go
+#[macro_export]
+macro_rules! filter_datasets {
+    ($self:expr, { $($data:expr => $flag:expr),* $(,)? }) => {
+        (
+            $(
+                filter_data(&$self.tables_to_write, $flag, $data),
+            )*
+        )
+    };
 }

@@ -12,6 +12,7 @@ use crate::{
             get_end_version, get_starting_version, PostgresProcessorStatusSaver,
         },
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -134,8 +135,12 @@ impl ProcessorTrait for ObjectsProcessor {
             processor_config.query_retry_delay_ms,
             self.db_pool.clone(),
         );
-        let objects_storer =
-            ObjectsStorer::new(self.db_pool.clone(), per_table_chunk_sizes.clone());
+        let opt_in_tables = TableFlags::from_set(&processor_config.default_config.tables_to_write);
+        let objects_storer = ObjectsStorer::new(
+            self.db_pool.clone(),
+            per_table_chunk_sizes.clone(),
+            opt_in_tables,
+        );
 
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),

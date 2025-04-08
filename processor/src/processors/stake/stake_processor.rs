@@ -12,6 +12,7 @@ use crate::{
         },
         stake::{stake_extractor::StakeExtractor, stake_storer::StakeStorer},
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -138,7 +139,12 @@ impl ProcessorTrait for StakeProcessor {
             processor_config.query_retries,
             processor_config.query_retry_delay_ms,
         );
-        let storer = StakeStorer::new(self.db_pool.clone(), processor_config.clone());
+        let opt_in_tables = TableFlags::from_set(&processor_config.default_config.tables_to_write);
+        let storer = StakeStorer::new(
+            self.db_pool.clone(),
+            processor_config.clone(),
+            opt_in_tables,
+        );
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

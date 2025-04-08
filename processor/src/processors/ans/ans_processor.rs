@@ -10,6 +10,7 @@ use crate::{
             get_end_version, get_starting_version, PostgresProcessorStatusSaver,
         },
     },
+    utils::table_flags::TableFlags,
     MIGRATIONS,
 };
 use anyhow::Result;
@@ -113,7 +114,7 @@ impl ProcessorTrait for AnsProcessor {
             },
         };
         let channel_size = processor_config.default.channel_size;
-
+        let opt_in_tables = TableFlags::from_set(&processor_config.default.tables_to_write);
         // Define processor steps.
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
             starting_version,
@@ -122,7 +123,7 @@ impl ProcessorTrait for AnsProcessor {
         })
         .await?;
         let acc_txns_extractor = AnsExtractor::new(self.config.processor_config.clone());
-        let acc_txns_storer = AnsStorer::new(self.db_pool.clone(), processor_config);
+        let acc_txns_storer = AnsStorer::new(self.db_pool.clone(), processor_config, opt_in_tables);
         let version_tracker = VersionTrackerStep::new(
             PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,

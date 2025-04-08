@@ -1,13 +1,12 @@
 use crate::models::fa_v2_models::{
-    CoinSupply, CurrentUnifiedFungibleAssetBalance, FungibleAssetActivity, FungibleAssetBalance,
+    CurrentUnifiedFungibleAssetBalance, FungibleAssetActivity, FungibleAssetBalance,
     FungibleAssetMetadataModel,
 };
 use anyhow::Result;
 use diesel::{pg::PgConnection, ExpressionMethods, QueryDsl, RunQueryDsl};
 use processor::schema::{
-    coin_supply::dsl as cs_dsl, current_fungible_asset_balances::dsl as cfab_dsl,
-    fungible_asset_activities::dsl as faa_dsl, fungible_asset_balances::dsl as fab_dsl,
-    fungible_asset_metadata::dsl as fam_dsl,
+    current_fungible_asset_balances::dsl as cfab_dsl, fungible_asset_activities::dsl as faa_dsl,
+    fungible_asset_balances::dsl as fab_dsl, fungible_asset_metadata::dsl as fam_dsl,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,16 +64,6 @@ pub fn load_data(conn: &mut PgConnection) -> Result<HashMap<String, Value>> {
     result_map.insert(
         "current_fungible_asset_balances".to_string(),
         serde_json::from_str(&current_fungible_asset_balances_json)?,
-    );
-
-    let coin_supply_result = cs_dsl::coin_supply
-        .order_by(cs_dsl::transaction_version.asc())
-        .load::<CoinSupply>(conn);
-    let all_coin_supply = coin_supply_result?;
-    let coin_supply_json = serde_json::to_string_pretty(&all_coin_supply)?;
-    result_map.insert(
-        "coin_supply".to_string(),
-        serde_json::from_str(&coin_supply_json)?,
     );
 
     Ok(result_map)

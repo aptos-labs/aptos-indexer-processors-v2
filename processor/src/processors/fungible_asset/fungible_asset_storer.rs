@@ -3,6 +3,7 @@
 
 use crate::{
     config::processor_config::DefaultProcessorConfig,
+    filter_datasets,
     processors::fungible_asset::{
         coin_models::coin_supply::CoinSupply,
         fungible_asset_models::{
@@ -91,42 +92,28 @@ impl Processable for FungibleAssetStorer {
         let (
             fungible_asset_activities,
             fungible_asset_metadata,
-            _fungible_asset_balances,
+            _fungible_asset_balances, // TODO: remove this from parsing logic
             (current_unified_fab_v1, current_unified_fab_v2),
-            coin_supply,
+            _coin_supply, // TODO: remove this from parsing logic
             fa_to_coin_mappings,
         ) = input.data;
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
 
-        // This is a filter to support writng to db for backfilling so that we only write to the tables that are specified in the processor config
-        // Or by default we write to all tables if the tables_to_write in the config is empty.
-        let current_unified_fab_v1: Vec<PostgresCurrentUnifiedFungibleAssetBalance> = filter_data(
-            &self.tables_to_write,
-            TableFlags::CURRENT_UNIFIED_FUNGIBLE_ASSET_BALANCES,
+        let (
             current_unified_fab_v1,
-        );
-
-        let current_unified_fab_v2 = filter_data(
-            &self.tables_to_write,
-            TableFlags::CURRENT_UNIFIED_FUNGIBLE_ASSET_BALANCES,
             current_unified_fab_v2,
-        );
-
-        let coin_supply = filter_data(&self.tables_to_write, TableFlags::COIN_SUPPLY, coin_supply);
-
-        let fungible_asset_activities = filter_data(
-            &self.tables_to_write,
-            TableFlags::FUNGIBLE_ASSET_ACTIVITIES,
             fungible_asset_activities,
-        );
-
-        let fungible_asset_metadata = filter_data(
-            &self.tables_to_write,
-            TableFlags::FUNGIBLE_ASSET_METADATA,
             fungible_asset_metadata,
-        );
+            fa_to_coin_mappings,
+        ) = filter_datasets!(self, {
+            current_unified_fab_v1 => TableFlags::CURRENT_FUNGIBLE_ASSET_BALANCES,
+            current_unified_fab_v2 => TableFlags::CURRENT_FUNGIBLE_ASSET_BALANCES,
+            fungible_asset_activities => TableFlags::FUNGIBLE_ASSET_ACTIVITIES,
+            fungible_asset_metadata => TableFlags::FUNGIBLE_ASSET_METADATA,
+            fa_to_coin_mappings => TableFlags::FUNGIBLE_ASSET_TO_COIN_MAPPINGS,
+        });
 
         let faa = execute_in_chunks(
             self.conn_pool.clone(),
@@ -164,12 +151,6 @@ impl Processable for FungibleAssetStorer {
                 &per_table_chunk_sizes,
             ),
         );
-        let cs = execute_in_chunks(
-            self.conn_pool.clone(),
-            insert_coin_supply_query,
-            &coin_supply,
-            get_config_table_chunk_size::<CoinSupply>("coin_supply", &per_table_chunk_sizes),
-        );
         let fatcm = execute_in_chunks(
             self.conn_pool.clone(),
             insert_fungible_asset_to_coin_mappings_query,
@@ -179,9 +160,9 @@ impl Processable for FungibleAssetStorer {
                 &per_table_chunk_sizes,
             ),
         );
-        let (faa_res, fam_res, cufab1_res, cufab2_res, cs_res, fatcm_res) =
-            tokio::join!(faa, fam, cufab_v1, cufab_v2, cs, fatcm);
-        for res in [faa_res, fam_res, cufab1_res, cufab2_res, cs_res, fatcm_res] {
+        let (faa_res, fam_res, cufab1_res, cufab2_res, fatcm_res) =
+            tokio::join!(faa, fam, cufab_v1, cufab_v2, fatcm);
+        for res in [faa_res, fam_res, cufab1_res, cufab2_res, fatcm_res] {
             match res {
                 Ok(_) => {},
                 Err(e) => {
@@ -319,17 +300,6 @@ pub fn insert_current_unified_fungible_asset_balances_v2_query(
                 .is_null()
                 .or(last_transaction_version_v2.le(excluded(last_transaction_version_v2))),
         )
-}
-
-pub fn insert_coin_supply_query(
-    items_to_insert: Vec<CoinSupply>,
-) -> impl QueryFragment<Pg> + diesel::query_builder::QueryId + Send {
-    use schema::coin_supply::dsl::*;
-
-    diesel::insert_into(schema::coin_supply::table)
-        .values(items_to_insert)
-        .on_conflict((transaction_version, coin_type_hash))
-        .do_nothing()
 }
 
 pub fn insert_fungible_asset_to_coin_mappings_query(

@@ -1,9 +1,11 @@
 use crate::{
     config::processor_config::DefaultProcessorConfig,
+    filter_datasets,
     processors::account_restoration::account_restoration_models::{
         auth_key_account_addresses::AuthKeyAccountAddress, public_key_auth_keys::PublicKeyAuthKey,
     },
     schema,
+    utils::table_flags::{filter_data, TableFlags},
 };
 use ahash::AHashMap;
 use anyhow::Result;
@@ -27,13 +29,19 @@ where
 {
     conn_pool: ArcDbPool,
     processor_config: DefaultProcessorConfig,
+    tables_to_write: TableFlags,
 }
 
 impl AccountRestorationStorer {
-    pub fn new(conn_pool: ArcDbPool, processor_config: DefaultProcessorConfig) -> Self {
+    pub fn new(
+        conn_pool: ArcDbPool,
+        processor_config: DefaultProcessorConfig,
+        tables_to_write: TableFlags,
+    ) -> Self {
         Self {
             conn_pool,
             processor_config,
+            tables_to_write,
         }
     }
 }
@@ -52,6 +60,11 @@ impl Processable for AccountRestorationStorer {
 
         let per_table_chunk_sizes: AHashMap<String, usize> =
             self.processor_config.per_table_chunk_sizes.clone();
+
+        let (auth_key_address, public_key_auth_key) = filter_datasets!(self, {
+            auth_key_address => TableFlags::AUTH_KEY_ACCOUNT_ADDRESSES,
+            public_key_auth_key => TableFlags::PUBLIC_KEY_AUTH_KEYS,
+        });
 
         let auth_key_address_res = execute_in_chunks(
             self.conn_pool.clone(),
