@@ -64,6 +64,7 @@ mod sdk_fungible_asset_processor_tests {
         IMPORTED_MAINNET_TXNS_2186504987_COIN_STORE_DELETION_NO_EVENT,
         IMPORTED_MAINNET_TXNS_2308282694_ASSET_TYPE_V1_NULL,
         IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2,
+        IMPORTED_MAINNET_TXNS_2448304257_COINSTORE_DELETION_EVENT,
         IMPORTED_MAINNET_TXNS_255894550_STORAGE_REFUND,
         IMPORTED_MAINNET_TXNS_508365567_FA_V1_EVENTS,
         IMPORTED_MAINNET_TXNS_550582915_MULTIPLE_TRANSFER_EVENT,
@@ -216,6 +217,15 @@ mod sdk_fungible_asset_processor_tests {
         process_single_batch_txns(
             &[IMPORTED_MAINNET_TXNS_2186504987_COIN_STORE_DELETION_NO_EVENT],
             Some("coin_store_deletion_no_event".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_fungible_asset_processor_coin_store_deletion_event() {
+        process_single_batch_txns(
+            &[IMPORTED_MAINNET_TXNS_2448304257_COINSTORE_DELETION_EVENT],
+            Some("coin_store_deletion_event".to_string()),
         )
         .await;
     }
