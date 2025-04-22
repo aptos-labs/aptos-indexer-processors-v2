@@ -69,10 +69,6 @@ google-cloud-googleapis = "0.10.0"
 google-cloud-pubsub = "0.18.0"
 hex = "0.4.3"
 itertools = "0.12.1"
-jemallocator = { version = "0.5.0", features = [
-    "profiling",
-    "unprefixed_malloc_on_supported_platforms",
-] }
 json-structural-diff = "0.1.0"
 assert-json-diff = "2.0.2"
 lazy_static = "1.4.0"

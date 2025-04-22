@@ -38,7 +38,6 @@ google-cloud-storage = { workspace = true }
 hex = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }
-jemallocator = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 
@@ -74,7 +73,10 @@ aptos-indexer-processor-sdk = { workspace = true, features = [
 ] }
 
 [target.'cfg(unix)'.dependencies]
-jemallocator = { workspace = true }
+jemallocator = { version = "0.5.0", features = [
+    "profiling",
+    "unprefixed_malloc_on_supported_platforms",
+] }
 
 [features]
 libpq = ["aptos-indexer-processor-sdk/postgres_full", "diesel/postgres"]
