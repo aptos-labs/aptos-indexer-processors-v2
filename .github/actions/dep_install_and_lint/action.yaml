@@ -10,6 +10,8 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # Ensures to use the Rust toolchain version
+    - uses: dsherret/rust-toolchain-file@v1
     - name: Install Dependencies
       run: |
         sudo apt update && sudo apt install libdw-dev
