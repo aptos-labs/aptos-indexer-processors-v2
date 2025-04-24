@@ -114,9 +114,7 @@ pub fn validate_json(
         remove_transaction_timestamp(db_value);
         remove_inserted_at(&mut expected_json);
         remove_transaction_timestamp(&mut expected_json);
-        println!(
-            "Diffing table: {table_name}, diffing version: {txn_version}"
-        );
+        println!("Diffing table: {table_name}, diffing version: {txn_version}");
         assert_json_eq!(db_value, expected_json);
     }
     Ok(())

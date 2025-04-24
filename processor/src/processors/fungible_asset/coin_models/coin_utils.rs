@@ -274,9 +274,7 @@ impl CoinResource {
 
     fn from_delete_resource_internal(data_type: &str, txn_version: i64) -> Result<CoinResource> {
         match data_type {
-            x if x == format!("{COIN_ADDR}::coin::CoinInfo") => {
-                Ok(CoinResource::CoinInfoDeletion)
-            },
+            x if x == format!("{COIN_ADDR}::coin::CoinInfo") => Ok(CoinResource::CoinInfoDeletion),
             x if x == format!("{COIN_ADDR}::coin::CoinStore") => {
                 Ok(CoinResource::CoinStoreDeletion)
             },

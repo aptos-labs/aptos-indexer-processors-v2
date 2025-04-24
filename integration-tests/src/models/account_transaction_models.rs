@@ -56,9 +56,10 @@ impl AccountTransaction {
                 return AHashSet::new();
             },
         };
-        let transaction_info = transaction.info.as_ref().unwrap_or_else(|| {
-            panic!("Transaction info doesn't exist for version {txn_version}")
-        });
+        let transaction_info = transaction
+            .info
+            .as_ref()
+            .unwrap_or_else(|| panic!("Transaction info doesn't exist for version {txn_version}"));
         let wscs = &transaction_info.changes;
         let (events, signatures) = match txn_data {
             TxnData::User(inner) => (

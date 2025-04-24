@@ -324,9 +324,7 @@ pub enum V2AnsEvent {
 impl V2AnsEvent {
     pub fn is_event_supported(event_type: &str, ans_v2_contract_address: &str) -> bool {
         [
-            format!(
-                "{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent"
-            ),
+            format!("{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent"),
             format!("{ans_v2_contract_address}::v2_1_domains::RenewNameEvent"),
         ]
         .contains(&event_type.to_string())
@@ -345,11 +343,7 @@ impl V2AnsEvent {
         }
 
         match type_str.clone() {
-            x if x
-                == format!(
-                    "{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent"
-                ) =>
-            {
+            x if x == format!("{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent") => {
                 serde_json::from_str(data).map(|inner| Some(Self::SetReverseLookupEvent(inner)))
             },
             x if x == format!("{ans_v2_contract_address}::v2_1_domains::RenewNameEvent") => {
