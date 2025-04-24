@@ -59,7 +59,7 @@ impl AccountTransaction {
             },
         };
         let transaction_info = transaction.info.as_ref().unwrap_or_else(|| {
-            panic!("Transaction info doesn't exist for version {}", txn_version)
+            panic!("Transaction info doesn't exist for version {txn_version}")
         });
         let wscs = &transaction_info.changes;
         let (events, signatures) = match txn_data {
@@ -67,7 +67,7 @@ impl AccountTransaction {
                 &inner.events,
                 UserTransaction::get_signatures(
                     inner.request.as_ref().unwrap_or_else(|| {
-                        panic!("User request doesn't exist for version {}", txn_version)
+                        panic!("User request doesn't exist for version {txn_version}")
                     }),
                     txn_version,
                     transaction.block_height as i64,

@@ -81,7 +81,7 @@ impl BackfillProcessorStatusQuery {
         backfill_id: &str,
         conn: &mut DbPoolConnection<'_>,
     ) -> diesel::QueryResult<Option<Self>> {
-        let backfill_alias = format!("{}_{}", processor_name, backfill_id);
+        let backfill_alias = format!("{processor_name}_{backfill_id}");
         backfill_processor_status::table
             .filter(backfill_processor_status::backfill_alias.eq(backfill_alias))
             .first::<Self>(conn)

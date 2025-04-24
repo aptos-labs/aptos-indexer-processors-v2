@@ -206,8 +206,7 @@ pub fn parse_multi_agent_signature(
                     index
                 );
                 panic!(
-                    "Failed to parse index {} for multi agent secondary signers",
-                    index
+                    "Failed to parse index {index} for multi agent secondary signers"
                 );
             },
         };
@@ -254,8 +253,7 @@ pub fn parse_fee_payer_signature(
                     index
                 );
                 panic!(
-                    "Failed to parse index {} for multi agent secondary signers",
-                    index
+                    "Failed to parse index {index} for multi agent secondary signers"
                 );
             },
         };

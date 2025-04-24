@@ -123,8 +123,7 @@ impl StakeTableItem {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 }
@@ -138,31 +137,29 @@ pub enum StakeResource {
 impl StakeResource {
     fn is_resource_supported(data_type: &str) -> bool {
         [
-            format!("{}::stake::StakePool", STAKE_ADDR),
-            format!("{}::delegation_pool::DelegationPool", STAKE_ADDR),
+            format!("{STAKE_ADDR}::stake::StakePool"),
+            format!("{STAKE_ADDR}::delegation_pool::DelegationPool"),
         ]
         .contains(&data_type.to_string())
     }
 
     fn from_resource(data_type: &str, data: &serde_json::Value, txn_version: i64) -> Result<Self> {
         match data_type {
-            x if x == format!("{}::stake::StakePool", STAKE_ADDR) => {
+            x if x == format!("{STAKE_ADDR}::stake::StakePool") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(StakeResource::StakePool(inner)))
             },
-            x if x == format!("{}::delegation_pool::DelegationPool", STAKE_ADDR) => {
+            x if x == format!("{STAKE_ADDR}::delegation_pool::DelegationPool") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(StakeResource::DelegationPool(inner)))
             },
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))?
         .context(format!(
-            "Resource unsupported! Call is_resource_supported first. version {} type {}",
-            txn_version, data_type
+            "Resource unsupported! Call is_resource_supported first. version {txn_version} type {data_type}"
         ))
     }
 
@@ -238,8 +235,7 @@ impl StakeEvent {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 }
@@ -286,8 +282,7 @@ impl VoteDelegationTableItem {
             "vector<0x1::smart_table::Entry<address, 0x1::delegation_pool::VoteDelegation>>" => {
                 let vote_delegation_vector: Vec<VoteDelegationVector> = serde_json::from_str(data)
                     .context(format!(
-                        "version {} failed! failed to parse type {}, data {:?}",
-                        txn_version, data_type, data
+                        "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
                     ))?;
                 Ok(Some(VoteDelegationTableItem::VoteDelegationVector(
                     vote_delegation_vector.clone(),
@@ -325,7 +320,7 @@ impl DelegationVoteGovernanceRecordsResource {
         txn_version: i64,
     ) -> Result<Option<Self>> {
         match data_type {
-            x if x == format!("{}::delegation_pool::GovernanceRecords", STAKE_ADDR) => {
+            x if x == format!("{STAKE_ADDR}::delegation_pool::GovernanceRecords") => {
                 serde_json::from_value(data.clone()).map(|inner| {
                     Some(DelegationVoteGovernanceRecordsResource::GovernanceRecords(
                         inner,
@@ -335,8 +330,7 @@ impl DelegationVoteGovernanceRecordsResource {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 

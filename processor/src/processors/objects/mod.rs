@@ -40,8 +40,7 @@ pub async fn process_objects(
             .as_ref()
             .unwrap_or_else(|| {
                 panic!(
-                    "Transaction info doesn't exist! Transaction {}",
-                    txn_version
+                    "Transaction info doesn't exist! Transaction {txn_version}"
                 )
             })
             .changes;

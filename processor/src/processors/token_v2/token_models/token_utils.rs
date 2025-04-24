@@ -502,8 +502,7 @@ impl TokenWriteSet {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 }
@@ -580,8 +579,7 @@ impl TokenEvent {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 }
@@ -596,9 +594,9 @@ pub enum TokenResource {
 impl TokenResource {
     pub fn is_resource_supported(data_type: &str) -> bool {
         [
-            format!("{}::token::Collections", TOKEN_ADDR),
-            format!("{}::token::TokenStore", TOKEN_ADDR),
-            format!("{}::token_transfers::PendingClaims", TOKEN_ADDR),
+            format!("{TOKEN_ADDR}::token::Collections"),
+            format!("{TOKEN_ADDR}::token::TokenStore"),
+            format!("{TOKEN_ADDR}::token_transfers::PendingClaims"),
         ]
         .contains(&data_type.to_string())
     }
@@ -609,27 +607,25 @@ impl TokenResource {
         txn_version: i64,
     ) -> Result<TokenResource> {
         match data_type {
-            x if x == format!("{}::token::Collections", TOKEN_ADDR) => {
+            x if x == format!("{TOKEN_ADDR}::token::Collections") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(TokenResource::CollectionResource(inner)))
             },
-            x if x == format!("{}::token::TokenStore", TOKEN_ADDR) => {
+            x if x == format!("{TOKEN_ADDR}::token::TokenStore") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(TokenResource::TokenStoreResource(inner)))
             },
-            x if x == format!("{}::token_transfers::PendingClaims", TOKEN_ADDR) => {
+            x if x == format!("{TOKEN_ADDR}::token_transfers::PendingClaims") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(TokenResource::PendingClaimsResource(inner)))
             },
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))?
         .context(format!(
-            "Resource unsupported! Call is_resource_supported first. version {} type {}",
-            txn_version, data_type
+            "Resource unsupported! Call is_resource_supported first. version {txn_version} type {data_type}"
         ))
     }
 }

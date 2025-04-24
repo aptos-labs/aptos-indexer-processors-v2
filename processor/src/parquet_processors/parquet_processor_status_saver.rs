@@ -66,7 +66,7 @@ pub async fn get_parquet_starting_version(
         .processor_config
         .get_processor_status_table_names()
         .map_err(|e| ProcessorError::ProcessError {
-            message: format!("Failed to get processor status table names. {:?}", e),
+            message: format!("Failed to get processor status table names. {e:?}"),
         })?;
 
     match &config.processor_mode {
@@ -78,8 +78,7 @@ pub async fn get_parquet_starting_version(
                     .await
                     .map_err(|e| ProcessorError::ProcessError {
                         message: format!(
-                            "Failed to get minimum last success version from DB. {:?}",
-                            e
+                            "Failed to get minimum last success version from DB. {e:?}"
                         ),
                     })?;
 
@@ -103,7 +102,7 @@ pub async fn get_parquet_starting_version(
             )
             .await
             .map_err(|e| ProcessorError::ProcessError {
-                message: format!("Failed to query backfill_processor_status table. {:?}", e),
+                message: format!("Failed to query backfill_processor_status table. {e:?}"),
             })?;
 
             // Return None if there is no checkpoint, if the backfill is old (complete), or if overwrite_checkpoint is true.
@@ -202,7 +201,7 @@ pub async fn get_parquet_end_version(
         .processor_config
         .get_processor_status_table_names()
         .map_err(|e| ProcessorError::ProcessError {
-            message: format!("Failed to get processor status table names. {:?}", e),
+            message: format!("Failed to get processor status table names. {e:?}"),
         })?;
 
     match &config.processor_mode {
@@ -217,8 +216,7 @@ pub async fn get_parquet_end_version(
                             .await
                             .map_err(|e| ProcessorError::ProcessError {
                                 message: format!(
-                                    "Failed to get minimum last success version from DB. {:?}",
-                                    e
+                                    "Failed to get minimum last success version from DB. {e:?}"
                                 ),
                             })?;
                     Ok(min_processed_version)
@@ -256,12 +254,12 @@ async fn get_min_processed_version_from_db(
                 .get()
                 .await
                 .map_err(|err| ProcessorError::ProcessError {
-                    message: format!("Failed to get database connection. {:?}", err),
+                    message: format!("Failed to get database connection. {err:?}"),
                 })?;
             ProcessorStatusQuery::get_by_processor(&processor_name, &mut conn)
                 .await
                 .map_err(|e| ProcessorError::ProcessError {
-                    message: format!("Failed to query processor_status table. {:?}", e),
+                    message: format!("Failed to query processor_status table. {e:?}"),
                 })
         };
 
@@ -284,7 +282,7 @@ async fn get_min_processed_version_from_db(
                 Ok(None) => None,
                 // TODO: If the result is an `Err`, what should we do?
                 Err(e) => {
-                    eprintln!("Error fetching processor status: {:?}", e);
+                    eprintln!("Error fetching processor status: {e:?}");
                     None
                 },
             }
@@ -311,12 +309,12 @@ async fn get_parquet_backfill_statuses(
                 .get()
                 .await
                 .map_err(|err| ProcessorError::ProcessError {
-                    message: format!("Failed to get database connection. {:?}", err),
+                    message: format!("Failed to get database connection. {err:?}"),
                 })?;
             BackfillProcessorStatusQuery::get_by_processor(&processor_name, &backfill_id, &mut conn)
                 .await
                 .map_err(|e| ProcessorError::ProcessError {
-                    message: format!("Failed to query backfill_processor_status table. {:?}", e),
+                    message: format!("Failed to query backfill_processor_status table. {e:?}"),
                 })
         };
 
@@ -339,7 +337,7 @@ async fn get_parquet_backfill_statuses(
                 Ok(None) => None,
                 // TODO: If the result is an `Err`, what should we do?
                 Err(e) => {
-                    eprintln!("Error fetching processor status: {:?}", e);
+                    eprintln!("Error fetching processor status: {e:?}");
                     None
                 },
             }
@@ -554,7 +552,7 @@ mod tests {
         for table_name in table_names.into_iter() {
             diesel::insert_into(crate::schema::backfill_processor_status::table)
                 .values(BackfillProcessorStatus {
-                    backfill_alias: format!("{}_{}", table_name, backfill_id),
+                    backfill_alias: format!("{table_name}_{backfill_id}"),
                     backfill_status: BackfillStatus::InProgress,
                     last_success_version: 10,
                     last_transaction_timestamp: None,
@@ -607,7 +605,7 @@ mod tests {
         for table_name in table_names.into_iter() {
             diesel::insert_into(crate::schema::backfill_processor_status::table)
                 .values(BackfillProcessorStatus {
-                    backfill_alias: format!("{}_{}", table_name, backfill_id),
+                    backfill_alias: format!("{table_name}_{backfill_id}"),
                     backfill_status: BackfillStatus::InProgress,
                     last_success_version: 10,
                     last_transaction_timestamp: None,

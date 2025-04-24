@@ -66,11 +66,11 @@ impl std::error::Error for ParquetProcessorError {
 impl Display for ParquetProcessorError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match *self {
-            ParquetProcessorError::ParquetError(ref err) => write!(f, "Parquet error: {}", err),
-            ParquetProcessorError::StorageError(ref err) => write!(f, "Storage error: {}", err),
-            ParquetProcessorError::TimeoutError(ref err) => write!(f, "Timeout error: {}", err),
-            ParquetProcessorError::IoError(ref err) => write!(f, "IO error: {}", err),
-            ParquetProcessorError::Other(ref desc) => write!(f, "Error: {}", desc),
+            ParquetProcessorError::ParquetError(ref err) => write!(f, "Parquet error: {err}"),
+            ParquetProcessorError::StorageError(ref err) => write!(f, "Storage error: {err}"),
+            ParquetProcessorError::TimeoutError(ref err) => write!(f, "Timeout error: {err}"),
+            ParquetProcessorError::IoError(ref err) => write!(f, "IO error: {err}"),
+            ParquetProcessorError::Other(ref desc) => write!(f, "Error: {desc}"),
         }
     }
 }
@@ -133,5 +133,5 @@ pub fn add_to_map_if_opted_in_for_backfill(
 
 /// helper function to format the table name with the processor name.
 pub fn format_table_name(prefix: &str, table_name: &str) -> String {
-    format!("{}.{}", prefix, table_name)
+    format!("{prefix}.{table_name}")
 }

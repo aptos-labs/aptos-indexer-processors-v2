@@ -49,7 +49,7 @@ impl Processable for ObjectsExtractor {
             .get()
             .await
             .map_err(|e| ProcessorError::DBStoreError {
-                message: format!("Failed to get connection from pool: {:?}", e),
+                message: format!("Failed to get connection from pool: {e:?}"),
                 query: None,
             })?;
         let query_retries = self.query_retries;

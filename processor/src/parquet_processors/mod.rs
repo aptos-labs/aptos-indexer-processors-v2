@@ -742,7 +742,7 @@ fn set_backfill_table_flag(table_names: HashSet<String>) -> TableFlags {
 
     for table_name in table_names.iter() {
         if let Some(flag) = TableFlags::from_name(table_name) {
-            println!("Setting backfill table flag: {:?}", flag);
+            println!("Setting backfill table flag: {flag:?}");
             backfill_table |= flag;
         }
     }

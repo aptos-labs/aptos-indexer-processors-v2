@@ -133,7 +133,7 @@ impl ProcessorTrait for ParquetUserTransactionProcessor {
         )
         .await
         .unwrap_or_else(|e| {
-            panic!("Failed to initialize parquet buffer step: {:?}", e);
+            panic!("Failed to initialize parquet buffer step: {e:?}");
         });
 
         let parquet_version_tracker_step = ParquetVersionTrackerStep::new(

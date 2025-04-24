@@ -222,8 +222,7 @@ impl Processable for ParquetBufferStep {
                 } else {
                     // This should never happen
                     panic!(
-                        "Buffer metadata is missing for ParquetTypeEnum: {:?}",
-                        parquet_type
+                        "Buffer metadata is missing for ParquetTypeEnum: {parquet_type:?}"
                     );
                 }
             }

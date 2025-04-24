@@ -86,7 +86,7 @@ impl Processable for StakeExtractor {
             .get()
             .await
             .map_err(|e| ProcessorError::DBStoreError {
-                message: format!("Failed to get connection from pool: {:?}", e),
+                message: format!("Failed to get connection from pool: {e:?}"),
                 query: None,
             })?;
 
@@ -118,7 +118,7 @@ impl Processable for StakeExtractor {
                     "[Parser] Error parsing stake data",
                 );
                 return Err(ProcessorError::ProcessError {
-                    message: format!("Error parsing stake data: {:?}", e),
+                    message: format!("Error parsing stake data: {e:?}"),
                 });
             },
         };

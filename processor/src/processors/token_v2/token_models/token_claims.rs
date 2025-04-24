@@ -179,10 +179,9 @@ impl CurrentTokenPendingClaim {
             let owner_address = maybe_owner_address.unwrap_or_else(|| {
                 panic!(
                     "Missing table handle metadata for claim. \
-                        Version: {}, table handle for PendingClaims: {}, all metadata: {:?} \
+                        Version: {txn_version}, table handle for PendingClaims: {table_handle}, all metadata: {table_handle_to_owner:?} \
                         Missing token data id in token claim event. \
-                        token_data_id: {}, all token claim events: {:?}",
-                    txn_version, table_handle, table_handle_to_owner, token_data_id, tokens_claimed
+                        token_data_id: {token_data_id}, all token claim events: {tokens_claimed:?}"
                 )
             });
 
