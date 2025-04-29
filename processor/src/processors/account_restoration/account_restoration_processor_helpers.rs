@@ -85,7 +85,7 @@ pub fn parse_account_restoration_models(
             let key_rotation_event = KeyRotationToPublicKeyEvent::from_transaction(txn);
             let mut multi_key_helper = signature
                 .as_ref()
-                .and_then(PublicKeyAuthKeyHelper::get_multi_key_from_signature);
+                .and_then(|sig| PublicKeyAuthKeyHelper::get_multi_key_from_signature(sig, txn_version));
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
                     if let Some(V2TokenResource::Account(account)) =
@@ -116,7 +116,7 @@ pub fn parse_account_restoration_models(
             // If there is a KeyRotationToPublicKeyEvent event, use the PublicKeyAuthKeyHelper constructed from it instead.
             // In the case of a single key, there is no helper to construct.
             if let Some(key_rotation_event) = key_rotation_event {
-                multi_key_helper = PublicKeyAuthKeyHelper::create_helper_from_key_rotation_event(&key_rotation_event);
+                multi_key_helper = PublicKeyAuthKeyHelper::create_helper_from_key_rotation_event(&key_rotation_event, txn_version);
             }
 
             if let Some(helper) = &multi_key_helper {

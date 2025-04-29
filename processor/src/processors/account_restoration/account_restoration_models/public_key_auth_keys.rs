@@ -29,6 +29,7 @@ const ED25519_SCHEME: u8 = 0;
 const MULTI_ED25519_SCHEME: u8 = 1;
 const SINGLE_KEY_SCHEME: u8 = 2;
 const MULTI_KEY_SCHEME: u8 = 3;
+const MAX_ACCOUNT_PUBLIC_KEY_LENGTH: usize = 3000;
 
 #[derive(
     Clone,
@@ -106,18 +107,16 @@ impl PublicKeyAuthKeyHelper {
         }
     }
 
-    fn create_helper_from_multi_key_sig(sig: &MultiKeySignature) -> Self {
-        let public_keys_indices = get_public_key_indices_from_multi_key_signature(sig);
-        let mut keys = vec![];
-        for (index, public_key) in sig.public_keys.iter().enumerate() {
-            keys.push(PublicKeyAuthKeyHelperInner {
-                public_key: format!("0x{}", hex::encode(public_key.public_key.as_slice())),
-                public_key_type: get_any_public_key_type(public_key),
-                is_public_key_used: public_keys_indices.contains(&index),
-            });
-        }
+    fn create_helper_from_multi_key_sig(sig: &MultiKeySignature, transaction_version: i64) -> Option<Self> {
+        if sig.public_keys.len() > 16 {
+            tracing::warn!(
+                transaction_version,
+                "Multi key signature with more than 16 public keys not supported"
+            );
+            return None;
+        };
 
-        let multikey_hex_string = {
+        let account_public_key = {
             let mut combined = String::from("0x");
             combined.push_str(&hex::encode(&[sig.public_keys.len() as u8]));
             combined.extend(
@@ -131,17 +130,36 @@ impl PublicKeyAuthKeyHelper {
             combined
         };
 
-        Self {
+        if account_public_key.len() > MAX_ACCOUNT_PUBLIC_KEY_LENGTH {
+            tracing::warn!(
+                transaction_version,
+                "Multi key signature with more than 3000 characters not supported"
+            );
+            return None;
+        };
+
+        let public_keys_indices = get_public_key_indices_from_multi_key_signature(sig);
+        let mut keys = vec![];
+        for (index, public_key) in sig.public_keys.iter().enumerate() {
+            keys.push(PublicKeyAuthKeyHelperInner {
+                public_key: format!("0x{}", hex::encode(public_key.public_key.as_slice())),
+                public_key_type: get_any_public_key_type(public_key),
+                is_public_key_used: public_keys_indices.contains(&index),
+            });
+        }
+
+        Some(Self {
             keys,
-            account_public_key: multikey_hex_string,
+            account_public_key,
             signature_type: get_account_signature_type_from_enum(
                 &AccountSignatureTypeEnum::MultiKey,
             ),
-        }
+        })
     }
 
     pub fn create_helper_from_key_rotation_event(
         event: &KeyRotationToPublicKeyEvent,
+        transaction_version: i64,
     ) -> Option<Self> {
         let verified_public_key_indices = event.get_verified_public_key_indices();
         match event.public_key_scheme {
@@ -170,8 +188,14 @@ impl PublicKeyAuthKeyHelper {
             },
             SINGLE_KEY_SCHEME => None,
             MULTI_KEY_SCHEME => {
-                let signature_type =
-                    get_account_signature_type_from_enum(&AccountSignatureTypeEnum::MultiKey);
+                let account_public_key = format!("0x{}", hex::encode(event.public_key.as_slice()));
+                if account_public_key.len() > MAX_ACCOUNT_PUBLIC_KEY_LENGTH {
+                    tracing::warn!(
+                        transaction_version,
+                        "Multi key signature with more than 3000 characters not supported"
+                    );
+                    return None;
+                };
                 let multi_key: MultiKey = bcs::from_bytes(&event.public_key).unwrap();
                 let mut keys = vec![];
                 for i in 0..multi_key.public_keys.len() {
@@ -181,12 +205,11 @@ impl PublicKeyAuthKeyHelper {
                         is_public_key_used: verified_public_key_indices.contains(&i),
                     });
                 }
-                println!("keys: {:?}", keys);
 
                 Some(Self {
                     keys,
-                    account_public_key: format!("0x{}", hex::encode(event.public_key.as_slice())),
-                    signature_type,
+                    account_public_key,
+                    signature_type: get_account_signature_type_from_enum(&AccountSignatureTypeEnum::MultiKey),
                 })
             },
             _ => None,
@@ -219,7 +242,7 @@ impl PublicKeyAuthKeyHelper {
             .collect()
     }
 
-    pub fn get_multi_key_from_signature(s: &Signature) -> Option<Self> {
+    pub fn get_multi_key_from_signature(s: &Signature, transaction_version: i64) -> Option<Self> {
         // Intentionally handle all cases so that if we add a new type we'll remember to add here
         let account_signature = match s.signature.as_ref().unwrap() {
             SignatureEnum::MultiEd25519(sig) => {
@@ -238,7 +261,7 @@ impl PublicKeyAuthKeyHelper {
             },
             AccountSignature::SingleKeySignature(_) => None,
             AccountSignature::MultiKeySignature(sig) => {
-                Some(Self::create_helper_from_multi_key_sig(sig))
+                Self::create_helper_from_multi_key_sig(sig, transaction_version)
             },
             AccountSignature::Abstraction(_) => None,
         }
