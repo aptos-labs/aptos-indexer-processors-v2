@@ -3,3 +3,4 @@
 
 pub mod auth_key_account_addresses;
 pub mod public_key_auth_keys;
+pub mod account_restoration_utils;

@@ -125,10 +125,10 @@ pub fn insert_public_key_auth_keys_query(
 
     diesel::insert_into(schema::public_key_auth_keys::table)
         .values(items_to_insert)
-        .on_conflict((auth_key, public_key))
+        .on_conflict((auth_key, public_key, public_key_type))
         .do_update()
         .set((
-            public_key_type.eq(excluded(public_key_type)),
+            account_public_key.eq(excluded(account_public_key)),
             is_public_key_used.eq(excluded(is_public_key_used)),
             last_transaction_version.eq(excluded(last_transaction_version)),
             signature_type.eq(excluded(signature_type)),

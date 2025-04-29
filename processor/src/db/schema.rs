@@ -1011,6 +1011,8 @@ diesel::table! {
         public_key_type -> Varchar,
         #[max_length = 66]
         auth_key -> Varchar,
+        #[max_length = 3000]
+        account_public_key -> Varchar,
         is_public_key_used -> Bool,
         last_transaction_version -> Int8,
         #[max_length = 50]
