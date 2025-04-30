@@ -284,10 +284,9 @@ impl PartialOrd for PublicKeyAuthKey {
     }
 }
 
-/// Below are just types and convenience functions for the multi key deserialization.
-/// Ideally we would use aptos-crypto or aptos-types to deserialize these types, but
-/// there is a blocking incompatible dependency.
-
+// Below are just types and convenience functions for the multi key deserialization.
+// Ideally we would use aptos-crypto or aptos-types to deserialize these types, but
+// there is a blocking incompatible dependency.
 fn any_public_key_to_serialized_string(key: &AnyPublicKey) -> String {
     // The type is 1-indexed in the proto, but 0-indexed in the code so we subtract 1
     let mut combined = hex::encode([(key.r#type as u8) - 1]);
