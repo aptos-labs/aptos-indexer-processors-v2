@@ -1,7 +1,10 @@
 use crate::{
     config::{
-        db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig,
-        processor_config::ProcessorConfig,
+        db_config::DbConfig,
+        indexer_processor_config::{
+            IndexerProcessorConfig, QUERY_DEFAULT_RETRIES, QUERY_DEFAULT_RETRY_DELAY_MS,
+        },
+        processor_config::{DefaultProcessorConfig, ProcessorConfig},
     },
     processors::{
         fungible_asset::{
@@ -29,7 +32,29 @@ use aptos_indexer_processor_sdk::{
     traits::{processor_trait::ProcessorTrait, IntoRunnableStep},
     utils::chain_id_check::check_or_update_chain_id,
 };
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FungibleAssetProcessorConfig {
+    #[serde(flatten)]
+    pub default_config: DefaultProcessorConfig,
+    #[serde(default = "FungibleAssetProcessorConfig::default_query_retries")]
+    pub query_retries: u32,
+    #[serde(default = "FungibleAssetProcessorConfig::default_query_retry_delay_ms")]
+    pub query_retry_delay_ms: u64,
+}
+
+impl FungibleAssetProcessorConfig {
+    pub const fn default_query_retries() -> u32 {
+        QUERY_DEFAULT_RETRIES
+    }
+
+    pub const fn default_query_retry_delay_ms() -> u64 {
+        QUERY_DEFAULT_RETRY_DELAY_MS
+    }
+}
 
 pub struct FungibleAssetProcessor {
     pub config: IndexerProcessorConfig,

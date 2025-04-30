@@ -66,6 +66,7 @@ mod sdk_fungible_asset_processor_tests {
         IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2,
         IMPORTED_MAINNET_TXNS_2448304257_COINSTORE_DELETION_EVENT,
         IMPORTED_MAINNET_TXNS_255894550_STORAGE_REFUND,
+        IMPORTED_MAINNET_TXNS_2662373625_FA_SECONDARY_STORE_BURNT_WITH_DELETION_EVENT,
         IMPORTED_MAINNET_TXNS_508365567_FA_V1_EVENTS,
         IMPORTED_MAINNET_TXNS_550582915_MULTIPLE_TRANSFER_EVENT,
         IMPORTED_MAINNET_TXNS_999929475_COIN_AND_FA_TRANSFERS,
@@ -204,9 +205,10 @@ mod sdk_fungible_asset_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_out_of_order_balances_multiple_batches() {
         sequential_multi_transaction_helper_function(
-            &[&[IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2], &[
-                IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
-            ]],
+            &[
+                &[IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2],
+                &[IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2],
+            ],
             "out_of_order_balances_multiple_batches",
         )
         .await;
@@ -315,10 +317,20 @@ mod sdk_fungible_asset_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fungible_asset_processor_asset_type_null() {
         sequential_multi_transaction_helper_function(
-            &[&[IMPORTED_MAINNET_TXNS_2308282694_ASSET_TYPE_V1_NULL], &[
-                IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2,
-            ]],
+            &[
+                &[IMPORTED_MAINNET_TXNS_2308282694_ASSET_TYPE_V1_NULL],
+                &[IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2],
+            ],
             "asset_type_null",
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_fungible_asset_processor_fungible_store_deletion_event() {
+        process_single_batch_txns(
+            &[IMPORTED_MAINNET_TXNS_2662373625_FA_SECONDARY_STORE_BURNT_WITH_DELETION_EVENT],
+            Some("fungible_store_deletion_event".to_string()),
         )
         .await;
     }

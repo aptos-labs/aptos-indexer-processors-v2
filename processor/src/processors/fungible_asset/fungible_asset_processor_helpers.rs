@@ -1,6 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use super::fungible_asset_models::v2_fungible_asset_activities::StoreAddressToDeletedFungibleAssetStoreEvent;
 use crate::{
     db::resources::{FromWriteResource, V2FungibleAssetResource},
     processors::{
@@ -15,7 +16,7 @@ use crate::{
                     FungibleAssetToCoinMapping, FungibleAssetToCoinMappings,
                     FungibleAssetToCoinMappingsForDB,
                 },
-                v2_fungible_asset_utils::FeeStatement,
+                v2_fungible_asset_utils::{FeeStatement, FungibleAssetStoreDeletionEvent},
                 v2_fungible_metadata::{FungibleAssetMetadataMapping, FungibleAssetMetadataModel},
             },
         },
@@ -28,6 +29,7 @@ use crate::{
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Change, Transaction},
+    postgres::utils::database::DbContext,
     utils::{convert::standardize_address, extract::get_entry_function_from_user_request},
 };
 use chrono::NaiveDateTime;
@@ -109,7 +111,7 @@ pub async fn parse_v2_coin(
 
     let data: Vec<_> = transactions
         .par_iter()
-        .map(|txn| {
+        .map( |txn| {
             let mut fungible_asset_activities = vec![];
             let mut fungible_asset_metadata = AHashMap::new();
             let mut fungible_asset_balances = vec![];
@@ -172,7 +174,10 @@ pub async fn parse_v2_coin(
             // only 1 coinstore deletion by owner address. This is a mapping between owner address and deleted coin type
             // This is not ideal as we're assuming that there is only 1 coinstore deletion by owner address, this should be
             // replaced by an event (although we still need to keep this mapping because blockchain)
-            let mut address_to_deleted_coin_type: AHashMap<String, String> = AHashMap::new();
+            let mut owner_address_to_deleted_coin_type: AHashMap<String, String> = AHashMap::new();
+            // Same as above but for fungible asset store deletions. Now we have an event that contains all metadata
+            // about the deleted store.
+            let mut store_address_to_deleted_fa_store_events: StoreAddressToDeletedFungibleAssetStoreEvent = AHashMap::new();
             // Loop 1: to get all object addresses
             // Need to do a first pass to get all the object addresses and insert them into the helper
             for wsc in transaction_info.changes.iter() {
@@ -188,7 +193,22 @@ pub async fn parse_v2_coin(
                     }
                 }
             }
-            // Loop 2: Get the metadata relevant to parse v1 coin and v2 fungible asset.
+
+            // Loop 2: Get the metadata from events to parse v1 coin and v2 fungible asset
+            for event in events.iter() {
+                if let Some(fa_store_deletion_event) = FungibleAssetStoreDeletionEvent::from_event(
+                    event.type_str.as_str(),
+                    &event.data,
+                    txn_version,
+                ) {
+                    store_address_to_deleted_fa_store_events.insert(
+                        fa_store_deletion_event.clone().store,
+                        fa_store_deletion_event,
+                    );
+                }
+            }
+
+            // Loop 3: Get the metadata relevant to parse v1 coin and v2 fungible asset from write set changes
             // As an optimization, we also handle v1 balances in the process
             for (index, wsc) in transaction_info.changes.iter().enumerate() {
                 if let Change::WriteResource(write_resource) = wsc.change.as_ref().unwrap() {
@@ -257,7 +277,7 @@ pub async fn parse_v2_coin(
                         .unwrap()
                     {
                         fungible_asset_balances.push(balance);
-                        address_to_deleted_coin_type.extend(single_deleted_coin_type);
+                        owner_address_to_deleted_coin_type.extend(single_deleted_coin_type);
                     }
                 }
             }
@@ -280,7 +300,7 @@ pub async fn parse_v2_coin(
                 fungible_asset_activities.push(gas_event);
             }
 
-            // Loop 3 to handle events and collect additional metadata from events for v2
+            // Loop 4 to handle events and collect additional metadata from events for v2
             for (index, event) in events.iter().enumerate() {
                 if let Some(v1_activity) = FungibleAssetActivity::get_v1_from_event(
                     event,
@@ -290,7 +310,7 @@ pub async fn parse_v2_coin(
                     &entry_function_id_str,
                     &event_to_v1_coin_type,
                     index as i64,
-                    &address_to_deleted_coin_type,
+                    &owner_address_to_deleted_coin_type,
                 )
                 .unwrap_or_else(|e| {
                     tracing::error!(
@@ -310,6 +330,7 @@ pub async fn parse_v2_coin(
                     index as i64,
                     &entry_function_id_str,
                     &fungible_asset_object_helper,
+                    &store_address_to_deleted_fa_store_events,
                 )
                 .unwrap_or_else(|e| {
                     tracing::error!(
@@ -323,7 +344,7 @@ pub async fn parse_v2_coin(
                 }
             }
 
-            // Loop 4 to handle write set changes for metadata, balance, and v1 supply
+            // Loop 5 to handle write set changes for metadata, balance, and v1 supply
             for (index, wsc) in transaction_info.changes.iter().enumerate() {
                 match wsc.change.as_ref().unwrap() {
                     Change::WriteResource(write_resource) => {
@@ -398,6 +419,25 @@ pub async fn parse_v2_coin(
                         .unwrap()
                         {
                             all_coin_supply.push(coin_supply);
+                        }
+                    },
+                    Change::DeleteResource(delete_resource) => {
+                        if let Some(deleted_balance) = FungibleAssetBalance::get_v2_from_delete_resource(
+                            delete_resource,
+                            index as i64,
+                            txn_version,
+                            txn_timestamp,
+                            &store_address_to_deleted_fa_store_events,
+                        )
+                        .unwrap_or_else(|e| {
+                            tracing::error!(
+                                transaction_version = txn_version,
+                                index = index,
+                                error = ?e,
+                                "[Parser] error parsing fungible balance v2");
+                            panic!("[Parser] error parsing fungible balance v2");
+                        }) {
+                            fungible_asset_balances.push(deleted_balance);
                         }
                     },
                     _ => {},

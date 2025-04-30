@@ -228,6 +228,32 @@ impl FungibleAssetEvent {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FungibleAssetStoreDeletionEvent {
+    pub metadata: String,
+    pub owner: String,
+    pub store: String,
+}
+
+impl FungibleAssetStoreDeletionEvent {
+    pub fn from_event(data_type: &str, data: &str, txn_version: i64) -> Option<Self> {
+        if data_type == "0x1::fungible_asset::FungibleStoreDeletion" {
+            let fungible_asset_store_deletion: FungibleAssetStoreDeletionEvent =
+                serde_json::from_str(data).unwrap_or_else(|_| {
+                    tracing::error!(
+                        transaction_version = txn_version,
+                        data = data,
+                        "failed to parse event for fungible asset store deletion"
+                    );
+                    panic!();
+                });
+            Some(fungible_asset_store_deletion)
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

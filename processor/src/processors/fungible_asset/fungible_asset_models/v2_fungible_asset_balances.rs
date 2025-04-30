@@ -6,13 +6,16 @@
 #![allow(clippy::unused_unit)]
 
 use super::{
-    v2_fungible_asset_activities::AddressToCoinType,
+    v2_fungible_asset_activities::{
+        OwnerAddressToCoinType, StoreAddressToDeletedFungibleAssetStoreEvent,
+    },
     v2_fungible_asset_to_coin_mappings::{FungibleAssetToCoinMapping, FungibleAssetToCoinMappings},
 };
 use crate::{
     db::resources::FromWriteResource,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
+        default::models::move_resources::MoveResource,
         fungible_asset::{
             coin_models::coin_utils::{CoinInfoType, CoinResource},
             fungible_asset_models::{
@@ -241,12 +244,63 @@ impl FungibleAssetBalance {
         Ok(None)
     }
 
+    pub fn get_v2_from_delete_resource(
+        delete_resource: &DeleteResource,
+        write_set_change_index: i64,
+        txn_version: i64,
+        txn_timestamp: chrono::NaiveDateTime,
+        store_address_to_deleted_fa_store_events: &StoreAddressToDeletedFungibleAssetStoreEvent,
+    ) -> anyhow::Result<Option<Self>> {
+        if delete_resource.type_str == "0x1::object::ObjectGroup" {
+            let resource = match MoveResource::from_delete_resource(
+                delete_resource,
+                0, // Placeholder, this isn't used anyway
+                txn_version,
+                0, // Placeholder, this isn't used anyway
+                txn_timestamp,
+            ) {
+                Ok(Some(resource)) => resource,
+                Ok(None) => {
+                    tracing::error!("No resource found for transaction version {}", txn_version);
+                    return Ok(None);
+                },
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Error getting resource from delete resource: {}",
+                        e
+                    ))
+                },
+            };
+
+            if let Some(deleted_fa_store_event) =
+                store_address_to_deleted_fa_store_events.get(&resource.resource_address)
+            {
+                let owner_address = standardize_address(deleted_fa_store_event.owner.as_str());
+                let asset_type = standardize_address(deleted_fa_store_event.metadata.as_str());
+
+                return Ok(Some(Self {
+                    transaction_version: txn_version,
+                    write_set_change_index,
+                    storage_id: resource.resource_address.clone(),
+                    owner_address: owner_address.clone(),
+                    asset_type: asset_type.clone(),
+                    is_primary: false, // Deleted stores can only be secondary
+                    is_frozen: false,
+                    amount: BigDecimal::zero(),
+                    transaction_timestamp: txn_timestamp,
+                    token_standard: TokenStandard::V2.to_string(),
+                }));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn get_v1_from_delete_resource(
         delete_resource: &DeleteResource,
         write_set_change_index: i64,
         txn_version: i64,
         txn_timestamp: chrono::NaiveDateTime,
-    ) -> anyhow::Result<Option<(Self, AddressToCoinType)>> {
+    ) -> anyhow::Result<Option<(Self, OwnerAddressToCoinType)>> {
         if let Some(CoinResource::CoinStoreDeletion) =
             &CoinResource::from_delete_resource(delete_resource, txn_version)?
         {

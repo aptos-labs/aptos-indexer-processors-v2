@@ -5,8 +5,9 @@
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
 
-use super::v2_fungible_asset_balances::{
-    get_paired_metadata_address, get_primary_fungible_store_address,
+use super::{
+    v2_fungible_asset_balances::{get_paired_metadata_address, get_primary_fungible_store_address},
+    v2_fungible_asset_utils::FungibleAssetStoreDeletionEvent,
 };
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
@@ -16,7 +17,10 @@ use crate::{
                 coin_activities::CoinActivity,
                 coin_utils::{CoinEvent, EventGuidResource},
             },
-            fungible_asset_models::v2_fungible_asset_utils::{FeeStatement, FungibleAssetEvent},
+            fungible_asset_models::{
+                v2_fungible_asset_balances::CurrentUnifiedFungibleAssetBalance,
+                v2_fungible_asset_utils::{FeeStatement, FungibleAssetEvent},
+            },
         },
         objects::v2_object_utils::ObjectAggregatedDataMapping,
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
@@ -28,6 +32,7 @@ use allocative::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{Event, TransactionInfo, UserTransactionRequest},
+    postgres::utils::database::DbContext,
     utils::convert::{bigdecimal_to_u64, standardize_address},
 };
 use bigdecimal::{BigDecimal, Zero};
@@ -45,7 +50,9 @@ pub type CoinType = String;
 // Primary key of the current_coin_balances table, i.e. (owner_address, coin_type)
 pub type CurrentCoinBalancePK = (OwnerAddress, CoinType);
 pub type EventToCoinType = AHashMap<EventGuidResource, CoinType>;
-pub type AddressToCoinType = AHashMap<String, String>;
+pub type OwnerAddressToCoinType = AHashMap<String, String>;
+pub type StoreAddressToDeletedFungibleAssetStoreEvent =
+    AHashMap<String, FungibleAssetStoreDeletionEvent>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FungibleAssetActivity {
@@ -76,6 +83,7 @@ impl FungibleAssetActivity {
         event_index: i64,
         entry_function_id_str: &Option<String>,
         object_aggregated_data_mapping: &ObjectAggregatedDataMapping,
+        store_address_to_deleted_fa_store_events: &StoreAddressToDeletedFungibleAssetStoreEvent,
     ) -> anyhow::Result<Option<Self>> {
         let event_type = event.type_str.clone();
         if let Some(fa_event) =
@@ -110,21 +118,49 @@ impl FungibleAssetActivity {
                 FungibleAssetEvent::FrozenEventV2(inner) => {
                     (standardize_address(&inner.store), Some(inner.frozen), None)
                 },
+                _ => {
+                    // By default, don't include the event in fungible asset activities
+                    return Ok(None);
+                },
             };
 
             // Lookup the event address in the object_aggregated_data_mapping to get additional metadata
             // The events are emitted on the address of the fungible store.
+            let mut maybe_owner_address = None;
+            let mut maybe_asset_type = None;
             let maybe_object_metadata = object_aggregated_data_mapping.get(&storage_id);
-            // Get the store's owner address from ObjectCore.
-            // The ObjectCore might not exist in the transaction if the object got deleted in the same transaction
-            let maybe_owner_address = maybe_object_metadata
-                .map(|metadata| &metadata.object.object_core)
-                .map(|object_core| object_core.get_owner_address());
-            // Get the store's asset type
-            // The FungibleStore might not exist in the transaction if it's a secondary store that got burnt in the same transaction
-            let maybe_asset_type = maybe_object_metadata
-                .and_then(|metadata| metadata.fungible_asset_store.as_ref())
-                .map(|fa| fa.metadata.get_reference_address());
+            match maybe_object_metadata {
+                Some(metadata) => {
+                    // Get the store's owner address from ObjectCore.
+                    maybe_owner_address = Some(metadata.object.object_core.get_owner_address());
+                    // Get the store's asset type
+                    maybe_asset_type = metadata
+                        .fungible_asset_store
+                        .as_ref()
+                        .map(|fa| fa.metadata.get_reference_address());
+                },
+                None => {
+                    // If the object metadata does not exist, it means the fungible store got deleted in the same transaction
+                    // We need to get the owner address from the store_address_to_deleted_fa_store_events
+                    let deleted_fa_store_event =
+                        store_address_to_deleted_fa_store_events.get(&storage_id);
+                    match deleted_fa_store_event {
+                        Some(deleted_fa_store_event) => {
+                            maybe_owner_address = Some(deleted_fa_store_event.owner.clone());
+                            maybe_asset_type = Some(deleted_fa_store_event.metadata.clone());
+                        },
+                        None => {
+                            // There might not be a deletion event if the transaction was committed before FungibleStoreDeletion
+                            // events existed. Fallback to None.
+                            tracing::warn!(
+                                "Could not find fungible store deletion event in version {} for storage id: {}",
+                                txn_version,
+                                storage_id
+                            );
+                        },
+                    }
+                },
+            }
 
             return Ok(Some(Self {
                 transaction_version: txn_version,
@@ -156,7 +192,7 @@ impl FungibleAssetActivity {
         entry_function_id_str: &Option<String>,
         event_to_coin_type: &EventToCoinType,
         event_index: i64,
-        address_to_coin_type: &AddressToCoinType,
+        address_to_coin_type: &OwnerAddressToCoinType,
     ) -> anyhow::Result<Option<Self>> {
         if let Some(inner) =
             CoinEvent::from_event(event.type_str.as_str(), &event.data, txn_version)?

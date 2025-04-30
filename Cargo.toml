@@ -25,9 +25,9 @@ anyhow = "1.0.86"
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
 aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", rev = "bfb07a2b6985743fbc275d6fc621a80453f6742d", features = [
     "postgres_partial",
-    "testing_framework"
+    "testing_framework",
 ] }
-aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "4bb4cd9799c05099f60c3a2c3813b12cc96ea917" }
+aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "8e6efe21e615d30cdb9eaa6749d48602b9e62247" }
 async-trait = "0.1.53"
 backtrace = "0.3.58"
 base64 = "0.13.0"
