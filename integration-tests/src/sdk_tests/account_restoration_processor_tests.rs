@@ -68,7 +68,8 @@ mod sdk_account_restoration_processor_tests {
         processors::account_restoration::account_restoration_processor::AccountRestorationProcessor,
     };
 
-    pub const IMPORTED_LOCALNET_TXNS_KEYLESS_BACKUP_TXN: &[u8] = include_bytes!("keyless_backup_txn.json");
+    pub const IMPORTED_LOCALNET_TXNS_KEYLESS_BACKUP_TXN: &[u8] =
+        include_bytes!("keyless_backup_txn.json");
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_keyless_backup_txn() {
@@ -81,7 +82,6 @@ mod sdk_account_restoration_processor_tests {
         )
         .await;
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_single_key_ed25519() {

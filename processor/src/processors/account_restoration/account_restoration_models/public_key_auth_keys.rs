@@ -1,6 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use super::account_restoration_utils::KeyRotationToPublicKeyEvent;
 use crate::{
     processors::user_transaction::models::signature_utils::{
         account_signature_utils::{
@@ -20,8 +21,6 @@ use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
 };
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};
-
-use super::account_restoration_utils::KeyRotationToPublicKeyEvent;
 
 pub type PublicKeyAuthKeyMapping = AHashMap<(String, String), PublicKeyAuthKey>;
 
@@ -230,18 +229,15 @@ impl PublicKeyAuthKeyHelper {
             .iter()
             .map(|key| {
                 let key_tuple = (auth_key.to_string(), key.public_key.clone());
-                (
-                    key_tuple,
-                    PublicKeyAuthKey {
-                        public_key: key.public_key.clone(),
-                        public_key_type: key.public_key_type.clone(),
-                        auth_key: auth_key.to_string(),
-                        account_public_key: helper.account_public_key.clone(),
-                        is_public_key_used: key.is_public_key_used,
-                        last_transaction_version: transaction_version,
-                        signature_type: helper.signature_type.clone(),
-                    },
-                )
+                (key_tuple, PublicKeyAuthKey {
+                    public_key: key.public_key.clone(),
+                    public_key_type: key.public_key_type.clone(),
+                    auth_key: auth_key.to_string(),
+                    account_public_key: helper.account_public_key.clone(),
+                    is_public_key_used: key.is_public_key_used,
+                    last_transaction_version: transaction_version,
+                    signature_type: helper.signature_type.clone(),
+                })
             })
             .collect()
     }

@@ -8,8 +8,7 @@ use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
     transaction::TxnData, Transaction,
 };
 use hex;
-use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 
 fn deserialize_bytes_from_hex_with_0x<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
