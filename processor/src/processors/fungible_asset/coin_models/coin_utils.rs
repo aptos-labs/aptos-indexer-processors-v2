@@ -178,8 +178,8 @@ static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(<(.*)>)").unwrap());
 
 static COIN_RESOURCES: Lazy<[String; 2]> = Lazy::new(|| {
     [
-        format!("{}::coin::CoinInfo", COIN_ADDR),
-        format!("{}::coin::CoinStore", COIN_ADDR),
+        format!("{COIN_ADDR}::coin::CoinInfo"),
+        format!("{COIN_ADDR}::coin::CoinStore"),
     ]
 });
 
@@ -254,32 +254,28 @@ impl CoinResource {
         txn_version: i64,
     ) -> Result<CoinResource> {
         match data_type {
-            x if x == format!("{}::coin::CoinInfo", COIN_ADDR) => {
+            x if x == format!("{COIN_ADDR}::coin::CoinInfo") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(CoinResource::CoinInfoResource(inner)))
             },
-            x if x == format!("{}::coin::CoinStore", COIN_ADDR) => {
+            x if x == format!("{COIN_ADDR}::coin::CoinStore") => {
                 serde_json::from_value(data.clone())
                     .map(|inner| Some(CoinResource::CoinStoreResource(inner)))
             },
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))?
         .context(format!(
-            "Resource unsupported! Call is_resource_supported first. version {} type {}",
-            txn_version, data_type
+            "Resource unsupported! Call is_resource_supported first. version {txn_version} type {data_type}"
         ))
     }
 
     fn from_delete_resource_internal(data_type: &str, txn_version: i64) -> Result<CoinResource> {
         match data_type {
-            x if x == format!("{}::coin::CoinInfo", COIN_ADDR) => {
-                Ok(CoinResource::CoinInfoDeletion)
-            },
-            x if x == format!("{}::coin::CoinStore", COIN_ADDR) => {
+            x if x == format!("{COIN_ADDR}::coin::CoinInfo") => Ok(CoinResource::CoinInfoDeletion),
+            x if x == format!("{COIN_ADDR}::coin::CoinStore") => {
                 Ok(CoinResource::CoinStoreDeletion)
             },
             _ => bail!(
@@ -364,8 +360,7 @@ impl CoinEvent {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type, data
+            "version {txn_version} failed! failed to parse type {data_type}, data {data:?}"
         ))
     }
 }

@@ -245,8 +245,7 @@ impl CollectionV2 {
                             )
                             .await
                             .context(format!(
-                                "Failed to get collection creator for table handle {}, txn version {}",
-                                table_handle, txn_version
+                                "Failed to get collection creator for table handle {table_handle}, txn version {txn_version}"
                             )) {
                                 Ok(ca) => ca,
                                 Err(_) => {

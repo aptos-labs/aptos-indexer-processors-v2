@@ -125,8 +125,7 @@ impl AnsTableItem {
             _ => Ok(None),
         }
         .context(format!(
-            "version {} failed! failed to parse type {}, data {:?}",
-            txn_version, data_type_name, data
+            "version {txn_version} failed! failed to parse type {data_type_name}, data {data:?}"
         ))
     }
 }
@@ -216,10 +215,10 @@ impl AnsWriteResource {
         let data = write_resource.data.as_str();
 
         match type_str.clone() {
-            x if x == format!("{}::v2_1_domains::NameRecord", ans_v2_contract_address) => {
+            x if x == format!("{ans_v2_contract_address}::v2_1_domains::NameRecord") => {
                 serde_json::from_str(data).map(|inner| Some(Self::NameRecordV2(inner)))
             },
-            x if x == format!("{}::v2_1_domains::SubdomainExt", ans_v2_contract_address) => {
+            x if x == format!("{ans_v2_contract_address}::v2_1_domains::SubdomainExt") => {
                 serde_json::from_str(data).map(|inner| Some(Self::SubdomainExtV2(inner)))
             },
             _ => Ok(None),
@@ -325,11 +324,8 @@ pub enum V2AnsEvent {
 impl V2AnsEvent {
     pub fn is_event_supported(event_type: &str, ans_v2_contract_address: &str) -> bool {
         [
-            format!(
-                "{}::v2_1_domains::SetReverseLookupEvent",
-                ans_v2_contract_address
-            ),
-            format!("{}::v2_1_domains::RenewNameEvent", ans_v2_contract_address),
+            format!("{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent"),
+            format!("{ans_v2_contract_address}::v2_1_domains::RenewNameEvent"),
         ]
         .contains(&event_type.to_string())
     }
@@ -347,15 +343,10 @@ impl V2AnsEvent {
         }
 
         match type_str.clone() {
-            x if x
-                == format!(
-                    "{}::v2_1_domains::SetReverseLookupEvent",
-                    ans_v2_contract_address
-                ) =>
-            {
+            x if x == format!("{ans_v2_contract_address}::v2_1_domains::SetReverseLookupEvent") => {
                 serde_json::from_str(data).map(|inner| Some(Self::SetReverseLookupEvent(inner)))
             },
-            x if x == format!("{}::v2_1_domains::RenewNameEvent", ans_v2_contract_address) => {
+            x if x == format!("{ans_v2_contract_address}::v2_1_domains::RenewNameEvent") => {
                 serde_json::from_str(data).map(|inner| Some(Self::RenewNameEvent(inner)))
             },
             _ => Ok(None),

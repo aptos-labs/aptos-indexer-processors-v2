@@ -60,7 +60,7 @@ impl Uploadable for GCSUploader {
         if let Err(e) = result {
             error!("Failed to upload buffer: {}", e);
             return Err(ProcessorError::ProcessError {
-                message: format!("Failed to upload buffer: {}", e),
+                message: format!("Failed to upload buffer: {e}"),
             });
         }
         Ok(())
@@ -285,7 +285,6 @@ fn generate_parquet_file_path(
     counter: u32,
 ) -> PathBuf {
     gcs_bucket_root.join(format!(
-        "{}/{}/{}_{}.parquet",
-        table, highwater_s, highwater_ms, counter
+        "{table}/{highwater_s}/{highwater_ms}_{counter}.parquet"
     ))
 }

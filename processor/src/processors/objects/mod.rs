@@ -38,12 +38,7 @@ pub async fn process_objects(
         let changes = &txn
             .info
             .as_ref()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Transaction info doesn't exist! Transaction {}",
-                    txn_version
-                )
-            })
+            .unwrap_or_else(|| panic!("Transaction info doesn't exist! Transaction {txn_version}"))
             .changes;
 
         let txn_timestamp =

@@ -64,7 +64,7 @@ impl Processable for ParquetStakeExtractor {
                     "[Parser] Error parsing stake data",
                 );
                 return Err(ProcessorError::ProcessError {
-                    message: format!("Error parsing stake data: {:?}", e),
+                    message: format!("Error parsing stake data: {e:?}"),
                 });
             },
         };

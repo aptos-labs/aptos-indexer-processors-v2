@@ -262,8 +262,7 @@ impl CoinActivity {
                     .get(&event_move_guid)
                     .unwrap_or_else(|| {
                         panic!(
-                            "Could not find event in resources (CoinStore), version: {}, event guid: {:?}, mapping: {:?}",
-                            txn_version, event_move_guid, event_to_coin_type
+                            "Could not find event in resources (CoinStore), version: {txn_version}, event guid: {event_move_guid:?}, mapping: {event_to_coin_type:?}"
                         )
                     }).clone()
         };

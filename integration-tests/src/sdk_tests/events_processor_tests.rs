@@ -221,8 +221,7 @@ mod tests {
             },
             Err(e) => {
                 eprintln!(
-                    "[ERROR] Failed to run processor for txn version {}: {}",
-                    starting_version, e
+                    "[ERROR] Failed to run processor for txn version {starting_version}: {e}"
                 );
                 panic!("Test failed due to processor error");
             },

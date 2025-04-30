@@ -45,12 +45,12 @@ pub fn read_and_parse_json(path: &str) -> anyhow::Result<Value> {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
             Ok(json) => Ok(json),
             Err(e) => {
-                eprintln!("[ERROR] Failed to parse JSON at {}: {}", path, e);
+                eprintln!("[ERROR] Failed to parse JSON at {path}: {e}");
                 Err(anyhow::anyhow!("Failed to parse JSON: {}", e))
             },
         },
         Err(e) => {
-            eprintln!("[ERROR] Failed to read file at {}: {}", path, e);
+            eprintln!("[ERROR] Failed to read file at {path}: {e}");
             Err(anyhow::anyhow!("Failed to read file: {}", e))
         },
     }
@@ -87,7 +87,7 @@ pub fn validate_json(
                     .join(processor_name)
                     .join(custom_name.clone())
                     .join(
-                        format!("{}.json", table_name), // Including table_name in the format
+                        format!("{table_name}.json"), // Including table_name in the format
                     )
             },
             None => {
@@ -95,7 +95,7 @@ pub fn validate_json(
                 Path::new(&output_path)
                     .join(processor_name)
                     .join(txn_version.to_string())
-                    .join(format!("{}.json", table_name)) // File name format: processor_table_txnVersion.json
+                    .join(format!("{table_name}.json")) // File name format: processor_table_txnVersion.json
             },
         };
 
@@ -103,10 +103,9 @@ pub fn validate_json(
             Ok(json) => json,
             Err(e) => {
                 eprintln!(
-                    "[ERROR] Error handling JSON for processor {} table {} and transaction version {}: {}",
-                    processor_name, table_name, txn_version, e
+                    "[ERROR] Error handling JSON for processor {processor_name} table {table_name} and transaction version {txn_version}: {e}"
                 );
-                panic!("Failed to read and parse JSON for table: {}", table_name);
+                panic!("Failed to read and parse JSON for table: {table_name}");
             },
         };
 
@@ -115,10 +114,7 @@ pub fn validate_json(
         remove_transaction_timestamp(db_value);
         remove_inserted_at(&mut expected_json);
         remove_transaction_timestamp(&mut expected_json);
-        println!(
-            "Diffing table: {}, diffing version: {}",
-            table_name, txn_version
-        );
+        println!("Diffing table: {table_name}, diffing version: {txn_version}");
         assert_json_eq!(db_value, expected_json);
     }
     Ok(())
@@ -152,20 +148,20 @@ where
             custom_file_name,
             move || {
                 let mut conn = PgConnection::establish(&db_url).unwrap_or_else(|e| {
-                    eprintln!("[ERROR] Failed to establish DB connection: {:?}", e);
-                    panic!("Failed to establish DB connection: {:?}", e);
+                    eprintln!("[ERROR] Failed to establish DB connection: {e:?}");
+                    panic!("Failed to establish DB connection: {e:?}");
                 });
 
                 let db_values = match load_data(&mut conn) {
                     Ok(db_data) => db_data,
                     Err(e) => {
-                        eprintln!("[ERROR] Failed to load data {}", e);
+                        eprintln!("[ERROR] Failed to load data {e}");
                         return Err(e);
                     },
                 };
 
                 if db_values.is_empty() {
-                    eprintln!("[WARNING] No data found for versions: {:?}", txn_versions);
+                    eprintln!("[WARNING] No data found for versions: {txn_versions:?}");
                 }
 
                 Ok(db_values)

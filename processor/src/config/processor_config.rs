@@ -386,7 +386,7 @@ mod tests {
             "table_metadata".to_string(),
         ]
         .iter()
-        .map(|e| format!("parquet_default_processor.{}", e))
+        .map(|e| format!("parquet_default_processor.{e}"))
         .collect();
 
         let table_names: HashSet<String> = table_names.into_iter().collect();

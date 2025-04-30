@@ -155,7 +155,7 @@ impl FungibleAssetToCoinMapping {
                     error = ?e,
                     "Failed to query fungible asset to coin mappings"
                 );
-                panic!("Failed to query fungible asset to coin mappings: {:?}", e);
+                panic!("Failed to query fungible asset to coin mappings: {e:?}");
             },
         }
     }

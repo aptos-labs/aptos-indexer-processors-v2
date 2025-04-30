@@ -221,10 +221,7 @@ impl Processable for ParquetBufferStep {
                     metadata_map.insert(parquet_type, buffer_metadata.clone());
                 } else {
                     // This should never happen
-                    panic!(
-                        "Buffer metadata is missing for ParquetTypeEnum: {:?}",
-                        parquet_type
-                    );
+                    panic!("Buffer metadata is missing for ParquetTypeEnum: {parquet_type:?}");
                 }
             }
         }

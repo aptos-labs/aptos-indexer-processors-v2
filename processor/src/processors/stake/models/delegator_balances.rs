@@ -316,8 +316,7 @@ impl CurrentDelegatorBalance {
                 )
                 .await
                 .context(format!(
-                    "Failed to get staking pool from inactive share handle {}, txn version {}",
-                    inactive_pool_handle, txn_version
+                    "Failed to get staking pool from inactive share handle {inactive_pool_handle}, txn version {txn_version}"
                 ))?,
             };
             let delegator_address = standardize_address(&delete_table_item.key.to_string());

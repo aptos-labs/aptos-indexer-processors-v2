@@ -99,7 +99,7 @@ pub async fn save_processor_status(
             ending_version,
             overwrite_checkpoint,
         }) => {
-            let backfill_alias = format!("{}_{}", processor_id, backfill_id);
+            let backfill_alias = format!("{processor_id}_{backfill_id}");
             let backfill_status = if ending_version.is_some()
                 && last_success_version >= ending_version.unwrap() as i64
             {
@@ -166,7 +166,7 @@ pub async fn get_starting_version(
         .get()
         .await
         .map_err(|e| ProcessorError::ProcessError {
-            message: format!("Failed to get database connection. {:?}", e),
+            message: format!("Failed to get database connection. {e:?}"),
         })?;
 
     match &config.processor_mode {
@@ -176,7 +176,7 @@ pub async fn get_starting_version(
             let status = ProcessorStatusQuery::get_by_processor(processor_name, &mut conn)
                 .await
                 .map_err(|e| ProcessorError::ProcessError {
-                    message: format!("Failed to query processor_status table. {:?}", e),
+                    message: format!("Failed to query processor_status table. {e:?}"),
                 })?;
 
             // If there's no last success version saved, start with the version from config
@@ -200,7 +200,7 @@ pub async fn get_starting_version(
             )
             .await
             .map_err(|e| ProcessorError::ProcessError {
-                message: format!("Failed to query backfill_processor_status table. {:?}", e),
+                message: format!("Failed to query backfill_processor_status table. {e:?}"),
             })?;
 
             // Return None if there is no checkpoint, if the backfill is old (complete), or if overwrite_checkpoint is true.
@@ -293,12 +293,12 @@ pub async fn get_end_version(
                             .get()
                             .await
                             .map_err(|e| ProcessorError::ProcessError {
-                                message: format!("Failed to get database connection. {:?}", e),
+                                message: format!("Failed to get database connection. {e:?}"),
                             })?;
                     let status = ProcessorStatusQuery::get_by_processor(processor_name, &mut conn)
                         .await
                         .map_err(|e| ProcessorError::ProcessError {
-                            message: format!("Failed to query processor_status table. {:?}", e),
+                            message: format!("Failed to query processor_status table. {e:?}"),
                         })?;
                     Ok(status.map(|status| status.last_success_version as u64))
                 },
@@ -325,10 +325,9 @@ pub fn log_ascii_warning(version: u64) {
   ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝
                                                                
 =================================================================
-   This backfill job is resuming progress at version {}
+   This backfill job is resuming progress at version {version}
 =================================================================
-"#,
-        version
+"#
     );
 }
 
