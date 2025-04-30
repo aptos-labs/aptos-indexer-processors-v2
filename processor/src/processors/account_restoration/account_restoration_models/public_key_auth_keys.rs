@@ -107,7 +107,10 @@ impl PublicKeyAuthKeyHelper {
         }
     }
 
-    fn create_helper_from_multi_key_sig(sig: &MultiKeySignature, transaction_version: i64) -> Option<Self> {
+    fn create_helper_from_multi_key_sig(
+        sig: &MultiKeySignature,
+        transaction_version: i64,
+    ) -> Option<Self> {
         if sig.public_keys.len() > 16 {
             tracing::warn!(
                 transaction_version,
@@ -118,13 +121,12 @@ impl PublicKeyAuthKeyHelper {
 
         let account_public_key = {
             let mut combined = String::from("0x");
-            combined.push_str(&hex::encode(&[sig.public_keys.len() as u8]));
-            combined.extend(
-                sig.public_keys
+            combined.push_str(&hex::encode([sig.public_keys.len() as u8]));
+            combined.push_str(
+                &sig.public_keys
                     .iter()
-                    .map(|key| any_public_key_to_serialized_string(key))
-                    .collect::<String>()
-                    .chars(),
+                    .map(any_public_key_to_serialized_string)
+                    .collect::<String>(),
             );
             combined.push_str(&format!("{:02x}", sig.signatures_required));
             combined
@@ -171,7 +173,7 @@ impl PublicKeyAuthKeyHelper {
                     .map(|chunk| chunk.to_vec())
                     .collect();
                 let mut keys = vec![];
-                for i in 0..public_keys.len() {
+                for (i, _key) in public_keys.iter().enumerate() {
                     keys.push(PublicKeyAuthKeyHelperInner {
                         public_key: format!("0x{}", hex::encode(&public_keys[i])),
                         public_key_type: "ed25519".to_string(),
@@ -200,7 +202,7 @@ impl PublicKeyAuthKeyHelper {
                 let mut keys = vec![];
                 for i in 0..multi_key.public_keys.len() {
                     keys.push(PublicKeyAuthKeyHelperInner {
-                        public_key: multi_key.public_keys[i].to_string(),
+                        public_key: multi_key.public_keys[i].to_string_without_variant(),
                         public_key_type: multi_key.public_keys[i].get_public_key_type(),
                         is_public_key_used: verified_public_key_indices.contains(&i),
                     });
@@ -209,7 +211,9 @@ impl PublicKeyAuthKeyHelper {
                 Some(Self {
                     keys,
                     account_public_key,
-                    signature_type: get_account_signature_type_from_enum(&AccountSignatureTypeEnum::MultiKey),
+                    signature_type: get_account_signature_type_from_enum(
+                        &AccountSignatureTypeEnum::MultiKey,
+                    ),
                 })
             },
             _ => None,
@@ -286,7 +290,7 @@ impl PartialOrd for PublicKeyAuthKey {
 
 fn any_public_key_to_serialized_string(key: &AnyPublicKey) -> String {
     // The type is 1-indexed in the proto, but 0-indexed in the code so we subtract 1
-    let mut combined = hex::encode(&[(key.r#type as u8) - 1]);
+    let mut combined = hex::encode([(key.r#type as u8) - 1]);
 
     // Add the length of the public key depending on the type
     // The length is 32 for ed25519, 65 for secp256k1 and secp256r1
@@ -337,7 +341,7 @@ pub enum AnyPublicKeyStruct {
 }
 
 impl AnyPublicKeyStruct {
-    pub fn to_string(&self) -> String {
+    pub fn to_string_without_variant(&self) -> String {
         match self {
             AnyPublicKeyStruct::Ed25519 { public_key } => format!("0x{}", hex::encode(public_key)),
             AnyPublicKeyStruct::Secp256k1Ecdsa { public_key } => {
