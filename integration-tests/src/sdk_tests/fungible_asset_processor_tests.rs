@@ -205,10 +205,9 @@ mod sdk_fungible_asset_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_out_of_order_balances_multiple_batches() {
         sequential_multi_transaction_helper_function(
-            &[
-                &[IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2],
-                &[IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2],
-            ],
+            &[&[IMPORTED_TESTNET_TXNS_6643353877_FA_TRANSFER_2], &[
+                IMPORTED_TESTNET_TXNS_6643353707_FA_TRANSFER_EVENTS_V2,
+            ]],
             "out_of_order_balances_multiple_batches",
         )
         .await;
@@ -317,10 +316,9 @@ mod sdk_fungible_asset_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fungible_asset_processor_asset_type_null() {
         sequential_multi_transaction_helper_function(
-            &[
-                &[IMPORTED_MAINNET_TXNS_2308282694_ASSET_TYPE_V1_NULL],
-                &[IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2],
-            ],
+            &[&[IMPORTED_MAINNET_TXNS_2308282694_ASSET_TYPE_V1_NULL], &[
+                IMPORTED_MAINNET_TXNS_2308283617_ASSET_TYPE_V1_NULL_2,
+            ]],
             "asset_type_null",
         )
         .await;

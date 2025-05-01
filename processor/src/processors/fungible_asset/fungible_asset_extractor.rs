@@ -17,7 +17,7 @@ use ahash::AHashMap;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
-    postgres::utils::database::{ArcDbPool, DbContext},
+    postgres::utils::database::ArcDbPool,
     traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
@@ -51,6 +51,12 @@ impl FungibleAssetExtractor {
             "Finished bootstrapping fungible asset to coin mapping"
         );
         Ok(())
+    }
+}
+
+impl Default for FungibleAssetExtractor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

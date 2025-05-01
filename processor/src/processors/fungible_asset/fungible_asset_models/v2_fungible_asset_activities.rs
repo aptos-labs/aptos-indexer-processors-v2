@@ -17,10 +17,7 @@ use crate::{
                 coin_activities::CoinActivity,
                 coin_utils::{CoinEvent, EventGuidResource},
             },
-            fungible_asset_models::{
-                v2_fungible_asset_balances::CurrentUnifiedFungibleAssetBalance,
-                v2_fungible_asset_utils::{FeeStatement, FungibleAssetEvent},
-            },
+            fungible_asset_models::v2_fungible_asset_utils::{FeeStatement, FungibleAssetEvent},
         },
         objects::v2_object_utils::ObjectAggregatedDataMapping,
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
@@ -32,7 +29,6 @@ use allocative::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{Event, TransactionInfo, UserTransactionRequest},
-    postgres::utils::database::DbContext,
     utils::convert::{bigdecimal_to_u64, standardize_address},
 };
 use bigdecimal::{BigDecimal, Zero};
@@ -117,10 +113,6 @@ impl FungibleAssetActivity {
                 ),
                 FungibleAssetEvent::FrozenEventV2(inner) => {
                     (standardize_address(&inner.store), Some(inner.frozen), None)
-                },
-                _ => {
-                    // By default, don't include the event in fungible asset activities
-                    return Ok(None);
                 },
             };
 
