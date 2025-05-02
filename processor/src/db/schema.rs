@@ -1005,7 +1005,7 @@ diesel::table! {
 
 diesel::table! {
     public_key_auth_keys (auth_key, public_key) {
-        #[max_length = 200]
+        #[max_length = 500]
         public_key -> Varchar,
         #[max_length = 50]
         public_key_type -> Varchar,
