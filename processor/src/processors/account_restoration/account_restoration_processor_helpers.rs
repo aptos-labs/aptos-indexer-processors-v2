@@ -7,6 +7,7 @@ use super::account_restoration_models::public_key_auth_keys::{
 use crate::{
     db::resources::V2TokenResource,
     processors::account_restoration::account_restoration_models::{
+        account_restoration_utils::KeyRotationToPublicKeyEvent,
         auth_key_account_addresses::AuthKeyAccountAddress, public_key_auth_keys::PublicKeyAuthKey,
     },
 };
@@ -81,9 +82,10 @@ pub fn parse_account_restoration_models(
             // 2. Auth key is different from account address
             // 3. Multi-key transaction
 
-            let multi_key_helper = signature
-                .as_ref()
-                .and_then(PublicKeyAuthKeyHelper::get_multi_key_from_signature);
+            let key_rotation_event = KeyRotationToPublicKeyEvent::from_transaction(txn);
+            let mut multi_key_helper = signature.as_ref().and_then(|sig| {
+                PublicKeyAuthKeyHelper::get_multi_key_from_signature(sig, txn_version)
+            });
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
                     if let Some(V2TokenResource::Account(account)) =
@@ -96,6 +98,7 @@ pub fn parse_account_restoration_models(
                             .contains(&entry_function_id_str.as_deref().unwrap_or(""))
                             || auth_key != account_address
                             || multi_key_helper.is_some()
+                            || key_rotation_event.is_some()
                         {
                             auth_key_account_addresses.insert(
                                 account_address.clone(),
@@ -110,7 +113,15 @@ pub fn parse_account_restoration_models(
                 }
             }
 
-            // Now let's look at the multi-key signatures and see if we can associate the auth key
+            // If there is a KeyRotationToPublicKeyEvent event, use the PublicKeyAuthKeyHelper constructed from it instead.
+            // In the case of a single key, there is no helper to construct.
+            if let Some(key_rotation_event) = key_rotation_event {
+                multi_key_helper = PublicKeyAuthKeyHelper::create_helper_from_key_rotation_event(
+                    &key_rotation_event,
+                    txn_version,
+                );
+            }
+
             if let Some(helper) = &multi_key_helper {
                 if let Some(sender) = sender {
                     if let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
