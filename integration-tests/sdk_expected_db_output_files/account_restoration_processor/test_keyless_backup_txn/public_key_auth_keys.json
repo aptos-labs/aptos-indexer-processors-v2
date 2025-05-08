@@ -3,18 +3,18 @@
     "public_key": "0x1b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20b9dc1631aea98040b789607a16f2f761e0eba2a78f7397a3e7eb88f011f3f224",
     "public_key_type": "keyless",
     "auth_key": "0x9043a58ef9970528eb7baf0ab0c0ab3762793f063efbbc6110b9eb15db02f2bb",
-    "account_public_key": "0x02031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20b9dc1631aea98040b789607a16f2f761e0eba2a78f7397a3e7eb88f011f3f2240020ce9e73925be19333632ef779f9794a62a44f82c1d2a0c5245bc05df54069096c01",
     "is_public_key_used": true,
     "last_transaction_version": 6307,
-    "signature_type": "multi_key_signature"
+    "signature_type": "multi_key_signature",
+    "account_public_key": "0x02031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20b9dc1631aea98040b789607a16f2f761e0eba2a78f7397a3e7eb88f011f3f2240020ce9e73925be19333632ef779f9794a62a44f82c1d2a0c5245bc05df54069096c01"
   },
   {
     "public_key": "0xce9e73925be19333632ef779f9794a62a44f82c1d2a0c5245bc05df54069096c",
     "public_key_type": "ed25519",
     "auth_key": "0x9043a58ef9970528eb7baf0ab0c0ab3762793f063efbbc6110b9eb15db02f2bb",
-    "account_public_key": "0x02031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20b9dc1631aea98040b789607a16f2f761e0eba2a78f7397a3e7eb88f011f3f2240020ce9e73925be19333632ef779f9794a62a44f82c1d2a0c5245bc05df54069096c01",
     "is_public_key_used": true,
     "last_transaction_version": 6307,
-    "signature_type": "multi_key_signature"
+    "signature_type": "multi_key_signature",
+    "account_public_key": "0x02031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20b9dc1631aea98040b789607a16f2f761e0eba2a78f7397a3e7eb88f011f3f2240020ce9e73925be19333632ef779f9794a62a44f82c1d2a0c5245bc05df54069096c01"
   }
 ]
