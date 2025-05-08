@@ -1,12 +1,8 @@
 [
   {
-    "auth_key": "0xbaa06bd9684eefe879615e2cd77fd3ce3881c26867ae85055a577e1f584c00d2",
-    "account_address": "0xbaa06bd9684eefe879615e2cd77fd3ce3881c26867ae85055a577e1f584c00d2",
-    "last_transaction_version": 2200077800
-  },
-  {
     "auth_key": "0xfa444eef0d28f64b1c7494a483876b353db79b96890dfa22c6f03e68c2d73f22",
     "account_address": "0x21fccd4b01606fa6d094f3b99d6c4134107bf3bd72ef386316554356953e478a",
-    "last_transaction_version": 2200077800
+    "last_transaction_version": 2200077800,
+    "auth_key_used": true
   }
 ]

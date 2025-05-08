@@ -2,6 +2,7 @@
   {
     "auth_key": "0x9043a58ef9970528eb7baf0ab0c0ab3762793f063efbbc6110b9eb15db02f2bb",
     "account_address": "0x06100b06f506d0835f536776f1def6d68471853ce47d56259c05ae39be6cf774",
-    "last_transaction_version": 6307
+    "last_transaction_version": 6307,
+    "auth_key_used": true
   }
 ]

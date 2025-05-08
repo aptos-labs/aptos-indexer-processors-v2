@@ -91,6 +91,7 @@ diesel::table! {
         #[max_length = 66]
         account_address -> Varchar,
         last_transaction_version -> Int8,
+        auth_key_used -> Bool,
     }
 }
 
