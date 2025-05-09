@@ -100,7 +100,7 @@ pub fn parse_account_restoration_models(
                     {
                         let auth_key = standardize_address(&account.authentication_key);
                         let account_address = standardize_address(&wr.address);
-                        // If the this isn't a change on the sender account (i.e. it is a change of a recipient 
+                        // If the this isn't a change on the sender account (i.e. it is a change of a recipient
                         // account's token resource), we skip.
                         if sender.as_ref() != Some(&account_address) {
                             continue;
