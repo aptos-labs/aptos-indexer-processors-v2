@@ -105,7 +105,7 @@ pub fn parse_account_restoration_models(
                         }
 
                         // If the transaction is an unverified key rotation transaction, we need to insert the auth key account address
-                        // with auth_key_used set to false.  This allows us to filter out accounts that are not actually owned by the
+                        // with is_auth_key_used set to false.  This allows us to filter out accounts that are not actually owned by the
                         // owner of the auth key.
                         if ROTATE_AUTH_KEY_UNVERIFIED_ENTRY_FUNCTIONS
                             .contains(&entry_function_id_str.as_deref().unwrap_or(""))
@@ -116,7 +116,7 @@ pub fn parse_account_restoration_models(
                                     auth_key: auth_key.clone(),
                                     account_address,
                                     last_transaction_version: txn_version,
-                                    auth_key_used: false,
+                                    is_auth_key_used: false,
                                 },
                             );
                         }
@@ -124,7 +124,7 @@ pub fn parse_account_restoration_models(
                         // - If the transaction is a verified key rotation transaction
                         // - If the transaction is a multi-key transaction
                         // - If the transaction is on a rotated account
-                        // we need to insert the auth key account address with auth_key_used set to true.
+                        // we need to insert the auth key account address with is_auth_key_used set to true.
                         else if ROTATE_AUTH_KEY_ENTRY_FUNCTIONS
                             .contains(&entry_function_id_str.as_deref().unwrap_or(""))
                             || auth_key != account_address
@@ -137,7 +137,7 @@ pub fn parse_account_restoration_models(
                                     auth_key: auth_key.clone(),
                                     account_address,
                                     last_transaction_version: txn_version,
-                                    auth_key_used: true,
+                                    is_auth_key_used: true,
                                 },
                             );
                         }

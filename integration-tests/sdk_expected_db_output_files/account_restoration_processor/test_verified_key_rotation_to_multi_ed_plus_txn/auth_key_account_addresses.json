@@ -3,6 +3,6 @@
     "auth_key": "0x64414daaea8722d16764fd04b553052c8ce243ce179e587f0e3b0cf613f4f3ab",
     "account_address": "0x49ffe7968750a5ffea80af6fd7657bb246ff8ce6657cbf2c8ed13d9276096b3f",
     "last_transaction_version": 6617355090,
-    "auth_key_used": true
+    "is_auth_key_used": true
   }
 ]

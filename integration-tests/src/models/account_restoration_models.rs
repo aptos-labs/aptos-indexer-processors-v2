@@ -15,7 +15,7 @@ pub struct AuthKeyAccountAddress {
     pub auth_key: String,
     pub account_address: String,
     pub last_transaction_version: i64,
-    pub auth_key_used: bool,
+    pub is_auth_key_used: bool,
 }
 
 #[derive(
