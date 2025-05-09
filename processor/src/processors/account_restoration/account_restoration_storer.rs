@@ -114,6 +114,7 @@ pub fn insert_auth_key_account_addresses_query(
         .set((
             auth_key.eq(excluded(auth_key)),
             last_transaction_version.eq(excluded(last_transaction_version)),
+            is_auth_key_used.eq(excluded(is_auth_key_used)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }
