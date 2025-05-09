@@ -123,10 +123,15 @@ mod sdk_account_restoration_processor_tests {
     async fn test_unverified_multi_key_rotation_and_txn() {
         let db = setup_db().await;
         process_transactions(
-            &[
-                IMPORTED_MAINNET_TXNS_2200077673_ACCOUNT_RESTORATION_UNVERIFIED_KEY_ROTATION_TO_MULTI_KEY_TXN,
-                IMPORTED_MAINNET_TXNS_2200077800_ACCOUNT_RESTORATION_ROTATED_TO_MULTI_KEY,
-            ],
+            &[IMPORTED_MAINNET_TXNS_2200077673_ACCOUNT_RESTORATION_UNVERIFIED_KEY_ROTATION_TO_MULTI_KEY_TXN],
+            Some("test_unverified_key_rotation_to_multi_key".to_string()),
+            &db,
+            None,
+        )
+        .await;
+
+        process_transactions(
+            &[IMPORTED_MAINNET_TXNS_2200077800_ACCOUNT_RESTORATION_ROTATED_TO_MULTI_KEY],
             Some("test_unverified_multi_key_rotation_and_txn".to_string()),
             &db,
             None,
