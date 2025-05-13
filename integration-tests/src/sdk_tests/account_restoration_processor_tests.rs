@@ -81,7 +81,7 @@ mod sdk_account_restoration_processor_tests {
         include_bytes!("test_transactions/sender_1/122009973_keyless_backup_txn.json");
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_keyless_backup_txn_1() {
+    async fn test_keyless_backup_txn_and_coin_transfer_txn_and_another_keyless_backup_txn() {
         let db = setup_db().await;
         process_transactions(
             &[IMPORTED_DEVNET_119309306_KEYLESS_BACKUP_TXN],
@@ -91,6 +91,9 @@ mod sdk_account_restoration_processor_tests {
         )
         .await;
 
+        // This transaction is signed by the keyless signer.
+        // The ed25519 public key should not be marked as not used as it is already used 
+        // in the previous transaction.
         process_transactions(
             &[IMPORTED_DEVNET_119309341_COIN_TRANSFER_TXN],
             Some("test_keyless_backup_state_2".to_string()),
