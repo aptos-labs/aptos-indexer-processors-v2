@@ -19,13 +19,13 @@ rust-version = "1.78"
 processor = { path = "processor" }
 
 ahash = { version = "0.8.7", features = ["serde"] }
-anyhow = "1.0.86"
+anyhow = "1.0.98"
 # Do NOT enable the postgres_full feature here, it is conditionally enabled in a feature
 # block in the Cargo.toml file for the processor crate.
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
 # Do NOT enable the testing_framework feature here, it is conditionally enabled as a dev dependency
 # in the integration-tests/Cargo.toml file.
-aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", rev = "bfb07a2b6985743fbc275d6fc621a80453f6742d", features = [
+aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", rev = "c63f6ee891e42cc50f92480c21d4afa86012b157", features = [
     "postgres_partial",
 ] }
 aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "150d0bdc63e9fda298edef7244bb044b1efa6e17" }
