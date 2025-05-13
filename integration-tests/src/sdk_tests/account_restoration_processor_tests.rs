@@ -92,7 +92,7 @@ mod sdk_account_restoration_processor_tests {
         .await;
 
         // This transaction is signed by the keyless signer.
-        // The ed25519 public key should not be marked as not used as it is already used 
+        // The ed25519 public key should not be marked as not used as it is already used
         // in the previous transaction.
         process_transactions(
             &[IMPORTED_DEVNET_119309341_COIN_TRANSFER_TXN],
