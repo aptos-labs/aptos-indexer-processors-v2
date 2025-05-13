@@ -20,7 +20,7 @@ use diesel::{
     pg::{upsert::excluded, Pg},
     query_builder::QueryFragment,
     query_dsl::methods::FilterDsl,
-    ExpressionMethods,
+    ExpressionMethods, IntoSql,
 };
 
 pub struct AccountRestorationStorer
@@ -130,9 +130,13 @@ pub fn insert_public_key_auth_keys_query(
         .do_update()
         .set((
             account_public_key.eq(excluded(account_public_key)),
-            is_public_key_used.eq(excluded(is_public_key_used)),
             last_transaction_version.eq(excluded(last_transaction_version)),
             signature_type.eq(excluded(signature_type)),
+            is_public_key_used.eq(diesel::dsl::case_when(
+                is_public_key_used.eq(true),
+                true.into_sql::<diesel::sql_types::Bool>(),
+            )
+            .otherwise(excluded(is_public_key_used))),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }

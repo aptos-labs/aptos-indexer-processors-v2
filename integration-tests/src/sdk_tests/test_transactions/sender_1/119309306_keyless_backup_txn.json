@@ -1,0 +1,268 @@
+{
+  "timestamp": {
+    "seconds": "1746834378",
+    "nanos": 967286000
+  },
+  "version": "119309306",
+  "info": {
+    "hash": "hkiYThbU/UnmqSNQ6H29nyBqaq5DFA9ODcWKuu+4uKc=",
+    "stateChangeHash": "NWM8YJLAuwQGBwwNiKDArTCVaU9Pq2Ln53YdDbCHGuY=",
+    "eventRootHash": "M6Xxd0CXShBqQTCcyZpXxvTbg+gTxd048YgYe6AFTUU=",
+    "gasUsed": "41",
+    "success": true,
+    "vmStatus": "Executed successfully",
+    "accumulatorRootHash": "waWfNLzwh0Mp/WDYdPZpQMXSnICUezUU36pJP4UxoFs=",
+    "changes": [
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "coin",
+            "name": "PairedCoinType"
+          },
+          "typeStr": "0x1::coin::PairedCoinType",
+          "data": "{\"type\":{\"account_address\":\"0x1\",\"module_name\":\"0x6170746f735f636f696e\",\"struct_name\":\"0x4170746f73436f696e\"}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "coin",
+            "name": "PairedFungibleAssetRefs"
+          },
+          "typeStr": "0x1::coin::PairedFungibleAssetRefs",
+          "data": "{\"burn_ref_opt\":{\"vec\":[]},\"mint_ref_opt\":{\"vec\":[{\"metadata\":{\"inner\":\"0xa\"}}]},\"transfer_ref_opt\":{\"vec\":[{\"metadata\":{\"inner\":\"0xa\"}}]}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "fungible_asset",
+            "name": "ConcurrentSupply"
+          },
+          "typeStr": "0x1::fungible_asset::ConcurrentSupply",
+          "data": "{\"current\":{\"max_value\":\"340282366920938463463374607431768211455\",\"value\":\"18446745057783650453\"}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "fungible_asset",
+            "name": "Metadata"
+          },
+          "typeStr": "0x1::fungible_asset::Metadata",
+          "data": "{\"decimals\":8,\"icon_uri\":\"\",\"name\":\"Aptos Coin\",\"project_uri\":\"\",\"symbol\":\"APT\"}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "object",
+            "name": "ObjectCore"
+          },
+          "typeStr": "0x1::object::ObjectCore",
+          "data": "{\"allow_ungated_transfer\":true,\"guid_creation_num\":\"1125899906842625\",\"owner\":\"0x1\",\"transfer_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xa\",\"creation_num\":\"1125899906842624\"}}}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xa",
+          "stateKeyHash": "HbVEHY+kIpxYRPc/1m2krYF2y4eT2LOn9sqFhyIDAEM=",
+          "type": {
+            "address": "0x1",
+            "module": "primary_fungible_store",
+            "name": "DeriveRefPod"
+          },
+          "typeStr": "0x1::primary_fungible_store::DeriveRefPod",
+          "data": "{\"metadata_derive_ref\":{\"self\":\"0xa\"}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763",
+          "stateKeyHash": "R7X65N0JYZRHI3VroGoGDdVApKDLRyzefK5PbR7vrQQ=",
+          "type": {
+            "address": "0x1",
+            "module": "account",
+            "name": "Account"
+          },
+          "typeStr": "0x1::account::Account",
+          "data": "{\"authentication_key\":\"0x8fd0cc31f86b1a8ffd3892b7089054f98e3f4b9047e3f29826018a393226438b\",\"coin_register_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763\",\"creation_num\":\"0\"}}},\"guid_creation_num\":\"2\",\"key_rotation_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763\",\"creation_num\":\"1\"}}},\"rotation_capability_offer\":{\"for\":{\"vec\":[]}},\"sequence_number\":\"48\",\"signer_capability_offer\":{\"for\":{\"vec\":[]}}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xdd6a944e17f82089222cda6299db1353039a025b7575ab3da71794349c7ab74e",
+          "stateKeyHash": "uB4ln1jQUwPA+bImWwhfplAeIc81mMhwBSbZcvSMYQU=",
+          "type": {
+            "address": "0x1",
+            "module": "fungible_asset",
+            "name": "FungibleStore"
+          },
+          "typeStr": "0x1::fungible_asset::FungibleStore",
+          "data": "{\"balance\":\"1199689900\",\"frozen\":false,\"metadata\":{\"inner\":\"0xa\"}}"
+        }
+      },
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xdd6a944e17f82089222cda6299db1353039a025b7575ab3da71794349c7ab74e",
+          "stateKeyHash": "uB4ln1jQUwPA+bImWwhfplAeIc81mMhwBSbZcvSMYQU=",
+          "type": {
+            "address": "0x1",
+            "module": "object",
+            "name": "ObjectCore"
+          },
+          "typeStr": "0x1::object::ObjectCore",
+          "data": "{\"allow_ungated_transfer\":false,\"guid_creation_num\":\"1125899906842625\",\"owner\":\"0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763\",\"transfer_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xdd6a944e17f82089222cda6299db1353039a025b7575ab3da71794349c7ab74e\",\"creation_num\":\"1125899906842624\"}}}}"
+        }
+      }
+    ]
+  },
+  "epoch": "98",
+  "blockHeight": "20718934",
+  "type": "TRANSACTION_TYPE_USER",
+  "sizeInfo": {
+    "transactionBytes": 817,
+    "eventSizeInfo": [
+      {
+        "typeTagBytes": 65,
+        "totalBytes": 268
+      },
+      {
+        "typeTagBytes": 63,
+        "totalBytes": 103
+      }
+    ],
+    "writeOpSizeInfo": [
+      {
+        "keyBytes": 87,
+        "valueBytes": 655
+      },
+      {
+        "keyBytes": 84,
+        "valueBytes": 147
+      },
+      {
+        "keyBytes": 87,
+        "valueBytes": 246
+      }
+    ]
+  },
+  "user": {
+    "request": {
+      "sender": "0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763",
+      "sequenceNumber": "47",
+      "maxGasAmount": "200000",
+      "gasUnitPrice": "100",
+      "expirationTimestampSecs": {
+        "seconds": "1746834398"
+      },
+      "payload": {
+        "type": "TYPE_ENTRY_FUNCTION_PAYLOAD",
+        "entryFunctionPayload": {
+          "function": {
+            "module": {
+              "address": "0x1",
+              "name": "account"
+            },
+            "name": "upsert_ed25519_backup_key_on_keyless_account"
+          },
+          "arguments": [
+            "\"0x031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20df280a94dd75e9e243f99287dc58768713a1aa7ed79f5a55b549bfafb606aa26\"",
+            "\"0x98fcc9ea24ef262f55c7359a4814676d8198ae452e30fe8f699d25b613469f9a\"",
+            "\"0x0509f41b346b193a8f2d7736aefbbd49c35e11ef0db7ec168229f60ace3e101a87a0ed91eae944ec793e795d412a03f03ee27b3a246797eed2f64ddac2519802\""
+          ],
+          "entryFunctionIdStr": "0x1::account::upsert_ed25519_backup_key_on_keyless_account"
+        },
+        "extraConfigV1": {}
+      },
+      "signature": {
+        "type": "TYPE_SINGLE_SENDER",
+        "singleSender": {
+          "sender": {
+            "type": "TYPE_MULTI_KEY",
+            "multiKeySignature": {
+              "publicKeys": [
+                {
+                  "type": "TYPE_KEYLESS",
+                  "publicKey": "G2h0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSDfKAqU3XXp4kP5kofcWHaHE6GqftefWlW1Sb+vtgaqJg=="
+                },
+                {
+                  "type": "TYPE_ED25519",
+                  "publicKey": "w5qJGnQ/Na7Ls/S10nsz/vL6Ug/qOdaSGyE0rONsxmU="
+                }
+              ],
+              "signatures": [
+                {
+                  "signature": {
+                    "type": "TYPE_KEYLESS",
+                    "signature": "AAAMtDOl/3wtDeAv/Fc36ygLAHdTrzuk9k+jwuWZrd2QAnwS+Em526l/AsDGhMaORvmbbHTRrPhtDVRfUYHu2rYVQ5eontkXjCPt4nX/++5UskgcpMndl/pAjJMCD2pzOwZOAVVm40GCQHyjmLQu5sQhjDIEZNd1jPJB7UrNnahAJoCWmAAAAAAAAAABAEBbYDKj7uevUx1NHQicpZ+4qYeXxdglYRJCGqTzL6AFFMdgUUt7RqydEc03pOJ2BQUBcidjvekNYeZSs835h34ATHsiYWxnIjoiUlMyNTYiLCJraWQiOiIwN2I4MGEzNjU0Mjg1MjVmOGJmN2NkMDg0NmQ3NGE4ZWU0ZWYzNjI1IiwidHlwIjoiSldUIn04uFxoAAAAAAAg0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzcAQHLdAImA40QT90YzibQDicgEixGGYFDEXhEuYDHioBXqY1iq+h/KSCNrYMcQPrxUlS34EMADjMMrRaqawCUGpQY=",
+                    "keyless": {
+                      "signature": "AAAMtDOl/3wtDeAv/Fc36ygLAHdTrzuk9k+jwuWZrd2QAnwS+Em526l/AsDGhMaORvmbbHTRrPhtDVRfUYHu2rYVQ5eontkXjCPt4nX/++5UskgcpMndl/pAjJMCD2pzOwZOAVVm40GCQHyjmLQu5sQhjDIEZNd1jPJB7UrNnahAJoCWmAAAAAAAAAABAEBbYDKj7uevUx1NHQicpZ+4qYeXxdglYRJCGqTzL6AFFMdgUUt7RqydEc03pOJ2BQUBcidjvekNYeZSs835h34ATHsiYWxnIjoiUlMyNTYiLCJraWQiOiIwN2I4MGEzNjU0Mjg1MjVmOGJmN2NkMDg0NmQ3NGE4ZWU0ZWYzNjI1IiwidHlwIjoiSldUIn04uFxoAAAAAAAg0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzcAQHLdAImA40QT90YzibQDicgEixGGYFDEXhEuYDHioBXqY1iq+h/KSCNrYMcQPrxUlS34EMADjMMrRaqawCUGpQY="
+                    }
+                  }
+                }
+              ],
+              "signaturesRequired": 1
+            }
+          }
+        }
+      }
+    },
+    "events": [
+      {
+        "key": {
+          "accountAddress": "0x0"
+        },
+        "type": {
+          "type": "MOVE_TYPES_STRUCT",
+          "struct": {
+            "address": "0x1",
+            "module": "account",
+            "name": "KeyRotationToPublicKey"
+          }
+        },
+        "typeStr": "0x1::account::KeyRotationToPublicKey",
+        "data": "{\"account\":\"0x11111121810b0dd82da7fe72abc0972cb087cd8f37b55367a8fb0b2faead0763\",\"new_auth_key\":\"0x8fd0cc31f86b1a8ffd3892b7089054f98e3f4b9047e3f29826018a393226438b\",\"old_auth_key\":\"0x65eaea8696faa27600bd8bfdec93bc9c97e8014f917f950ff6ef3eef3ce8ff71\",\"public_key\":\"0x02031b68747470733a2f2f6163636f756e74732e676f6f676c652e636f6d20df280a94dd75e9e243f99287dc58768713a1aa7ed79f5a55b549bfafb606aa26002098fcc9ea24ef262f55c7359a4814676d8198ae452e30fe8f699d25b613469f9a01\",\"public_key_scheme\":3,\"verified_public_key_bit_map\":\"0xc0000000\"}"
+      },
+      {
+        "key": {
+          "accountAddress": "0x0"
+        },
+        "type": {
+          "type": "MOVE_TYPES_STRUCT",
+          "struct": {
+            "address": "0x1",
+            "module": "transaction_fee",
+            "name": "FeeStatement"
+          }
+        },
+        "typeStr": "0x1::transaction_fee::FeeStatement",
+        "data": "{\"execution_gas_units\":\"39\",\"io_gas_units\":\"3\",\"storage_fee_octas\":\"0\",\"storage_fee_refund_octas\":\"0\",\"total_charge_gas_units\":\"41\"}"
+      }
+    ]
+  }
+}

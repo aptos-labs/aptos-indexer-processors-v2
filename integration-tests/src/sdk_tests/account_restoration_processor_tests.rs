@@ -69,7 +69,44 @@ mod sdk_account_restoration_processor_tests {
     };
 
     pub const IMPORTED_LOCALNET_TXNS_KEYLESS_BACKUP_TXN: &[u8] =
-        include_bytes!("keyless_backup_txn.json");
+        include_bytes!("test_transactions/sender_2/6307_keyless_backup_txn.json");
+
+    pub const IMPORTED_DEVNET_119309306_KEYLESS_BACKUP_TXN: &[u8] =
+        include_bytes!("test_transactions/sender_1/119309306_keyless_backup_txn.json");
+
+    pub const IMPORTED_DEVNET_119309341_COIN_TRANSFER_TXN: &[u8] =
+        include_bytes!("test_transactions/sender_1/119309341_coin_transfer_txn.json");
+
+    pub const IMPORTED_DEVNET_122009973_KEYLESS_BACKUP_TXN: &[u8] =
+        include_bytes!("test_transactions/sender_1/122009973_keyless_backup_txn.json");
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_keyless_backup_txn_1() {
+        let db = setup_db().await;
+        process_transactions(
+            &[IMPORTED_DEVNET_119309306_KEYLESS_BACKUP_TXN],
+            Some("test_keyless_backup_state_1".to_string()),
+            &db,
+            None,
+        )
+        .await;
+
+        process_transactions(
+            &[IMPORTED_DEVNET_119309341_COIN_TRANSFER_TXN],
+            Some("test_keyless_backup_state_2".to_string()),
+            &db,
+            None,
+        )
+        .await;
+
+        process_transactions(
+            &[IMPORTED_DEVNET_122009973_KEYLESS_BACKUP_TXN],
+            Some("test_keyless_backup_state_3".to_string()),
+            &db,
+            None,
+        )
+        .await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_keyless_backup_txn() {
