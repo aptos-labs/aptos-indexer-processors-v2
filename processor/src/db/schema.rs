@@ -980,7 +980,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    processor_status (processor, processor) {
+    processor_status (processor) {
         #[max_length = 100]
         processor -> Varchar,
         last_success_version -> Int8,
@@ -1005,7 +1005,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    public_key_auth_keys (auth_key, public_key, public_key_type) {
+    public_key_auth_keys (auth_key, public_key) {
         #[max_length = 500]
         public_key -> Varchar,
         #[max_length = 50]

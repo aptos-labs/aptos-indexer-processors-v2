@@ -110,6 +110,7 @@ impl UserTransaction {
                     .map(get_parent_signature_type)
                     .unwrap_or_default(),
                 sender: standardize_address(&user_request.sender),
+                // For orderless transactions, we set sequence_number to None instead of u64::MAX
                 sequence_number: replay_protection_nonce
                     .is_none()
                     .then_some(user_request.sequence_number as i64),
