@@ -23,7 +23,7 @@ permissions:
       
 jobs:
   Build:
-    runs-on: runs-on,cpu=16,family=c7,hdd=200,image=ubuntu22-full-x64,run-id=${{ github.run_id }}
+    runs-on: runs-on,cpu=16,family=c7,hdd=500,image=ubuntu22-full-x64,run-id=${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/docker-setup
