@@ -97,7 +97,7 @@ diesel::table! {
 
 diesel::table! {
     backfill_processor_status (backfill_alias) {
-        #[max_length = 50]
+        #[max_length = 100]
         backfill_alias -> Varchar,
         #[max_length = 50]
         backfill_status -> Varchar,
@@ -1012,12 +1012,12 @@ diesel::table! {
         public_key_type -> Varchar,
         #[max_length = 66]
         auth_key -> Varchar,
-        #[max_length = 3000]
-        account_public_key -> Nullable<Varchar>,
         is_public_key_used -> Bool,
         last_transaction_version -> Int8,
         #[max_length = 50]
         signature_type -> Varchar,
+        #[max_length = 3000]
+        account_public_key -> Nullable<Varchar>,
     }
 }
 
@@ -1313,7 +1313,7 @@ diesel::table! {
         parent_signature_type -> Varchar,
         #[max_length = 66]
         sender -> Varchar,
-        sequence_number -> Int8,
+        sequence_number -> Nullable<Int8>,
         max_gas_amount -> Numeric,
         expiration_timestamp_secs -> Timestamp,
         gas_unit_price -> Numeric,
@@ -1328,6 +1328,7 @@ diesel::table! {
         entry_function_module_name -> Nullable<Varchar>,
         #[max_length = 255]
         entry_function_function_name -> Nullable<Varchar>,
+        replay_protection_nonce -> Nullable<Numeric>,
     }
 }
 
