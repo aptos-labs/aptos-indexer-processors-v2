@@ -192,7 +192,8 @@ pub fn parse_account_restoration_models(
 
     // Sort first to ensure consistent deduplication
     all_public_key_auth_keys.sort_by(|a, b| {
-        a.public_key.cmp(&b.public_key)
+        a.public_key
+            .cmp(&b.public_key)
             .then_with(|| a.public_key_type.cmp(&b.public_key_type))
             .then_with(|| a.auth_key.cmp(&b.auth_key))
             .then_with(|| a.last_transaction_version.cmp(&b.last_transaction_version))
@@ -203,22 +204,21 @@ pub fn parse_account_restoration_models(
     // Since we sorted by public_key, public_key_type, auth_key, last_transaction_version, and is_public_key_used,
     // if any duplicates exist, the ones with is_public_key_used set to true will be the first ones.
     all_public_key_auth_keys.dedup_by(|a, b| {
-        a.public_key == b.public_key && 
-        a.public_key_type == b.public_key_type && 
-        a.auth_key == b.auth_key && 
-        a.last_transaction_version == b.last_transaction_version
+        a.public_key == b.public_key
+            && a.public_key_type == b.public_key_type
+            && a.auth_key == b.auth_key
+            && a.last_transaction_version == b.last_transaction_version
     });
 
     // Here we only want the latest entry for each account address.
     all_auth_key_account_addresses.sort_by(|a, b| {
-        a.account_address.cmp(&b.account_address)
+        a.account_address
+            .cmp(&b.account_address)
             .then_with(|| b.last_transaction_version.cmp(&a.last_transaction_version))
     });
 
     // Deduplicate auth key account addresses based on account_address. Since we sorted by account_address and last_transaction_version,
     // the latest entry will be the first one.
-    all_auth_key_account_addresses.dedup_by(|a, b| {
-        a.account_address == b.account_address
-    });
+    all_auth_key_account_addresses.dedup_by(|a, b| a.account_address == b.account_address);
     (all_auth_key_account_addresses, all_public_key_auth_keys)
 }
