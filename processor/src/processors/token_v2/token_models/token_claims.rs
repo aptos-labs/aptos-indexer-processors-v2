@@ -25,8 +25,10 @@ use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 
 // Map to keep track of the metadata of token offers that were claimed. The key is the token data id of the offer.
-// Potentially it'd also be useful to keep track of offers that were canceled.
 pub type TokenV1Claimed = AHashMap<String, TokenActivityHelperV1>;
+
+// Map to keep track of the metadata of token offers that were canceled. The key is the token data id of the offer.
+pub type TokenV1Canceled = AHashMap<String, TokenActivityHelperV1>;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CurrentTokenPendingClaim {
@@ -149,6 +151,7 @@ impl CurrentTokenPendingClaim {
         txn_timestamp: chrono::NaiveDateTime,
         table_handle_to_owner: &TableHandleToOwner,
         tokens_claimed: &TokenV1Claimed,
+        tokens_canceled: &TokenV1Canceled,
     ) -> anyhow::Result<Option<Self>> {
         let table_item_data = table_item.data.as_ref().unwrap();
 
@@ -174,6 +177,9 @@ impl CurrentTokenPendingClaim {
                 if let Some(token_claimed) = tokens_claimed.get(&token_data_id) {
                     maybe_owner_address = token_claimed.from_address.clone();
                 }
+                if let Some(token_canceled) = tokens_canceled.get(&token_data_id) {
+                    maybe_owner_address = token_canceled.from_address.clone();
+                }
             }
 
             let owner_address = maybe_owner_address.unwrap_or_else(|| {
@@ -181,7 +187,7 @@ impl CurrentTokenPendingClaim {
                     "Missing table handle metadata for claim. \
                         Version: {txn_version}, table handle for PendingClaims: {table_handle}, all metadata: {table_handle_to_owner:?} \
                         Missing token data id in token claim event. \
-                        token_data_id: {token_data_id}, all token claim events: {tokens_claimed:?}"
+                        token_data_id: {token_data_id}, all token claim events: {tokens_claimed:?}, all token cancel events: {tokens_canceled:?}"
                 )
             });
 
