@@ -42,7 +42,7 @@ pub struct UserTransaction {
     pub block_height: i64,
     pub parent_signature_type: String,
     pub sender: String,
-    pub sequence_number: i64,
+    pub sequence_number: Option<i64>,
     pub max_gas_amount: BigDecimal,
     pub expiration_timestamp_secs: chrono::NaiveDateTime,
     pub gas_unit_price: BigDecimal,
@@ -53,4 +53,5 @@ pub struct UserTransaction {
     pub entry_function_contract_address: Option<String>,
     pub entry_function_module_name: Option<String>,
     pub entry_function_function_name: Option<String>,
+    pub replay_protection_nonce: Option<BigDecimal>,
 }

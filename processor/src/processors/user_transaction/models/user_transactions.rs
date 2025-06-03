@@ -33,6 +33,7 @@ use aptos_indexer_processor_sdk::{
             get_entry_function_from_user_request,
             get_entry_function_function_name_from_user_request,
             get_entry_function_module_name_from_user_request,
+            get_replay_protection_nonce_from_user_request,
         },
     },
 };
@@ -51,7 +52,8 @@ pub struct UserTransaction {
     pub block_height: i64,
     pub parent_signature_type: String,
     pub sender: String,
-    pub sequence_number: i64,
+    pub sequence_number: Option<i64>,
+    pub replay_protection_nonce: Option<BigDecimal>,
     pub max_gas_amount: BigDecimal,
     pub expiration_timestamp_secs: Timestamp,
     pub gas_unit_price: BigDecimal,
@@ -91,6 +93,10 @@ impl UserTransaction {
         let num_signatures =
             UserTransaction::get_signatures(user_request, version, block_height, block_timestamp)
                 .len() as i64;
+
+        // Extract nonce from payload's extra_config if available for orderless transactions
+        let replay_protection_nonce = get_replay_protection_nonce_from_user_request(user_request);
+
         (
             Self {
                 txn_version: version,
@@ -104,7 +110,11 @@ impl UserTransaction {
                     .map(get_parent_signature_type)
                     .unwrap_or_default(),
                 sender: standardize_address(&user_request.sender),
-                sequence_number: user_request.sequence_number as i64,
+                // For orderless transactions, we set sequence_number to None instead of u64::MAX
+                sequence_number: replay_protection_nonce
+                    .is_none()
+                    .then_some(user_request.sequence_number as i64),
+                replay_protection_nonce: replay_protection_nonce.map(u64_to_bigdecimal),
                 max_gas_amount: u64_to_bigdecimal(user_request.max_gas_amount),
                 expiration_timestamp_secs: user_request.expiration_timestamp_secs.unwrap(),
                 gas_unit_price: u64_to_bigdecimal(user_request.gas_unit_price),
@@ -171,7 +181,8 @@ pub struct ParquetUserTransaction {
     pub block_timestamp: chrono::NaiveDateTime,
     pub epoch: i64,
     pub sender: String,
-    pub sequence_number: i64,
+    pub sequence_number: Option<i64>,
+    pub replay_protection_nonce: Option<String>, // String format of BigDecimal
     pub entry_function_id_str: String,
     pub expiration_timestamp_secs: u64,
     pub parent_signature_type: String,
@@ -203,6 +214,9 @@ impl From<UserTransaction> for ParquetUserTransaction {
             epoch: user_transaction.epoch,
             sender: user_transaction.sender,
             sequence_number: user_transaction.sequence_number,
+            replay_protection_nonce: user_transaction
+                .replay_protection_nonce
+                .map(|n| n.to_string()),
             entry_function_id_str: user_transaction.entry_function_id_str,
             expiration_timestamp_secs: user_transaction.expiration_timestamp_secs.seconds as u64,
             parent_signature_type: user_transaction.parent_signature_type,
@@ -226,7 +240,8 @@ pub struct PostgresUserTransaction {
     pub block_height: i64,
     pub parent_signature_type: String,
     pub sender: String,
-    pub sequence_number: i64,
+    pub sequence_number: Option<i64>,
+    pub replay_protection_nonce: Option<BigDecimal>,
     pub max_gas_amount: BigDecimal,
     pub expiration_timestamp_secs: chrono::NaiveDateTime,
     pub gas_unit_price: BigDecimal,
@@ -246,6 +261,7 @@ impl From<UserTransaction> for PostgresUserTransaction {
             parent_signature_type: user_transaction.parent_signature_type,
             sender: user_transaction.sender,
             sequence_number: user_transaction.sequence_number,
+            replay_protection_nonce: user_transaction.replay_protection_nonce,
             max_gas_amount: user_transaction.max_gas_amount,
             expiration_timestamp_secs: parse_timestamp(
                 &user_transaction.expiration_timestamp_secs,

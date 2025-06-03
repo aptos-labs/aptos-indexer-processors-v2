@@ -3,27 +3,27 @@
     "public_key": "0x3ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd",
     "public_key_type": "ed25519",
     "auth_key": "0x64414daaea8722d16764fd04b553052c8ce243ce179e587f0e3b0cf613f4f3ab",
-    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02",
     "is_public_key_used": false,
     "last_transaction_version": 6617355090,
-    "signature_type": "multi_ed25519_signature"
+    "signature_type": "multi_ed25519_signature",
+    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02"
   },
   {
     "public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86",
     "public_key_type": "ed25519",
     "auth_key": "0x64414daaea8722d16764fd04b553052c8ce243ce179e587f0e3b0cf613f4f3ab",
-    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02",
     "is_public_key_used": true,
     "last_transaction_version": 6617355090,
-    "signature_type": "multi_ed25519_signature"
+    "signature_type": "multi_ed25519_signature",
+    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02"
   },
   {
     "public_key": "0xd04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
     "public_key_type": "ed25519",
     "auth_key": "0x64414daaea8722d16764fd04b553052c8ce243ce179e587f0e3b0cf613f4f3ab",
-    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02",
     "is_public_key_used": true,
     "last_transaction_version": 6617355090,
-    "signature_type": "multi_ed25519_signature"
+    "signature_type": "multi_ed25519_signature",
+    "account_public_key": "0x9b975ea61923c41f6ed7c1711193691b4685804a75071a83e9e5dcc9df2bdb86d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787373ad989efdbd5e8ce73df2fa8075385c9901c35b31e6b873c9af44fb0250ff4bd02"
   }
 ]
