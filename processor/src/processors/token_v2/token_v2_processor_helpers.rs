@@ -10,7 +10,7 @@ use crate::{
         },
         token_v2::{
             token_models::{
-                token_claims::{CurrentTokenPendingClaim, TokenV1Claimed},
+                token_claims::{CurrentTokenPendingClaim, TokenV1Canceled, TokenV1Claimed},
                 token_royalty::CurrentTokenRoyaltyV1,
                 tokens::{CurrentTokenPendingClaimPK, TableHandleToOwner},
             },
@@ -128,6 +128,9 @@ pub async fn parse_v2_token(
             // Get claim events for token v1 by table handle
             let mut tokens_claimed: TokenV1Claimed = AHashMap::new();
 
+            // Get cancel events for token v1 by table handle
+            let mut tokens_canceled: TokenV1Canceled = AHashMap::new();
+
             // Loop 1: Need to do a first pass to get all the object addresses and insert them into the helper
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
@@ -237,6 +240,7 @@ pub async fn parse_v2_token(
                     index as i64,
                     &entry_function_id_str,
                     &mut tokens_claimed,
+                    &mut tokens_canceled,
                 )
                 .unwrap()
                 {
@@ -400,6 +404,7 @@ pub async fn parse_v2_token(
                                 txn_timestamp,
                                 table_handle_to_owner,
                                 &tokens_claimed,
+                                &tokens_canceled,
                             )
                             .unwrap()
                         {
