@@ -22,7 +22,7 @@ use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};
 
-pub type PublicKeyAuthKeyMapping = AHashMap<(String, String), PublicKeyAuthKey>;
+pub type PublicKeyAuthKeyMapping = AHashMap<(String, String, String, bool), PublicKeyAuthKey>;
 
 const ED25519_SCHEME: u8 = 0;
 const MULTI_ED25519_SCHEME: u8 = 1;
@@ -219,25 +219,22 @@ impl PublicKeyAuthKeyHelper {
         }
     }
 
-    pub fn get_public_keys(
+    pub fn get_public_key_auth_keys(
         helper: &PublicKeyAuthKeyHelper,
         auth_key: &str,
         transaction_version: i64,
-    ) -> PublicKeyAuthKeyMapping {
+    ) -> Vec<PublicKeyAuthKey> {
         helper
             .keys
             .iter()
-            .map(|key| {
-                let key_tuple = (auth_key.to_string(), key.public_key.clone());
-                (key_tuple, PublicKeyAuthKey {
-                    public_key: key.public_key.clone(),
-                    public_key_type: key.public_key_type.clone(),
-                    auth_key: auth_key.to_string(),
-                    account_public_key: helper.account_public_key.clone(),
-                    is_public_key_used: key.is_public_key_used,
-                    last_transaction_version: transaction_version,
-                    signature_type: helper.signature_type.clone(),
-                })
+            .map(|key| PublicKeyAuthKey {
+                public_key: key.public_key.clone(),
+                public_key_type: key.public_key_type.clone(),
+                auth_key: auth_key.to_string(),
+                account_public_key: helper.account_public_key.clone(),
+                is_public_key_used: key.is_public_key_used,
+                last_transaction_version: transaction_version,
+                signature_type: helper.signature_type.clone(),
             })
             .collect()
     }

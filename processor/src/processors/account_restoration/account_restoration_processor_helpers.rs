@@ -1,9 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::account_restoration_models::public_key_auth_keys::{
-    PublicKeyAuthKeyHelper, PublicKeyAuthKeyMapping,
-};
+use super::account_restoration_models::public_key_auth_keys::PublicKeyAuthKeyHelper;
 use crate::{
     db::resources::V2TokenResource,
     processors::account_restoration::account_restoration_models::{
@@ -54,13 +52,13 @@ pub fn parse_account_restoration_models(
     transactions: &Vec<Transaction>,
 ) -> (Vec<AuthKeyAccountAddress>, Vec<PublicKeyAuthKey>) {
     let mut all_auth_key_account_addresses = AHashMap::new();
-    let mut all_public_key_auth_keys: PublicKeyAuthKeyMapping = AHashMap::new();
+    let mut all_public_key_auth_keys: Vec<PublicKeyAuthKey> = Vec::new();
 
     let data: Vec<_> = transactions
         .par_iter()
         .map(|txn| {
             let mut auth_key_account_addresses = AHashMap::new();
-            let mut public_key_auth_keys: PublicKeyAuthKeyMapping = AHashMap::new();
+            let mut public_key_auth_keys: Vec<PublicKeyAuthKey> = Vec::new();
 
             let txn_version = txn.version as i64;
             let (entry_function_id_str, signature, sender) = match &txn.txn_data {
@@ -160,11 +158,13 @@ pub fn parse_account_restoration_models(
                 if let Some(sender) = sender {
                     if let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
                     {
-                        public_key_auth_keys.extend(PublicKeyAuthKeyHelper::get_public_keys(
-                            helper,
-                            &auth_key_account_address.auth_key,
-                            txn_version,
-                        ));
+                        public_key_auth_keys.extend(
+                            PublicKeyAuthKeyHelper::get_public_key_auth_keys(
+                                helper,
+                                &auth_key_account_address.auth_key,
+                                txn_version,
+                            ),
+                        );
                     }
                 }
             }
@@ -180,9 +180,6 @@ pub fn parse_account_restoration_models(
     let mut all_auth_key_account_addresses = all_auth_key_account_addresses
         .into_values()
         .collect::<Vec<AuthKeyAccountAddress>>();
-    let mut all_public_key_auth_keys = all_public_key_auth_keys
-        .into_values()
-        .collect::<Vec<PublicKeyAuthKey>>();
 
     // Below we do sorting and deduplication. This is for a couple of reasons:
     // 1. It makes the processor more efficient as there is less data I/O
