@@ -20,6 +20,8 @@ use std::fmt::{self, Formatter};
 pub const NAME_LENGTH: usize = 128;
 pub const URI_LENGTH: usize = 512;
 
+pub const V1_TOKEN_STORE_TABLE_TYPE: &str = "0x3::token::TokenStore";
+
 /**
  * This file defines deserialized move types as defined in our 0x3 contracts.
  */

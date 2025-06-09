@@ -12,7 +12,11 @@ use super::{
     token_utils::{TokenResource, TokenWriteSet},
 };
 use crate::{
-    processors::default::models::move_resources::MoveResource, schema::tokens,
+    processors::{
+        default::models::move_resources::MoveResource,
+        token_v2::token_v2_models::v2_token_activities::TokenActivityHelperV1,
+    },
+    schema::tokens,
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashMap;
@@ -41,6 +45,9 @@ pub type CurrentTokenOwnershipPK = (TokenDataIdHash, BigDecimal, Address);
 pub type CurrentTokenPendingClaimPK = (TokenDataIdHash, BigDecimal, Address, Address);
 // PK of tokens table, used to dedupe tokens
 pub type TokenPK = (TokenDataIdHash, BigDecimal);
+// Map to keep track of token withdraw and deposit module events for token v1.
+pub type TokenV1WithdrawModuleEvents = AHashMap<TokenDataIdHash, TokenActivityHelperV1>;
+pub type TokenV1DepositModuleEvents = AHashMap<TokenDataIdHash, TokenActivityHelperV1>;
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
 #[diesel(primary_key(token_data_id_hash, property_version, transaction_version))]

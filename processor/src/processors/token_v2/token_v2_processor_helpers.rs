@@ -12,7 +12,10 @@ use crate::{
             token_models::{
                 token_claims::{CurrentTokenPendingClaim, TokenV1Canceled, TokenV1Claimed},
                 token_royalty::CurrentTokenRoyaltyV1,
-                tokens::{CurrentTokenPendingClaimPK, TableHandleToOwner},
+                tokens::{
+                    CurrentTokenPendingClaimPK, TableHandleToOwner, TokenV1DepositModuleEvents,
+                    TokenV1WithdrawModuleEvents,
+                },
             },
             token_v2_models::{
                 v2_collections::{CollectionV2, CurrentCollectionV2, CurrentCollectionV2PK},
@@ -131,6 +134,10 @@ pub async fn parse_v2_token(
             // Get cancel events for token v1 by table handle
             let mut tokens_canceled: TokenV1Canceled = AHashMap::new();
 
+            // Get withdraw and deposit module events for token v1 by token data id
+            let mut tokens_withdrawn: TokenV1WithdrawModuleEvents = AHashMap::new();
+            let mut tokens_deposited: TokenV1DepositModuleEvents = AHashMap::new();
+
             // Loop 1: Need to do a first pass to get all the object addresses and insert them into the helper
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
@@ -241,6 +248,8 @@ pub async fn parse_v2_token(
                     &entry_function_id_str,
                     &mut tokens_claimed,
                     &mut tokens_canceled,
+                    &mut tokens_withdrawn,
+                    &mut tokens_deposited,
                 )
                 .unwrap()
                 {
@@ -273,6 +282,7 @@ pub async fn parse_v2_token(
                                 txn_version,
                                 wsc_index,
                                 txn_timestamp,
+                                // TODO: Use module events
                                 table_handle_to_owner,
                                 db_context,
                             )
@@ -321,6 +331,7 @@ pub async fn parse_v2_token(
                                 wsc_index,
                                 txn_timestamp,
                                 table_handle_to_owner,
+                                &tokens_deposited,
                             )
                             .unwrap()
                         {
@@ -350,6 +361,7 @@ pub async fn parse_v2_token(
                                 table_item,
                                 txn_version,
                                 txn_timestamp,
+                                // TODO: Use module events
                                 table_handle_to_owner,
                             )
                             .unwrap()
@@ -373,6 +385,7 @@ pub async fn parse_v2_token(
                                 wsc_index,
                                 txn_timestamp,
                                 table_handle_to_owner,
+                                &tokens_withdrawn,
                             )
                             .unwrap()
                         {
@@ -402,6 +415,7 @@ pub async fn parse_v2_token(
                                 table_item,
                                 txn_version,
                                 txn_timestamp,
+                                // TODO: Use module events
                                 table_handle_to_owner,
                                 &tokens_claimed,
                                 &tokens_canceled,
