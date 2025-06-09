@@ -1016,7 +1016,7 @@ diesel::table! {
         last_transaction_version -> Int8,
         #[max_length = 50]
         signature_type -> Varchar,
-        #[max_length = 3000]
+        #[max_length = 13000] // update MAX_ACCOUNT_PUBLIC_KEY_LENGTH when changing this value
         account_public_key -> Nullable<Varchar>,
     }
 }

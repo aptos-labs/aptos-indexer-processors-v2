@@ -28,7 +28,7 @@ const ED25519_SCHEME: u8 = 0;
 const MULTI_ED25519_SCHEME: u8 = 1;
 const SINGLE_KEY_SCHEME: u8 = 2;
 const MULTI_KEY_SCHEME: u8 = 3;
-const MAX_ACCOUNT_PUBLIC_KEY_LENGTH: usize = 3000;
+const MAX_ACCOUNT_PUBLIC_KEY_LENGTH: usize = 13000;
 
 #[derive(
     Clone,
@@ -134,7 +134,7 @@ impl PublicKeyAuthKeyHelper {
         if account_public_key.len() > MAX_ACCOUNT_PUBLIC_KEY_LENGTH {
             tracing::warn!(
                 transaction_version,
-                "Multi key signature with more than 3000 characters not supported"
+                "Multi key signature with more than 13000 characters not supported"
             );
             return None;
         };
@@ -193,7 +193,7 @@ impl PublicKeyAuthKeyHelper {
                 if account_public_key.len() > MAX_ACCOUNT_PUBLIC_KEY_LENGTH {
                     tracing::warn!(
                         transaction_version,
-                        "Multi key signature with more than 3000 characters not supported"
+                        "Multi key signature with more than 13000 characters not supported"
                     );
                     return None;
                 };
