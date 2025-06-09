@@ -5,12 +5,7 @@
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
 
-use super::{
-    token_utils::TokenWriteSet,
-    tokens::{TableHandleToOwner, Token},
-};
 use crate::schema::{current_token_ownerships, token_ownerships};
-use aptos_indexer_processor_sdk::utils::convert::standardize_address;
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};

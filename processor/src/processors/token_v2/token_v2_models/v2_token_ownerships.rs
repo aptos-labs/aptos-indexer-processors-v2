@@ -465,7 +465,6 @@ impl TokenOwnershipV2 {
     ) -> anyhow::Result<Option<(Self, Option<CurrentTokenOwnershipV2>)>> {
         let table_item_data = table_item.data.as_ref().unwrap();
 
-        tracing::info!("Table Item Data: {:?}", table_item_data);
         let maybe_token = match TokenWriteSet::from_table_item_type(
             table_item_data.value_type.as_str(),
             &table_item_data.value,
