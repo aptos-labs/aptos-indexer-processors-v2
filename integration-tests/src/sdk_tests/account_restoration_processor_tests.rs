@@ -80,6 +80,10 @@ mod sdk_account_restoration_processor_tests {
     pub const IMPORTED_DEVNET_122009973_KEYLESS_BACKUP_TXN: &[u8] =
         include_bytes!("test_transactions/sender_1/122009973_keyless_backup_txn.json");
 
+    pub const IMPORTED_DEVNET_57156484_DUPLICATED_KEYLESS_MULTIKEY_TXN: &[u8] = include_bytes!(
+        "test_transactions/duplicated_keyless_multikey/57156484_duplicated_keyless_multikey.json"
+    );
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_keyless_backup_txn_and_coin_transfer_txn_and_another_keyless_backup_txn() {
         let db = setup_db().await;
@@ -117,6 +121,18 @@ mod sdk_account_restoration_processor_tests {
         process_transactions(
             &[IMPORTED_LOCALNET_TXNS_KEYLESS_BACKUP_TXN],
             Some("test_keyless_backup_txn".to_string()),
+            &db,
+            None,
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_duplicated_keyless_multikey_txn() {
+        let db = setup_db().await;
+        process_transactions(
+            &[IMPORTED_DEVNET_57156484_DUPLICATED_KEYLESS_MULTIKEY_TXN],
+            Some("test_duplicated_keyless_multikey_txn".to_string()),
             &db,
             None,
         )

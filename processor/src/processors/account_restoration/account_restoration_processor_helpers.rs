@@ -1,9 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::account_restoration_models::public_key_auth_keys::{
-    PublicKeyAuthKeyHelper, PublicKeyAuthKeyMapping,
-};
+use super::account_restoration_models::public_key_auth_keys::PublicKeyAuthKeyHelper;
 use crate::{
     db::resources::V2TokenResource,
     processors::account_restoration::account_restoration_models::{
@@ -54,13 +52,13 @@ pub fn parse_account_restoration_models(
     transactions: &Vec<Transaction>,
 ) -> (Vec<AuthKeyAccountAddress>, Vec<PublicKeyAuthKey>) {
     let mut all_auth_key_account_addresses = AHashMap::new();
-    let mut all_public_key_auth_keys: PublicKeyAuthKeyMapping = AHashMap::new();
+    let mut all_public_key_auth_keys: Vec<PublicKeyAuthKey> = Vec::new();
 
     let data: Vec<_> = transactions
         .par_iter()
         .map(|txn| {
             let mut auth_key_account_addresses = AHashMap::new();
-            let mut public_key_auth_keys: PublicKeyAuthKeyMapping = AHashMap::new();
+            let mut public_key_auth_keys: Vec<PublicKeyAuthKey> = Vec::new();
 
             let txn_version = txn.version as i64;
             let (entry_function_id_str, signature, sender) = match &txn.txn_data {
@@ -160,11 +158,13 @@ pub fn parse_account_restoration_models(
                 if let Some(sender) = sender {
                     if let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
                     {
-                        public_key_auth_keys.extend(PublicKeyAuthKeyHelper::get_public_keys(
-                            helper,
-                            &auth_key_account_address.auth_key,
-                            txn_version,
-                        ));
+                        public_key_auth_keys.extend(
+                            PublicKeyAuthKeyHelper::get_public_key_auth_keys(
+                                helper,
+                                &auth_key_account_address.auth_key,
+                                txn_version,
+                            ),
+                        );
                     }
                 }
             }
@@ -180,12 +180,42 @@ pub fn parse_account_restoration_models(
     let mut all_auth_key_account_addresses = all_auth_key_account_addresses
         .into_values()
         .collect::<Vec<AuthKeyAccountAddress>>();
-    let mut all_public_key_auth_keys = all_public_key_auth_keys
-        .into_values()
-        .collect::<Vec<PublicKeyAuthKey>>();
 
-    all_auth_key_account_addresses.sort();
-    all_public_key_auth_keys.sort();
+    // Below we do sorting and deduplication. This is for a couple of reasons:
+    // 1. It makes the processor more efficient as there is less data I/O
+    // 2. Makes processing more consistent and easier to reason about
+    // 3. Handles cases where within the same version if there are multiple entries for the same public key.
+    //    In this case, if among any of the duplicatesis_public_key_used is true, we want to keep that entry.
 
+    // Sort first to ensure consistent deduplication
+    all_public_key_auth_keys.sort_by(|a, b| {
+        a.public_key
+            .cmp(&b.public_key)
+            .then_with(|| a.public_key_type.cmp(&b.public_key_type))
+            .then_with(|| a.auth_key.cmp(&b.auth_key))
+            .then_with(|| a.last_transaction_version.cmp(&b.last_transaction_version))
+            .then_with(|| b.is_public_key_used.cmp(&a.is_public_key_used)) // true comes before false
+    });
+
+    // Deduplicate keys based on public_key, public_key_type, auth_key, and last_transaction_version.
+    // Since we sorted by public_key, public_key_type, auth_key, last_transaction_version, and is_public_key_used,
+    // if any duplicates exist, the ones with is_public_key_used set to true will be the first ones.
+    all_public_key_auth_keys.dedup_by(|a, b| {
+        a.public_key == b.public_key
+            && a.public_key_type == b.public_key_type
+            && a.auth_key == b.auth_key
+            && a.last_transaction_version == b.last_transaction_version
+    });
+
+    // Here we only want the latest entry for each account address.
+    all_auth_key_account_addresses.sort_by(|a, b| {
+        a.account_address
+            .cmp(&b.account_address)
+            .then_with(|| b.last_transaction_version.cmp(&a.last_transaction_version))
+    });
+
+    // Deduplicate auth key account addresses based on account_address. Since we sorted by account_address and last_transaction_version,
+    // the latest entry will be the first one.
+    all_auth_key_account_addresses.dedup_by(|a, b| a.account_address == b.account_address);
     (all_auth_key_account_addresses, all_public_key_auth_keys)
 }
