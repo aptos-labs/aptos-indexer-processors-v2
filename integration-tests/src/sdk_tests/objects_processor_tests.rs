@@ -58,7 +58,7 @@ mod sdk_objects_processor_tests {
     use super::setup_objects_processor_config;
     use crate::{
         diff_test_helper::objects_processor::load_data,
-        sdk_tests::{
+        sdk_tests::test_helpers::{
             run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
         },
     };

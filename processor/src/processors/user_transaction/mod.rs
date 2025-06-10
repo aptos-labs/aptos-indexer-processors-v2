@@ -1,8 +1,6 @@
 pub mod models;
 pub mod user_transaction_extractor;
 pub mod user_transaction_processor;
-// pub mod user_transaction_processor_helpers;
-// pub mod user_transaction_queries;
 pub mod user_transaction_storer;
 
 use crate::{

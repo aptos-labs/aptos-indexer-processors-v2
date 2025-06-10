@@ -57,7 +57,7 @@ mod sdk_token_v2_processor_tests {
     use super::setup_token_v2_processor_config;
     use crate::{
         diff_test_helper::token_v2_processor::load_data,
-        sdk_tests::{
+        sdk_tests::test_helpers::{
             run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
         },
     };

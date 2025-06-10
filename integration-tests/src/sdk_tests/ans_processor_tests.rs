@@ -59,8 +59,10 @@ mod tests {
     use crate::{
         diff_test_helper::ans_processor::load_data,
         sdk_tests::{
-            ans_processor_tests::setup_ans_processor_config, run_processor_test,
-            setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            ans_processor_tests::setup_ans_processor_config,
+            test_helpers::{
+                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            },
         },
     };
     use aptos_indexer_processor_sdk::testing_framework::{

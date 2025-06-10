@@ -48,8 +48,8 @@ mod sdk_fungible_asset_processor_tests {
     use crate::{
         diff_test_helper::fungible_asset_processor::load_data,
         sdk_tests::{
-            fungible_asset_processor_tests::setup_fa_processor_config, run_processor_test,
-            validate_json, DEFAULT_OUTPUT_FOLDER,
+            fungible_asset_processor_tests::setup_fa_processor_config,
+            test_helpers::{run_processor_test, validate_json, DEFAULT_OUTPUT_FOLDER},
         },
     };
     use aptos_indexer_processor_sdk::testing_framework::{

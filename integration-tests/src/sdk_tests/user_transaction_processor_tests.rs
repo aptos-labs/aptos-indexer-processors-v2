@@ -48,7 +48,7 @@ mod sdk_user_txn_processor_tests {
     use super::setup_user_txn_processor_config;
     use crate::{
         diff_test_helper::user_transaction_processor::load_data,
-        sdk_tests::{
+        sdk_tests::test_helpers::{
             run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
         },
     };

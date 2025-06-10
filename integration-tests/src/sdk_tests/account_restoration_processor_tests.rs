@@ -48,12 +48,12 @@ mod sdk_account_restoration_processor_tests {
     use super::setup_account_restoration_processor_config;
     use crate::{
         diff_test_helper::account_restoration_processor::load_data,
-        sdk_tests::{
-            run_processor_test, validate_json, PostgresTestDatabase, DEFAULT_OUTPUT_FOLDER,
-        },
+        sdk_tests::test_helpers::{run_processor_test, validate_json, DEFAULT_OUTPUT_FOLDER},
     };
     use aptos_indexer_processor_sdk::testing_framework::{
-        cli_parser::get_test_config, database::TestDatabase, sdk_test_context::SdkTestContext,
+        cli_parser::get_test_config,
+        database::{PostgresTestDatabase, TestDatabase},
+        sdk_test_context::SdkTestContext,
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
         IMPORTED_MAINNET_TXNS_2200077591_ACCOUNT_RESTORATION_SINGLE_ED25519,

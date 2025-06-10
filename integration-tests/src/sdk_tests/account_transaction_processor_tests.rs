@@ -48,7 +48,9 @@ mod tests {
         diff_test_helper::account_transaction_processor::load_data,
         sdk_tests::{
             account_transaction_processor_tests::setup_acc_txn_processor_config,
-            run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            test_helpers::{
+                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            },
         },
     };
     use aptos_indexer_processor_sdk::testing_framework::{

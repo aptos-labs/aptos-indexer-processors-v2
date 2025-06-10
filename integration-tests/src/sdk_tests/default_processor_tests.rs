@@ -47,8 +47,10 @@ mod tests {
     use crate::{
         diff_test_helper::default_processor::load_data,
         sdk_tests::{
-            default_processor_tests::setup_default_processor_config, run_processor_test,
-            setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            default_processor_tests::setup_default_processor_config,
+            test_helpers::{
+                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            },
         },
     };
     use aptos_indexer_processor_sdk::testing_framework::{

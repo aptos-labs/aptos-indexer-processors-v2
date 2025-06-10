@@ -12,7 +12,6 @@ use crate::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
         token_v2::{
             token_models::{
-                collection_datas::CollectionData,
                 token_utils::{CollectionDataIdType, TokenWriteSet},
                 tokens::TableHandleToOwner,
             },
@@ -226,52 +225,35 @@ impl CollectionV2 {
                 .map(|table_metadata| table_metadata.get_owner_address());
             let mut creator_address = match maybe_creator_address {
                 Some(ca) => ca,
-                None => {
-                    match db_context {
-                        None => {
-                            tracing::debug!(
-                                transaction_version = txn_version,
-                                lookup_key = &table_handle,
-                                "Avoiding db lookup for Parquet."
-                            );
-                            DEFAULT_CREATOR_ADDRESS.to_string()
-                        },
-                        Some(db_context) => {
-                            match Self::get_collection_creator_for_v1(
-                                &mut db_context.conn,
-                                &table_handle,
-                                db_context.query_retries,
-                                db_context.query_retry_delay_ms,
-                            )
-                            .await
-                            .context(format!(
-                                "Failed to get collection creator for table handle {table_handle}, txn version {txn_version}"
-                            )) {
-                                Ok(ca) => ca,
-                                Err(_) => {
-                                    // Try our best by getting from the older collection data
-                                    match CollectionData::get_collection_creator(
-                                        &mut db_context.conn,
-                                        &table_handle,
-                                        db_context.query_retries,
-                                        db_context.query_retry_delay_ms,
-                                    )
-                                    .await
-                                    {
-                                        Ok(creator) => creator,
-                                        Err(_) => {
-                                            tracing::error!(
-                                                transaction_version = txn_version,
-                                                lookup_key = &table_handle,
-                                                "Failed to get collection v2 creator for table handle. You probably should backfill db."
-                                            );
-                                            return Ok(None);
-                                        },
-                                    }
-                                },
-                            }
-                        },
-                    }
+                None => match db_context {
+                    None => {
+                        tracing::debug!(
+                            transaction_version = txn_version,
+                            lookup_key = &table_handle,
+                            "Avoiding db lookup for Parquet."
+                        );
+                        DEFAULT_CREATOR_ADDRESS.to_string()
+                    },
+                    Some(db_context) => {
+                        match Self::get_collection_creator_for_v1(
+                            &mut db_context.conn,
+                            &table_handle,
+                            db_context.query_retries,
+                            db_context.query_retry_delay_ms,
+                        )
+                        .await
+                        {
+                            Ok(ca) => ca,
+                            Err(_) => {
+                                tracing::error!(
+                                        transaction_version = txn_version,
+                                        lookup_key = &table_handle,
+                                        "Failed to get collection creator for table handle {table_handle}, txn version {txn_version}. You probably should backfill db."
+                                    );
+                                return Ok(None);
+                            },
+                        }
+                    },
                 },
             };
             creator_address = standardize_address(&creator_address);

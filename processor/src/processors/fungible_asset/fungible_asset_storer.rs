@@ -92,9 +92,9 @@ impl Processable for FungibleAssetStorer {
         let (
             fungible_asset_activities,
             fungible_asset_metadata,
-            _fungible_asset_balances, // TODO: remove this from parsing logic
+            _,
             (current_unified_fab_v1, current_unified_fab_v2),
-            _coin_supply, // TODO: remove this from parsing logic
+            _,
             fa_to_coin_mappings,
         ) = input.data;
 
