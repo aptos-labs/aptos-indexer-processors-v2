@@ -6,7 +6,7 @@
     "token_data_id": "0x1910ed3769bf094c43cf0c81470265304014c4ae7cbb4991fcc194f2c42bb4b4",
     "property_version_v1": "0",
     "type_": "0x4::token::MutationEvent",
-    "from_address": "0x23246b2ad4ea793d6c061f415c58f9c442f434a9a888b2f6bd73e6b611e6774b",
+    "from_address": "0x8c9f3cc69b110791747d4d2be794bd2cdc003d1fc50af399bf4aabfde8aafc9",
     "to_address": null,
     "token_amount": "0",
     "before_value": "",

@@ -121,6 +121,7 @@ pub async fn parse_v2_token(
                 .as_ref()
                 .expect("Sends is not present in user txn");
             let entry_function_id_str = get_entry_function_from_user_request(user_request);
+            let sender = &user_request.sender;
 
             // Get burn events for token v2 by object
             let mut tokens_burned: TokenV2Burned = AHashMap::new();
@@ -263,6 +264,7 @@ pub async fn parse_v2_token(
                     index as i64,
                     &entry_function_id_str,
                     &token_v2_metadata_helper,
+                    sender,
                 )
                 .await
                 .unwrap()

@@ -76,6 +76,7 @@ impl TokenActivityV2 {
         event_index: i64,
         entry_function_id_str: &Option<String>,
         token_v2_metadata: &ObjectAggregatedDataMapping,
+        sender: &str,
     ) -> anyhow::Result<Option<Self>> {
         let event_type = event.type_str.clone();
         if let Some(token_event) =
@@ -113,7 +114,8 @@ impl TokenActivityV2 {
                         event_type: "0x4::collection::MintEvent".to_string(),
                     },
                     V2TokenEvent::TokenMutationEvent(inner) => TokenActivityHelperV2 {
-                        from_address: Some(object_core.get_owner_address()),
+                        // whoever submitted the mutation event is the from address
+                        from_address: Some(sender.to_owned()),
                         to_address: None,
                         token_amount: BigDecimal::zero(),
                         before_value: Some(inner.old_value.clone()),
