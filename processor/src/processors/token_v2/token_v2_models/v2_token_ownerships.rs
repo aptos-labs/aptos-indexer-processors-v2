@@ -646,6 +646,7 @@ impl CurrentTokenOwnershipV2Query {
                 },
             }
         }
+        // This is unreachable because the loop will always return or error. it's here to satisfy the compiler.
         Err(anyhow::anyhow!(
             "Failed to get nft by token data id: {}",
             token_data_id
@@ -658,7 +659,6 @@ impl CurrentTokenOwnershipV2Query {
     ) -> diesel::QueryResult<Self> {
         current_token_ownerships_v2::table
             .filter(current_token_ownerships_v2::token_data_id.eq(token_data_id))
-            .filter(current_token_ownerships_v2::amount.gt(BigDecimal::zero()))
             .first::<Self>(conn)
             .await
     }
