@@ -245,7 +245,7 @@ impl CollectionV2 {
                         {
                             Ok(ca) => ca,
                             Err(_) => {
-                                tracing::error!(
+                                tracing::warn!(
                                         transaction_version = txn_version,
                                         lookup_key = &table_handle,
                                         "Failed to get collection creator for table handle {table_handle}, txn version {txn_version}. You probably should backfill db."

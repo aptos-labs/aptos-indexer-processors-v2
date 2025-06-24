@@ -400,7 +400,7 @@ impl TokenOwnershipV2 {
                                 {
                                     Ok(nft) => nft.owner_address.clone(),
                                     Err(_) => {
-                                        tracing::error!(
+                                        tracing::warn!(
                                     transaction_version = txn_version,
                                     lookup_key = &token_address,
                                     "Failed to find current_token_ownership_v2 for burned token. You probably should backfill db."
