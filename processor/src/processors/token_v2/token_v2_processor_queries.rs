@@ -162,6 +162,7 @@ pub fn insert_token_activities_v2_query(
         .on_conflict((transaction_version, event_index))
         .do_update()
         .set((
+            from_address.eq(excluded(from_address)),
             is_fungible_v2.eq(excluded(is_fungible_v2)),
             inserted_at.eq(excluded(inserted_at)),
         ))
