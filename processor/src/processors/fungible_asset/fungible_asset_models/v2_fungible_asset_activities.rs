@@ -138,8 +138,10 @@ impl FungibleAssetActivity {
                         store_address_to_deleted_fa_store_events.get(&storage_id);
                     match deleted_fa_store_event {
                         Some(deleted_fa_store_event) => {
-                            maybe_owner_address = Some(deleted_fa_store_event.owner.clone());
-                            maybe_asset_type = Some(deleted_fa_store_event.metadata.clone());
+                            maybe_owner_address =
+                                Some(standardize_address(&deleted_fa_store_event.owner));
+                            maybe_asset_type =
+                                Some(standardize_address(&deleted_fa_store_event.metadata));
                         },
                         None => {
                             // There might not be a deletion event if the transaction was committed before FungibleStoreDeletion
