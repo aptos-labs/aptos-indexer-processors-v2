@@ -130,7 +130,6 @@ pub enum ParquetTypeEnum {
     FungibleAssetActivities,
     FungibleAssetMetadata,
     FungibleAssetBalances,
-    CurrentFungibleAssetBalances,
     FungibleAssetToCoinMappings,
     // txn metadata,
     WriteSetSize,
@@ -308,7 +307,6 @@ pub enum ParquetTypeStructs {
     FungibleAssetActivity(Vec<ParquetFungibleAssetActivity>),
     FungibleAssetMetadata(Vec<ParquetFungibleAssetMetadataModel>),
     FungibleAssetBalance(Vec<ParquetFungibleAssetBalance>),
-    // CurrentUnifiedFungibleAssetBalance(Vec<ParquetCurrentUnifiedFungibleAssetBalance>),
     FungibleAssetToCoinMappings(Vec<ParquetFungibleAssetToCoinMapping>),
     // Txn metadata
     WriteSetSize(Vec<ParquetWriteSetSize>),
@@ -366,9 +364,6 @@ impl ParquetTypeStructs {
             },
             ParquetTypeEnum::FungibleAssetBalances => {
                 ParquetTypeStructs::FungibleAssetBalance(Vec::new())
-            },
-            ParquetTypeEnum::CurrentFungibleAssetBalances => {
-                ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(Vec::new())
             },
             ParquetTypeEnum::FungibleAssetToCoinMappings => {
                 ParquetTypeStructs::FungibleAssetToCoinMappings(Vec::new())
@@ -497,12 +492,6 @@ impl ParquetTypeStructs {
             (
                 ParquetTypeStructs::FungibleAssetBalance(self_data),
                 ParquetTypeStructs::FungibleAssetBalance(other_data),
-            ) => {
-                handle_append!(self_data, other_data)
-            },
-            (
-                ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(self_data),
-                ParquetTypeStructs::CurrentUnifiedFungibleAssetBalance(other_data),
             ) => {
                 handle_append!(self_data, other_data)
             },
