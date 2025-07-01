@@ -61,6 +61,9 @@ mod tests {
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
         IMPORTED_DEVNET_TXNS_78753831_TOKEN_V1_MINT_TRANSFER_WITH_V2_EVENTS,
         IMPORTED_DEVNET_TXNS_78753832_TOKEN_V2_MINT_TRANSFER_WITH_V2_EVENTS,
+        IMPORTED_MAINNET_TXNS_2835047481_UPDATE_COMMISSION,
+        IMPORTED_MAINNET_TXNS_2892460037_DISTRIBUTE,
+        IMPORTED_MAINNET_TXNS_2894800604_ADD_DISTRIBUTION_REQUEST_COMMISSION_AND_UNLOCK_STAKE,
         IMPORTED_MAINNET_TXNS_554229017_EVENTS_WITH_NO_EVENT_SIZE_INFO,
         IMPORTED_TESTNET_TXNS_1255836496_V2_FA_METADATA_, IMPORTED_TESTNET_TXNS_1_GENESIS,
         IMPORTED_TESTNET_TXNS_278556781_V1_COIN_REGISTER_FA_METADATA,
@@ -156,6 +159,33 @@ mod tests {
         process_single_devnet_event_txn(
             IMPORTED_DEVNET_TXNS_78753832_TOKEN_V2_MINT_TRANSFER_WITH_V2_EVENTS,
             Some("token_v2_event_v2".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_events_processor_distribute() {
+        process_single_mainnet_event_txn(
+            IMPORTED_MAINNET_TXNS_2892460037_DISTRIBUTE,
+            Some("distribute".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_events_processor_update_commission() {
+        process_single_mainnet_event_txn(
+            IMPORTED_MAINNET_TXNS_2835047481_UPDATE_COMMISSION,
+            Some("update_commission".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_events_processor_add_distribution_request_commission_and_unlock_stake() {
+        process_single_mainnet_event_txn(
+            IMPORTED_MAINNET_TXNS_2894800604_ADD_DISTRIBUTION_REQUEST_COMMISSION_AND_UNLOCK_STAKE,
+            Some("add_distribution_request_commission_and_unlock_stake".to_string()),
         )
         .await;
     }
