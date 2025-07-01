@@ -444,33 +444,6 @@ impl From<FungibleAssetBalance> for ParquetFungibleAssetBalance {
 #[derive(
     Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
 )]
-pub struct ParquetCurrentFungibleAssetBalance {
-    pub storage_id: String,
-    pub owner_address: String,
-    pub asset_type: String,
-    pub is_primary: bool,
-    pub is_frozen: bool,
-    pub amount: String, // it is a string representation of the u128
-    pub last_transaction_version: i64,
-    #[allocative(skip)]
-    pub last_transaction_timestamp: chrono::NaiveDateTime,
-    pub token_standard: String,
-}
-
-impl NamedTable for ParquetCurrentFungibleAssetBalance {
-    const TABLE_NAME: &'static str = "current_fungible_asset_balances_legacy";
-}
-
-impl HasVersion for ParquetCurrentFungibleAssetBalance {
-    fn version(&self) -> i64 {
-        self.last_transaction_version
-    }
-}
-/// Note that this used to be called current_unified_fungible_asset_balances_to_be_renamed
-/// and was renamed to current_fungible_asset_balances to facilitate migration
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
 pub struct ParquetCurrentUnifiedFungibleAssetBalance {
     pub storage_id: String,
     pub owner_address: String,

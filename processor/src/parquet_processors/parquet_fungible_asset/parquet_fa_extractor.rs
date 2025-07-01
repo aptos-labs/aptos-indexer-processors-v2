@@ -27,7 +27,6 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
-use tracing::debug;
 
 /// Extracts parquet data from transactions, allowing optional selection of specific tables.
 pub struct ParquetFungibleAssetExtractor
@@ -103,25 +102,6 @@ impl Processable for ParquetFungibleAssetExtractor {
                 .into_iter()
                 .map(ParquetFungibleAssetToCoinMapping::from)
                 .collect();
-
-        // Print the size of each extracted data type
-        debug!("Processed data sizes:");
-        debug!(
-            " - V2FungibleAssetActivity: {}",
-            parquet_fungible_asset_activities.len()
-        );
-        debug!(
-            " - V2FungibleAssetMetadata: {}",
-            parquet_fungible_asset_metadata.len()
-        );
-        debug!(
-            " - V2FungibleAssetBalance: {}",
-            parquet_fungible_asset_balances.len()
-        );
-        debug!(
-            " - V2FungibleAssetToCoinMapping: {}",
-            parquet_fa_to_coin_mappings.len()
-        );
 
         let mut map: HashMap<ParquetTypeEnum, ParquetTypeStructs> = HashMap::new();
 

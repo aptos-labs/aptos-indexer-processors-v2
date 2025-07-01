@@ -28,10 +28,8 @@ use crate::{
         events::events_model::ParquetEvent,
         fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
-            v2_fungible_asset_balances::{
-                ParquetCurrentFungibleAssetBalance, ParquetCurrentUnifiedFungibleAssetBalance,
-                ParquetFungibleAssetBalance,
-            },
+            v2_fungible_asset_balances::ParquetFungibleAssetBalance,
+            v2_fungible_asset_to_coin_mappings::ParquetFungibleAssetToCoinMapping,
             v2_fungible_metadata::ParquetFungibleAssetMetadataModel,
         },
         objects::{
@@ -205,9 +203,8 @@ impl ProcessorConfig {
             ProcessorName::ParquetFungibleAssetProcessor => HashSet::from([
                 ParquetFungibleAssetActivity::TABLE_NAME.to_string(),
                 ParquetFungibleAssetBalance::TABLE_NAME.to_string(),
-                ParquetCurrentFungibleAssetBalance::TABLE_NAME.to_string(),
-                ParquetCurrentUnifiedFungibleAssetBalance::TABLE_NAME.to_string(),
                 ParquetFungibleAssetMetadataModel::TABLE_NAME.to_string(),
+                ParquetFungibleAssetToCoinMapping::TABLE_NAME.to_string(),
             ]),
             ProcessorName::ParquetTransactionMetadataProcessor => {
                 HashSet::from([ParquetWriteSetSize::TABLE_NAME.to_string()])
