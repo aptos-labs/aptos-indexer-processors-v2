@@ -98,7 +98,9 @@ impl CurrentTokenPendingClaim {
                     Some(tm) => Some(tm.get_owner_address()),
                     _ => token_v1_aggregated_events
                         .get(&token_data_id)
-                        .and_then(|events| events.withdraw_module_events.last().cloned())
+                        .and_then(|events| {
+                            events.withdraw_module_events.as_slice().first().cloned()
+                        })
                         .and_then(|withdraw_event| withdraw_event.from_address.clone()),
                 };
                 let owner_address = match maybe_owner_address {
@@ -176,22 +178,48 @@ impl CurrentTokenPendingClaim {
 
             // Try to get owner from table_handle_to_owner (uses v1 events). If that doesn't exist, try to get owner
             // from token_v1_aggregated_events (uses module v2 events).
-            let maybe_owner_address = match table_handle_to_owner.get(&table_handle) {
-                Some(tm) => Some(tm.get_owner_address()),
-                _ => token_v1_aggregated_events
-                    .get(&token_data_id)
-                    .and_then(|events| events.token_offer_claim_module_events.last().cloned())
-                    .and_then(|claim_event| claim_event.from_address.clone()),
-            };
+            let maybe_owner_address = table_handle_to_owner
+                .get(&table_handle)
+                .map(|tm| tm.get_owner_address())
+                .or_else(|| {
+                    token_v1_aggregated_events
+                        .get(&token_data_id)
+                        .and_then(|events| {
+                            events
+                                .token_offer_claim_module_events
+                                .last()?
+                                .from_address
+                                .clone()
+                        })
+                })
+                .or_else(|| {
+                    token_v1_aggregated_events
+                        .get(&token_data_id)
+                        .and_then(|events| {
+                            events
+                                .token_offer_cancel_module_events
+                                .last()?
+                                .from_address
+                                .clone()
+                        })
+                });
 
-            let owner_address = maybe_owner_address.unwrap_or_else(|| {
-                panic!(
-                    "Missing table handle metadata for claim. \
-                        Version: {txn_version}, table handle for PendingClaims: {table_handle}, all metadata: {table_handle_to_owner:?} \
-                        Missing token data id in token claim events. \
-                        token_data_id: {token_data_id}, all token metadata: {token_v1_aggregated_events:?}"
-                )
-            });
+            let owner_address = match maybe_owner_address {
+                Some(addr) => addr,
+                None => {
+                    tracing::warn!(
+                        transaction_version = txn_version,
+                        table_handle = table_handle,
+                        token_data_id = token_data_id,
+                        "Missing table handle metadata and offer claim or offer cancel event for token. \
+                            table_handle_to_owner: {:?}, \
+                            token_v1_aggregated_events: {:?}",
+                        table_handle_to_owner,
+                        token_v1_aggregated_events,
+                    );
+                    return Ok(None);
+                },
+            };
 
             let token_id = offer.token_id.clone();
             let token_data_id_struct = token_id.token_data_id;

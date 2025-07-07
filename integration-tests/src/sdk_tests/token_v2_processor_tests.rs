@@ -73,14 +73,15 @@ mod sdk_token_v2_processor_tests {
         IMPORTED_MAINNET_TXNS_11648867_TOKEN_V1_BURN_EVENT,
         IMPORTED_MAINNET_TXNS_141135867_TOKEN_V1_OFFER,
         IMPORTED_MAINNET_TXNS_178179220_TOKEN_V1_MUTATE_EVENT,
+        IMPORTED_MAINNET_TXNS_3020266695_TOKEN_V1_OFFER_MODULE_EVENT,
         IMPORTED_MAINNET_TXNS_325355235_TOKEN_V2_UNLIMITED_SUPPLY_MINT,
         IMPORTED_MAINNET_TXNS_445585423_TOKEN_MINT_AND_BURN_EVENT,
         IMPORTED_MAINNET_TXNS_453498957_TOKEN_V2_MINT_AND_TRANSFER_EVENT_V1,
         IMPORTED_MAINNET_TXNS_537250181_TOKEN_V2_FIXED_SUPPLY_MINT,
         IMPORTED_MAINNET_TXNS_578366445_TOKEN_V2_BURN_EVENT_V2,
-        IMPORTED_MAINNET_TXNS_84023785_TOKEN_V2_CLAIM_OFFER,
+        IMPORTED_MAINNET_TXNS_84023785_TOKEN_V1_CLAIM_OFFER,
         IMPORTED_MAINNET_TXNS_967255533_TOKEN_V2_MUTATION_EVENT,
-        IMPORTED_MAINNET_TXNS_97963136_TOKEN_V2_CANCEL_OFFER,
+        IMPORTED_MAINNET_TXNS_97963136_TOKEN_V1_CANCEL_OFFER,
         IMPORTED_MAINNET_TXNS_999930475_TOKEN_V2_CONCURRENT_MINT,
     };
     use processor::processors::token_v2::token_v2_processor::TokenV2Processor;
@@ -284,6 +285,15 @@ mod sdk_token_v2_processor_tests {
         .await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_token_v1_offer_with_module_events() {
+        process_single_transaction(
+            IMPORTED_MAINNET_TXNS_3020266695_TOKEN_V1_OFFER_MODULE_EVENT,
+            Some("test_token_v1_offer_with_module_events".to_string()),
+        )
+        .await;
+    }
+
     /**
     * This test includes processing for the following:
     * - Resources
@@ -316,7 +326,7 @@ mod sdk_token_v2_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_token_v1_claim_offer() {
         process_single_transaction(
-            IMPORTED_MAINNET_TXNS_84023785_TOKEN_V2_CLAIM_OFFER,
+            IMPORTED_MAINNET_TXNS_84023785_TOKEN_V1_CLAIM_OFFER,
             Some("test_token_v1_claim_offer".to_string()),
         )
         .await;
@@ -344,7 +354,7 @@ mod sdk_token_v2_processor_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_token_v1_cancel_offer() {
         process_single_transaction(
-            IMPORTED_MAINNET_TXNS_97963136_TOKEN_V2_CANCEL_OFFER,
+            IMPORTED_MAINNET_TXNS_97963136_TOKEN_V1_CANCEL_OFFER,
             Some("test_token_v1_cancel_offer".to_string()),
         )
         .await;

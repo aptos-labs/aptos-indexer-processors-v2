@@ -487,13 +487,25 @@ impl TokenOwnershipV2 {
                 },
                 _ => token_v1_aggregated_events
                     .get(&token_data_id)
-                    .and_then(|events| events.deposit_module_events.as_slice().first())
+                    .and_then(|events| events.deposit_module_events.as_slice().last())
                     .and_then(|e| e.to_address.clone()),
             };
 
             let owner_address = match owner_address {
                 Some(addr) => addr,
-                None => return Ok(None),
+                None => {
+                    tracing::warn!(
+                        transaction_version = txn_version,
+                        table_handle = table_handle,
+                        token_data_id = token_data_id,
+                        "Missing table handle metadata and deposit module event for token. \
+                            table_handle_to_owner: {:?}, \
+                            token_v1_aggregated_events: {:?}",
+                        table_handle_to_owner,
+                        token_v1_aggregated_events,
+                    );
+                    return Ok(None);
+                },
             };
 
             Ok(Some((
@@ -572,7 +584,19 @@ impl TokenOwnershipV2 {
             };
             let owner_address = match owner_address {
                 Some(addr) => addr,
-                None => return Ok(None),
+                None => {
+                    tracing::warn!(
+                        transaction_version = txn_version,
+                        table_handle = table_handle,
+                        token_data_id = token_data_id,
+                        "Missing table handle metadata and withdraw module event for token. \
+                            table_handle_to_owner: {:?}, \
+                            token_v1_aggregated_events: {:?}",
+                        table_handle_to_owner,
+                        token_v1_aggregated_events,
+                    );
+                    return Ok(None);
+                },
             };
 
             Ok(Some((

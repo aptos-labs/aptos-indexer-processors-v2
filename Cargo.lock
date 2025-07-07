@@ -198,7 +198,7 @@ dependencies = [
 [[package]]
 name = "aptos-indexer-test-transactions"
 version = "1.0.0"
-source = "git+https://github.com/aptos-labs/aptos-core.git?rev=150d0bdc63e9fda298edef7244bb044b1efa6e17#150d0bdc63e9fda298edef7244bb044b1efa6e17"
+source = "git+https://github.com/aptos-labs/aptos-core.git?rev=ca8e29d1992d99a2f5f82deca4098480c7279679#ca8e29d1992d99a2f5f82deca4098480c7279679"
 
 [[package]]
 name = "aptos-indexer-transaction-stream"

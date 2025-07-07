@@ -1,0 +1,36 @@
+[
+  {
+    "transaction_version": 3020266695,
+    "event_index": 0,
+    "event_account_address": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "token_data_id": "0xda0916399f2b37141766b21c4f7d4bc0374292648aa58072c992ac92c3346286",
+    "property_version_v1": "0",
+    "type_": "0x3::token::TokenWithdraw",
+    "from_address": "0xc02399a3dadb83d363802e3fc990eceade0e9b2a9a6dc180a092a60b0c17566f",
+    "to_address": null,
+    "token_amount": "1",
+    "before_value": null,
+    "after_value": null,
+    "entry_function_id_str": "0x3::token_transfers::offer_script",
+    "token_standard": "v1",
+    "is_fungible_v2": null,
+    "transaction_timestamp": "2025-07-07T15:15:12.159328"
+  },
+  {
+    "transaction_version": 3020266695,
+    "event_index": 1,
+    "event_account_address": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "token_data_id": "0xda0916399f2b37141766b21c4f7d4bc0374292648aa58072c992ac92c3346286",
+    "property_version_v1": "0",
+    "type_": "0x3::token_transfers::Offer",
+    "from_address": "0xc02399a3dadb83d363802e3fc990eceade0e9b2a9a6dc180a092a60b0c17566f",
+    "to_address": "0x3751f06509c1c3149eb74acb24395aa24e7aaa76c6cf8386cf478ec3893753cd",
+    "token_amount": "1",
+    "before_value": null,
+    "after_value": null,
+    "entry_function_id_str": "0x3::token_transfers::offer_script",
+    "token_standard": "v1",
+    "is_fungible_v2": null,
+    "transaction_timestamp": "2025-07-07T15:15:12.159328"
+  }
+]
