@@ -10,11 +10,10 @@ use crate::{
         },
         token_v2::{
             token_models::{
-                token_claims::{CurrentTokenPendingClaim, TokenV1Canceled, TokenV1Claimed},
+                token_claims::CurrentTokenPendingClaim,
                 token_royalty::CurrentTokenRoyaltyV1,
                 tokens::{
-                    CurrentTokenPendingClaimPK, TableHandleToOwner, TokenV1DepositModuleEvents,
-                    TokenV1WithdrawModuleEvents,
+                    CurrentTokenPendingClaimPK, TableHandleToOwner, TokenV1AggregatedEventsMapping,
                 },
             },
             token_v2_models::{
@@ -129,15 +128,8 @@ pub async fn parse_v2_token(
             // Get mint events for token v2 by object
             let mut tokens_minted: TokenV2Minted = AHashSet::new();
 
-            // Get claim events for token v1 by table handle
-            let mut tokens_claimed: TokenV1Claimed = AHashMap::new();
-
-            // Get cancel events for token v1 by table handle
-            let mut tokens_canceled: TokenV1Canceled = AHashMap::new();
-
-            // Get withdraw and deposit module events for token v1 by token data id
-            let mut tokens_withdrawn: TokenV1WithdrawModuleEvents = AHashMap::new();
-            let mut tokens_deposited: TokenV1DepositModuleEvents = AHashMap::new();
+            // Get token v1 to metadata for token v1 by token data id
+            let mut token_v1_aggregated_events: TokenV1AggregatedEventsMapping = AHashMap::new();
 
             // Loop 1: Need to do a first pass to get all the object addresses and insert them into the helper
             for wsc in transaction_info.changes.iter() {
@@ -247,10 +239,7 @@ pub async fn parse_v2_token(
                     txn_timestamp,
                     index as i64,
                     &entry_function_id_str,
-                    &mut tokens_claimed,
-                    &mut tokens_canceled,
-                    &mut tokens_withdrawn,
-                    &mut tokens_deposited,
+                    &mut token_v1_aggregated_events,
                 )
                 .unwrap()
                 {
@@ -284,7 +273,7 @@ pub async fn parse_v2_token(
                                 txn_version,
                                 wsc_index,
                                 txn_timestamp,
-                                // TODO: Use module events
+                                // This is used to lookup the collection table item from the table handle.
                                 table_handle_to_owner,
                                 db_context,
                             )
@@ -333,7 +322,7 @@ pub async fn parse_v2_token(
                                 wsc_index,
                                 txn_timestamp,
                                 table_handle_to_owner,
-                                &tokens_deposited,
+                                &token_v1_aggregated_events,
                             )
                             .unwrap()
                         {
@@ -363,8 +352,8 @@ pub async fn parse_v2_token(
                                 table_item,
                                 txn_version,
                                 txn_timestamp,
-                                // TODO: Use module events
                                 table_handle_to_owner,
+                                &token_v1_aggregated_events,
                             )
                             .unwrap()
                         {
@@ -387,7 +376,7 @@ pub async fn parse_v2_token(
                                 wsc_index,
                                 txn_timestamp,
                                 table_handle_to_owner,
-                                &tokens_withdrawn,
+                                &token_v1_aggregated_events,
                             )
                             .unwrap()
                         {
@@ -417,10 +406,8 @@ pub async fn parse_v2_token(
                                 table_item,
                                 txn_version,
                                 txn_timestamp,
-                                // TODO: Use module events
                                 table_handle_to_owner,
-                                &tokens_claimed,
-                                &tokens_canceled,
+                                &token_v1_aggregated_events,
                             )
                             .unwrap()
                         {

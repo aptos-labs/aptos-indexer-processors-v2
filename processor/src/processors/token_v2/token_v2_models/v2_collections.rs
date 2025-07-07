@@ -218,6 +218,9 @@ impl CollectionV2 {
             Some(TokenWriteSet::CollectionData(inner)) => Some(inner),
             _ => None,
         };
+        // Lookup the collection table item from the table handle. This is used to get creator address to construct the
+        // primary key. If we don't know the table handle, we can't get the collection metadata, so we need to do a db lookup.
+        // In the future, we should deprecate the creation of collection v1's.
         if let Some(collection_data) = maybe_collection_data {
             let table_handle = table_item.handle.to_string();
             let maybe_creator_address = table_handle_to_owner
