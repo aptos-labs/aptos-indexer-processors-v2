@@ -496,7 +496,7 @@ impl TokenOwnershipV2 {
                 None => {
                     // For token v1 offers, the token is withdrawn from the owner's account and moved
                     // into another table item. The token appears as unowned in current_token_ownerships
-                    // because, but it will show up in the current_token_pending_claims table.
+                    // but it will show up in the current_token_pending_claims table.
                     tracing::warn!(
                         transaction_version = txn_version,
                         table_handle = table_handle,
