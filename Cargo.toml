@@ -26,7 +26,7 @@ anyhow = "1.0.98"
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
 # Do NOT enable the testing_framework feature here, it is conditionally enabled as a dev dependency
 # in the integration-tests/Cargo.toml file.
-aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.1.1", features = [
+aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.1.2", features = [
     "postgres_partial",
 ] }
 aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "ca8e29d1992d99a2f5f82deca4098480c7279679" }
