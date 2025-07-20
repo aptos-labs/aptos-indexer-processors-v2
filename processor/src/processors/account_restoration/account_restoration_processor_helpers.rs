@@ -191,7 +191,8 @@ pub fn parse_account_restoration_models(
 }
 
 /// This deduplicates public key auth keys based on public key, public key type, and auth key.
-/// It keeps the latest version and propagates is_public_key_used=true.
+/// It keeps the latest version and propagates is_public_key_used=true. This is because once a public key is used,
+/// it cannot be 'unused' for the given auth key.
 fn deduplicate_public_key_auth_keys(
     public_key_auth_keys: Vec<PublicKeyAuthKey>,
 ) -> Vec<PublicKeyAuthKey> {
@@ -257,6 +258,8 @@ fn deduplicate_public_key_auth_keys(
 }
 
 /// This deduplicates auth key account addresses based on account_address. It keeps the latest version.
+/// Note that we do not want to propagate is_auth_key_used=true as once set to true, it CAN be set to false
+/// again in the case of an unverified auth key rotation.
 fn deduplicate_auth_key_account_addresses(
     mut auth_key_account_addresses: Vec<AuthKeyAccountAddress>,
 ) -> Vec<AuthKeyAccountAddress> {
