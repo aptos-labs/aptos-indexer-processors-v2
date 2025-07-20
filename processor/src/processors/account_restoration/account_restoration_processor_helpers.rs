@@ -1,6 +1,8 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use std::cmp::max;
+
 use super::account_restoration_models::public_key_auth_keys::PublicKeyAuthKeyHelper;
 use crate::{
     db::resources::V2TokenResource,
@@ -177,38 +179,89 @@ pub fn parse_account_restoration_models(
         all_public_key_auth_keys.extend(public_key_auth_keys);
     }
 
-    let mut all_auth_key_account_addresses = all_auth_key_account_addresses
+    let all_auth_key_account_addresses = all_auth_key_account_addresses
         .into_values()
         .collect::<Vec<AuthKeyAccountAddress>>();
 
-    // Below we do sorting and deduplication. This is for a couple of reasons:
-    // 1. It makes the processor more efficient as there is less data I/O
-    // 2. Makes processing more consistent and easier to reason about
-    // 3. Handles cases where within the same version if there are multiple entries for the same public key.
-    //    In this case, if among any of the duplicatesis_public_key_used is true, we want to keep that entry.
+    // Deduplicate both auth key account addresses and public key auth keys to ensure no conflicts when batch inserting into DB.
+    (
+        deduplicate_auth_key_account_addresses(all_auth_key_account_addresses),
+        deduplicate_public_key_auth_keys(all_public_key_auth_keys),
+    )
+}
 
-    // Sort first to ensure consistent deduplication
-    all_public_key_auth_keys.sort_by(|a, b| {
-        a.public_key
-            .cmp(&b.public_key)
-            .then_with(|| a.public_key_type.cmp(&b.public_key_type))
-            .then_with(|| a.auth_key.cmp(&b.auth_key))
-            .then_with(|| a.last_transaction_version.cmp(&b.last_transaction_version))
-            .then_with(|| b.is_public_key_used.cmp(&a.is_public_key_used)) // true comes before false
-    });
+/// This deduplicates public key auth keys based on public key, public key type, and auth key.
+/// It keeps the latest version and propagates is_public_key_used=true.
+fn deduplicate_public_key_auth_keys(
+    public_key_auth_keys: Vec<PublicKeyAuthKey>,
+) -> Vec<PublicKeyAuthKey> {
+    let mut deduped_public_key_auth_keys: AHashMap<
+        (String, String, String),
+        (i64, bool, String, String),
+    > = AHashMap::new();
+    for public_key_auth_key in public_key_auth_keys {
+        let pk = (
+            public_key_auth_key.public_key.clone(),
+            public_key_auth_key.public_key_type.clone(),
+            public_key_auth_key.auth_key.clone(),
+        );
+        if let Some((last_transaction_version, is_public_key_used, _, _)) =
+            deduped_public_key_auth_keys.get(&pk)
+        {
+            let new_transaction_version = max(
+                *last_transaction_version,
+                public_key_auth_key.last_transaction_version,
+            );
+            let new_is_public_key_used =
+                *is_public_key_used || public_key_auth_key.is_public_key_used;
+            deduped_public_key_auth_keys.insert(
+                pk,
+                (
+                    new_transaction_version,
+                    new_is_public_key_used,
+                    public_key_auth_key.account_public_key.clone(),
+                    public_key_auth_key.signature_type.clone(),
+                ),
+            );
+        } else {
+            deduped_public_key_auth_keys.insert(
+                pk,
+                (
+                    public_key_auth_key.last_transaction_version,
+                    public_key_auth_key.is_public_key_used,
+                    public_key_auth_key.account_public_key.clone(),
+                    public_key_auth_key.signature_type.clone(),
+                ),
+            );
+        }
+    }
+    deduped_public_key_auth_keys
+        .into_iter()
+        .map(
+            |(
+                (public_key, public_key_type, auth_key),
+                (last_transaction_version, is_public_key_used, account_public_key, signature_type),
+            )| {
+                PublicKeyAuthKey {
+                    public_key,
+                    public_key_type,
+                    auth_key,
+                    last_transaction_version,
+                    is_public_key_used,
+                    account_public_key,
+                    signature_type,
+                }
+            },
+        )
+        .collect()
+}
 
-    // Deduplicate keys based on public_key, public_key_type, auth_key, and last_transaction_version.
-    // Since we sorted by public_key, public_key_type, auth_key, last_transaction_version, and is_public_key_used,
-    // if any duplicates exist, the ones with is_public_key_used set to true will be the first ones.
-    all_public_key_auth_keys.dedup_by(|a, b| {
-        a.public_key == b.public_key
-            && a.public_key_type == b.public_key_type
-            && a.auth_key == b.auth_key
-            && a.last_transaction_version == b.last_transaction_version
-    });
-
+/// This deduplicates auth key account addresses based on account_address. It keeps the latest version.
+fn deduplicate_auth_key_account_addresses(
+    mut auth_key_account_addresses: Vec<AuthKeyAccountAddress>,
+) -> Vec<AuthKeyAccountAddress> {
     // Here we only want the latest entry for each account address.
-    all_auth_key_account_addresses.sort_by(|a, b| {
+    auth_key_account_addresses.sort_by(|a, b| {
         a.account_address
             .cmp(&b.account_address)
             .then_with(|| b.last_transaction_version.cmp(&a.last_transaction_version))
@@ -216,6 +269,6 @@ pub fn parse_account_restoration_models(
 
     // Deduplicate auth key account addresses based on account_address. Since we sorted by account_address and last_transaction_version,
     // the latest entry will be the first one.
-    all_auth_key_account_addresses.dedup_by(|a, b| a.account_address == b.account_address);
-    (all_auth_key_account_addresses, all_public_key_auth_keys)
+    auth_key_account_addresses.dedup_by(|a, b| a.account_address == b.account_address);
+    auth_key_account_addresses
 }

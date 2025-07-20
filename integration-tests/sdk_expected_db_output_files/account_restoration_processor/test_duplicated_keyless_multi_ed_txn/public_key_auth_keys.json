@@ -1,0 +1,29 @@
+[
+  {
+    "public_key": "0x557b540c9347b8215962ac70c7b153dfd7865ae7348633d16343d1743d923a07",
+    "public_key_type": "ed25519",
+    "auth_key": "0xdd42f7a9b239c55e0e5bd0600eb6cfb03f6b162a37a7868f74317bb498ee269b",
+    "account_public_key": "0xdc9da6abd59694d9d5699b4ec6e24fe18bfc08cfb68b1f0f1b73b58f1753ab6f557b540c9347b8215962ac70c7b153dfd7865ae7348633d16343d1743d923a07aa90e0d9d16b63ba4a289fb0dc8d1b450000000000000000000000000000000002",
+    "is_public_key_used": true,
+    "last_transaction_version": 3091258105,
+    "signature_type": "multi_ed25519_signature"
+  },
+  {
+    "public_key": "0xaa90e0d9d16b63ba4a289fb0dc8d1b4500000000000000000000000000000000",
+    "public_key_type": "ed25519",
+    "auth_key": "0xdd42f7a9b239c55e0e5bd0600eb6cfb03f6b162a37a7868f74317bb498ee269b",
+    "account_public_key": "0xdc9da6abd59694d9d5699b4ec6e24fe18bfc08cfb68b1f0f1b73b58f1753ab6f557b540c9347b8215962ac70c7b153dfd7865ae7348633d16343d1743d923a07aa90e0d9d16b63ba4a289fb0dc8d1b450000000000000000000000000000000002",
+    "is_public_key_used": false,
+    "last_transaction_version": 3091258105,
+    "signature_type": "multi_ed25519_signature"
+  },
+  {
+    "public_key": "0xdc9da6abd59694d9d5699b4ec6e24fe18bfc08cfb68b1f0f1b73b58f1753ab6f",
+    "public_key_type": "ed25519",
+    "auth_key": "0xdd42f7a9b239c55e0e5bd0600eb6cfb03f6b162a37a7868f74317bb498ee269b",
+    "account_public_key": "0xdc9da6abd59694d9d5699b4ec6e24fe18bfc08cfb68b1f0f1b73b58f1753ab6f557b540c9347b8215962ac70c7b153dfd7865ae7348633d16343d1743d923a07aa90e0d9d16b63ba4a289fb0dc8d1b450000000000000000000000000000000002",
+    "is_public_key_used": true,
+    "last_transaction_version": 3091258105,
+    "signature_type": "multi_ed25519_signature"
+  }
+]
