@@ -84,15 +84,12 @@ mod sdk_account_restoration_processor_tests {
         "test_transactions/duplicated_keyless_multikey/57156484_duplicated_keyless_multikey.json"
     );
 
-    pub const IMPORTED_MAINNET_3091258100_TXN: &[u8] = include_bytes!(
-        "test_transactions/mainnet_multiple_update_conflict/3091258100.json"
-    );
-    pub const IMPORTED_MAINNET_3091258104_TXN: &[u8] = include_bytes!(
-        "test_transactions/mainnet_multiple_update_conflict/3091258104.json"
-    );
-    pub const IMPORTED_MAINNET_3091258105_TXN: &[u8] = include_bytes!(
-        "test_transactions/mainnet_multiple_update_conflict/3091258105.json"
-    );
+    pub const IMPORTED_MAINNET_3091258100_TXN: &[u8] =
+        include_bytes!("test_transactions/mainnet_multiple_update_conflict/3091258100.json");
+    pub const IMPORTED_MAINNET_3091258104_TXN: &[u8] =
+        include_bytes!("test_transactions/mainnet_multiple_update_conflict/3091258104.json");
+    pub const IMPORTED_MAINNET_3091258105_TXN: &[u8] =
+        include_bytes!("test_transactions/mainnet_multiple_update_conflict/3091258105.json");
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_keyless_backup_txn_and_coin_transfer_txn_and_another_keyless_backup_txn() {
@@ -153,7 +150,11 @@ mod sdk_account_restoration_processor_tests {
     async fn test_duplicated_keyless_multi_ed_txn() {
         let db = setup_db().await;
         process_transactions(
-            &[IMPORTED_MAINNET_3091258100_TXN, IMPORTED_MAINNET_3091258104_TXN, IMPORTED_MAINNET_3091258105_TXN],
+            &[
+                IMPORTED_MAINNET_3091258100_TXN,
+                IMPORTED_MAINNET_3091258104_TXN,
+                IMPORTED_MAINNET_3091258105_TXN,
+            ],
             Some("test_duplicated_keyless_multi_ed_txn".to_string()),
             &db,
             None,

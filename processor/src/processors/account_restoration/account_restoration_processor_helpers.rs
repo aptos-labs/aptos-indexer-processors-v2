@@ -1,8 +1,6 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cmp::max;
-
 use super::account_restoration_models::public_key_auth_keys::PublicKeyAuthKeyHelper;
 use crate::{
     db::resources::V2TokenResource,
@@ -21,6 +19,7 @@ use aptos_indexer_processor_sdk::{
 use lazy_static::lazy_static;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp::max;
 
 lazy_static! {
     pub static ref ROTATE_AUTH_KEY_ENTRY_FUNCTIONS: Vec<&'static str> = vec![
