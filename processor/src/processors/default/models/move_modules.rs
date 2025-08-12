@@ -28,9 +28,9 @@ pub struct MoveModule {
     pub name: String,
     pub address: String,
     pub bytecode: Vec<u8>,
-    pub exposed_functions: Option<String>,
-    pub friends: Option<String>,
-    pub structs: Option<String>,
+    pub exposed_functions: Option<serde_json::Value>,
+    pub friends: Option<serde_json::Value>,
+    pub structs: Option<serde_json::Value>,
     pub is_deleted: bool,
     pub block_timestamp: chrono::NaiveDateTime,
 }
@@ -40,9 +40,9 @@ pub struct MoveModuleByteCodeParsed {
     pub address: String,
     pub name: String,
     pub bytecode: Vec<u8>,
-    pub exposed_functions: String,
-    pub friends: String,
-    pub structs: String,
+    pub exposed_functions: serde_json::Value,
+    pub friends: serde_json::Value,
+    pub structs: serde_json::Value,
 }
 
 impl MoveModule {
@@ -118,30 +118,21 @@ impl MoveModule {
             address: standardize_address(&move_module.address.to_string()),
             name: move_module.name.clone(),
             bytecode,
-            exposed_functions: canonical_json::to_string(&serde_json::Value::Array(
-                move_module
-                    .exposed_functions
-                    .iter()
-                    .map(|move_func| serde_json::to_value(move_func).unwrap())
-                    .collect(),
-            ))
-            .unwrap(),
-            friends: canonical_json::to_string(&serde_json::Value::Array(
-                move_module
-                    .friends
-                    .iter()
-                    .map(|move_module_id| serde_json::to_value(move_module_id).unwrap())
-                    .collect(),
-            ))
-            .unwrap(),
-            structs: canonical_json::to_string(&serde_json::Value::Array(
-                move_module
-                    .structs
-                    .iter()
-                    .map(|move_struct| serde_json::to_value(move_struct).unwrap())
-                    .collect(),
-            ))
-            .unwrap(),
+            exposed_functions: move_module
+                .exposed_functions
+                .iter()
+                .map(|move_func| serde_json::to_value(move_func).unwrap())
+                .collect(),
+            friends: move_module
+                .friends
+                .iter()
+                .map(|move_module_id| serde_json::to_value(move_module_id).unwrap())
+                .collect(),
+            structs: move_module
+                .structs
+                .iter()
+                .map(|move_struct| serde_json::to_value(move_struct).unwrap())
+                .collect(),
         }
     }
 }
@@ -185,9 +176,15 @@ impl From<MoveModule> for ParquetMoveModule {
             name: move_module.name,
             address: move_module.address,
             bytecode: move_module.bytecode,
-            exposed_functions: move_module.exposed_functions,
-            friends: move_module.friends,
-            structs: move_module.structs,
+            exposed_functions: move_module
+                .exposed_functions
+                .map(|v| canonical_json::to_string(&v).unwrap()),
+            friends: move_module
+                .friends
+                .map(|v| canonical_json::to_string(&v).unwrap()),
+            structs: move_module
+                .structs
+                .map(|v| canonical_json::to_string(&v).unwrap()),
             is_deleted: move_module.is_deleted,
             block_timestamp: move_module.block_timestamp,
         }
@@ -220,11 +217,9 @@ impl From<MoveModule> for PostgresMoveModule {
             name: base_item.name,
             address: base_item.address,
             bytecode: base_item.bytecode,
-            exposed_functions: base_item
-                .exposed_functions
-                .map(|v| serde_json::from_str(&v).unwrap()),
-            friends: base_item.friends.map(|v| serde_json::from_str(&v).unwrap()),
-            structs: base_item.structs.map(|v| serde_json::from_str(&v).unwrap()),
+            exposed_functions: base_item.exposed_functions,
+            friends: base_item.friends,
+            structs: base_item.structs,
             is_deleted: base_item.is_deleted,
         }
     }
