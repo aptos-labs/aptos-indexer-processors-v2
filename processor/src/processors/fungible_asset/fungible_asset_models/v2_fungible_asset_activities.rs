@@ -147,7 +147,8 @@ impl FungibleAssetActivity {
                             // There might not be a deletion event if the transaction was committed before FungibleStoreDeletion
                             // events existed. Fallback to None.
                             tracing::warn!(
-                                "Could not find fungible store deletion event in version {} for storage id: {}",
+                               "Missing ObjectCore and FungibleAssetStoreDeletionEvent in version {} for storage id {}. \
+                               This may happen if the transaction predates FungibleAssetStoreDeletionEvent or if it’s a secondary store with best-effort indexing, leaving some fungible_asset_activities columns to be missing values.",
                                 txn_version,
                                 storage_id
                             );
