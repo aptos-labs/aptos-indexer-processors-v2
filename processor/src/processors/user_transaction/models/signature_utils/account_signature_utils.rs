@@ -211,8 +211,8 @@ pub fn get_public_key_indices_from_multi_key_signature(s: &MultiKeySignature) ->
 }
 
 pub fn parse_abstraction_signature(
-    sender: &String,
     account_signature_type: &str,
+    sender: &String,
     transaction_version: i64,
     transaction_block_height: i64,
     is_sender_primary: bool,
