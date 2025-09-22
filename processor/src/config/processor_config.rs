@@ -166,8 +166,7 @@ impl ProcessorConfig {
         if default_config.backfill_table.is_empty() {
             Ok(valid_table_names
                 .iter()
-                .cloned()
-                .map(|table_name| format_table_name(processor_name, &table_name))
+                .map(|table_name| format_table_name(processor_name, table_name))
                 .collect())
         } else {
             Self::validate_backfill_table_names(&default_config.backfill_table, valid_table_names)
