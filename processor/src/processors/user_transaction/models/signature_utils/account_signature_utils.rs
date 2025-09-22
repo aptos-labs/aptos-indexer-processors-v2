@@ -10,11 +10,18 @@ use crate::processors::user_transaction::models::signatures::Signature;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
         account_signature::{Signature as AccountSignatureEnum, Type as AccountSignatureTypeEnum},
-        AccountSignature, MultiKeySignature, SingleKeySignature,
+        AbstractionSignature, AccountSignature, MultiKeySignature, SingleKeySignature,
     },
     utils::convert::standardize_address,
 };
+use serde::Serialize;
 use tracing::warn;
+
+#[derive(Clone, Debug, Serialize)]
+struct AbstractSignature {
+    function_info: String,
+    signature: String,
+}
 
 /// This is the second layer of the signature proto. It's the start of the signatures table.
 pub fn get_account_signature_type(account_signature: &AccountSignature) -> String {
@@ -104,8 +111,9 @@ pub fn from_account_signature(
             override_address,
             block_timestamp,
         ),
-        AccountSignatureEnum::Abstraction(_sig) => {
+        AccountSignatureEnum::Abstraction(sig) => {
             vec![parse_abstraction_signature(
+                sig,
                 &account_signature_type,
                 sender,
                 transaction_version,
@@ -211,6 +219,7 @@ pub fn get_public_key_indices_from_multi_key_signature(s: &MultiKeySignature) ->
 }
 
 pub fn parse_abstraction_signature(
+    s: &AbstractionSignature,
     account_signature_type: &str,
     sender: &String,
     transaction_version: i64,
@@ -230,10 +239,14 @@ pub fn parse_abstraction_signature(
         account_signature_type: account_signature_type.to_string(),
         any_signature_type: None,
         public_key_type: None,
-        public_key: "Not implemented".into(),
+        public_key: "Not applicable".into(),
         threshold: 1,
         public_key_indices: serde_json::Value::Array(vec![]),
-        signature: "Not implemented".into(),
+        signature: serde_json::to_string(&AbstractSignature {
+            function_info: s.function_info.clone(),
+            signature: format!("0x{}", hex::encode(s.signature.as_slice())),
+        })
+        .unwrap_or_else(|_| "Parsing abstraction signature failed".into()),
         multi_agent_index,
         multi_sig_index: 0,
     }

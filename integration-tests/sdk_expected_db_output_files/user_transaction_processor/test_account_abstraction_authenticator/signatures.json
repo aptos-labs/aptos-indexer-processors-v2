@@ -1,0 +1,17 @@
+[
+  {
+    "transaction_version": 6616059810,
+    "multi_agent_index": 0,
+    "multi_sig_index": 0,
+    "transaction_block_height": 427367446,
+    "signer": "0x272c396814beae314a32108c27ff33d845b064b667bde67483e5c6572c8dcf80",
+    "is_sender_primary": true,
+    "type_": "abstraction_signature",
+    "public_key": "Not applicable",
+    "signature": "{\"function_info\":\"2224bfd56ed53e05b4a32820fe61b88c06c9b25d767a4759a1d758a1ef92759c::authenticator::authenticate\",\"signature\":\"0x0020abe1876ff31ed9ba8a379a636d0980944cf7beee2f5591bd90d88dac165b3c990b68656c6c6f20776f726c64\"}",
+    "threshold": 1,
+    "public_key_indices": [],
+    "public_key_type": null,
+    "any_signature_type": null
+  }
+]

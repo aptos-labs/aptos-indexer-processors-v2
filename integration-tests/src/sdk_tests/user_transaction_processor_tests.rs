@@ -66,6 +66,7 @@ mod sdk_user_txn_processor_tests {
         IMPORTED_MAINNET_TXNS_590098441_USER_TXN_SINGLE_SENDER_ED25519,
         IMPORTED_MAINNET_TXNS_685_USER_TXN_ED25519,
         IMPORTED_MAINNET_TXNS_976087151_USER_TXN_SINGLE_SENDER_KEYLESS,
+        IMPORTED_TESTNET_TXNS_6616059810_ACCOUNT_ABSTRACTION_AUTHENTICATOR,
         IMPORTED_TESTNET_TXNS_769222973_MULTISIG,
     };
     use processor::processors::user_transaction::user_transaction_processor::UserTransactionProcessor;
@@ -156,6 +157,15 @@ mod sdk_user_txn_processor_tests {
         process_single_transactions(
             IMPORTED_TESTNET_TXNS_769222973_MULTISIG,
             Some("test_multi_sig".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_account_abstraction_authenticator() {
+        process_single_transactions(
+            IMPORTED_TESTNET_TXNS_6616059810_ACCOUNT_ABSTRACTION_AUTHENTICATOR,
+            Some("test_account_abstraction_authenticator".to_string()),
         )
         .await;
     }
