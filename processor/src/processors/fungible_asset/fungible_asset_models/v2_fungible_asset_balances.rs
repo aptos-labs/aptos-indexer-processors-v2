@@ -23,7 +23,7 @@ use crate::{
                 v2_fungible_asset_utils::FungibleAssetStore,
             },
         },
-        objects::v2_object_utils::ObjectAggregatedDataMapping,
+        objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectCore},
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::{
@@ -205,6 +205,7 @@ impl FungibleAssetBalance {
         txn_version: i64,
         txn_timestamp: chrono::NaiveDateTime,
         object_metadatas: &ObjectAggregatedDataMapping,
+        store_address_to_deleted_fa_store_events: &StoreAddressToDeletedFungibleAssetStoreEvent,
     ) -> anyhow::Result<Option<Self>> {
         if let Some(inner) = &FungibleAssetStore::from_write_resource(write_resource)? {
             let storage_id = standardize_address(write_resource.address.as_str());
@@ -238,6 +239,29 @@ impl FungibleAssetBalance {
                     token_standard: TokenStandard::V2.to_string(),
                 };
                 return Ok(Some(coin_balance));
+            }
+        } else if let Some(inner) = &ObjectCore::from_write_resource(write_resource)? {
+            // Need to handle the case where the object / resource group still exists, but the fungible store is deleted
+            // We handle this here because even though the store is deleted, its resource group would still be emitted
+            // as a write resource in the transaction
+            let storage_id = standardize_address(write_resource.address.as_str());
+            if let Some(deleted_fa_store_event) =
+                store_address_to_deleted_fa_store_events.get(&storage_id)
+            {
+                let asset_type = standardize_address(deleted_fa_store_event.metadata.as_str());
+                let balance = Self {
+                    transaction_version: txn_version,
+                    write_set_change_index,
+                    storage_id: storage_id.clone(),
+                    owner_address: inner.get_owner_address(),
+                    asset_type: asset_type.clone(),
+                    is_primary: false, // Deleted stores can only be secondary
+                    is_frozen: false,
+                    amount: BigDecimal::zero(),
+                    transaction_timestamp: txn_timestamp,
+                    token_standard: TokenStandard::V2.to_string(),
+                };
+                return Ok(Some(balance));
             }
         }
 
