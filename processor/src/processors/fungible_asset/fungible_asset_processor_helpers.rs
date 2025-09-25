@@ -33,7 +33,6 @@ use aptos_indexer_processor_sdk::{
 };
 use chrono::NaiveDateTime;
 use rayon::prelude::*;
-use tracing::info;
 
 /// Gets coin to fungible asset mappings from transactions by looking at CoinInfo
 /// This is very similar code to part of parse_v2_coin
