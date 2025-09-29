@@ -6,7 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
-    db::resources::FromWriteResource,
+    db::resources::{FromWriteResource, BURN_ADDR},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
@@ -140,20 +140,29 @@ impl TokenOwnershipV2 {
         let object_data = object_metadatas
             .get(&token_data.token_data_id)
             .context("If token data exists objectcore must exist")?;
-        let object_core = object_data.object.object_core.clone();
         let token_data_id = token_data.token_data_id.clone();
-        let owner_address = object_core.get_owner_address();
+        let allow_ungated_transfer = object_data
+            .object
+            .as_ref()
+            .map(|object| object.object_core.allow_ungated_transfer);
+        // If there is no ObjectCore resource, then use 0x0 as the owner
+        let owner_address = object_data
+            .object
+            .as_ref()
+            .map(|object| object.object_core.get_owner_address())
+            .unwrap_or(String::from(BURN_ADDR));
         let storage_id = token_data_id.clone();
 
         // is_soulbound currently means if an object is completely untransferrable
         // OR if only admin can transfer. Only the former is true soulbound but
         // people might already be using it with the latter meaning so let's include both.
         let is_soulbound = if object_data.untransferable.as_ref().is_some() {
-            true
+            Some(true)
         } else {
-            !object_core.allow_ungated_transfer
+            allow_ungated_transfer.map(|allow_ungated_transfer| !allow_ungated_transfer)
         };
-        let non_transferrable_by_owner = !object_core.allow_ungated_transfer;
+        let non_transferrable_by_owner =
+            allow_ungated_transfer.map(|allow_ungated_transfer| !allow_ungated_transfer);
 
         ownerships.push(Self {
             transaction_version: token_data.transaction_version,
@@ -165,11 +174,11 @@ impl TokenOwnershipV2 {
             amount: BigDecimal::one(),
             table_type_v1: None,
             token_properties_mutated_v1: None,
-            is_soulbound_v2: Some(is_soulbound),
+            is_soulbound_v2: is_soulbound,
             token_standard: TokenStandard::V2.to_string(),
             is_fungible_v2: None,
             transaction_timestamp: token_data.transaction_timestamp,
-            non_transferrable_by_owner: Some(non_transferrable_by_owner),
+            non_transferrable_by_owner,
         });
         current_ownerships.insert(
             (
@@ -186,12 +195,12 @@ impl TokenOwnershipV2 {
                 amount: BigDecimal::one(),
                 table_type_v1: None,
                 token_properties_mutated_v1: None,
-                is_soulbound_v2: Some(is_soulbound),
+                is_soulbound_v2: is_soulbound,
                 token_standard: TokenStandard::V2.to_string(),
                 is_fungible_v2: None,
                 last_transaction_version: token_data.transaction_version,
                 last_transaction_timestamp: token_data.transaction_timestamp,
-                non_transferrable_by_owner: Some(non_transferrable_by_owner),
+                non_transferrable_by_owner,
             },
         );
 
@@ -214,11 +223,11 @@ impl TokenOwnershipV2 {
                 amount: BigDecimal::zero(),
                 table_type_v1: None,
                 token_properties_mutated_v1: None,
-                is_soulbound_v2: Some(is_soulbound),
+                is_soulbound_v2: is_soulbound,
                 token_standard: TokenStandard::V2.to_string(),
                 is_fungible_v2: None,
                 transaction_timestamp: token_data.transaction_timestamp,
-                non_transferrable_by_owner: Some(is_soulbound),
+                non_transferrable_by_owner,
             });
             current_ownerships.insert(
                 (
@@ -237,12 +246,12 @@ impl TokenOwnershipV2 {
                     amount: BigDecimal::zero(),
                     table_type_v1: None,
                     token_properties_mutated_v1: None,
-                    is_soulbound_v2: Some(is_soulbound),
+                    is_soulbound_v2: is_soulbound,
                     token_standard: TokenStandard::V2.to_string(),
                     is_fungible_v2: None,
                     last_transaction_version: token_data.transaction_version,
                     last_transaction_timestamp: token_data.transaction_timestamp,
-                    non_transferrable_by_owner: Some(is_soulbound),
+                    non_transferrable_by_owner,
                 },
             );
         }

@@ -18,6 +18,8 @@ use anyhow::Result;
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::WriteResource;
 use const_format::formatcp;
 
+pub const BURN_ADDR: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 pub const COIN_ADDR: &str = "0x0000000000000000000000000000000000000000000000000000000000000001";
 pub const TOKEN_ADDR: &str = "0x0000000000000000000000000000000000000000000000000000000000000003";
 pub const TOKEN_V2_ADDR: &str =

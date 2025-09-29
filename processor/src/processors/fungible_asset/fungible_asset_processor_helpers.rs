@@ -20,9 +20,7 @@ use crate::{
                 v2_fungible_metadata::{FungibleAssetMetadataMapping, FungibleAssetMetadataModel},
             },
         },
-        objects::v2_object_utils::{
-            ObjectAggregatedData, ObjectAggregatedDataMapping, ObjectWithMetadata,
-        },
+        objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
     },
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
@@ -178,17 +176,39 @@ pub async fn parse_v2_coin(
             // about the deleted store.
             let mut store_address_to_deleted_fa_store_events: StoreAddressToDeletedFungibleAssetStoreEvent = AHashMap::new();
             // Loop 1: to get all object addresses
-            // Need to do a first pass to get all the object addresses and insert them into the helper
+            // Fill the v2 fungible_asset_object_helper. This is used to track which objects exist at each object address.
+            // The data will be used to reconstruct the full data in Loop 4.
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
+                    let address = standardize_address(&wr.address.to_string());
+                    let entry = fungible_asset_object_helper
+                        .entry(address)
+                        .or_default();
+
+                    // Update object if present
                     if let Some(object) = ObjectWithMetadata::from_write_resource(wr).unwrap() {
-                        fungible_asset_object_helper.insert(
-                            standardize_address(&wr.address.to_string()),
-                            ObjectAggregatedData {
-                                object,
-                                ..ObjectAggregatedData::default()
-                            },
-                        );
+                        entry.object = Some(object);
+                    }
+
+                    // Update fungible asset resource if present
+                    else if let Some(v2) = V2FungibleAssetResource::from_write_resource(wr).unwrap() {
+                        match v2 {
+                            V2FungibleAssetResource::FungibleAssetMetadata(fam) => {
+                                entry.fungible_asset_metadata = Some(fam);
+                            }
+                            V2FungibleAssetResource::FungibleAssetStore(fas) => {
+                                entry.fungible_asset_store = Some(fas);
+                            }
+                            V2FungibleAssetResource::FungibleAssetSupply(fas) => {
+                                entry.fungible_asset_supply = Some(fas);
+                            }
+                            V2FungibleAssetResource::ConcurrentFungibleAssetSupply(cfas) => {
+                                entry.concurrent_fungible_asset_supply = Some(cfas);
+                            }
+                            V2FungibleAssetResource::ConcurrentFungibleAssetBalance(cfab) => {
+                                entry.concurrent_fungible_asset_balance = Some(cfab);
+                            }
+                        }
                     }
                 }
             }
@@ -223,47 +243,6 @@ pub async fn parse_v2_coin(
                     {
                         fungible_asset_balances.push(balance);
                         event_to_v1_coin_type.extend(event_to_coin);
-                    }
-                    // Fill the v2 fungible_asset_object_helper. This is used to track which objects exist at each object address.
-                    // The data will be used to reconstruct the full data in Loop 4.
-                    let address = standardize_address(&write_resource.address.to_string());
-                    if let Some(aggregated_data) = fungible_asset_object_helper.get_mut(&address) {
-                        if let Some(v2_fungible_asset_resource) =
-                            V2FungibleAssetResource::from_write_resource(write_resource).unwrap()
-                        {
-                            match v2_fungible_asset_resource {
-                                V2FungibleAssetResource::FungibleAssetMetadata(
-                                    fungible_asset_metadata,
-                                ) => {
-                                    aggregated_data.fungible_asset_metadata =
-                                        Some(fungible_asset_metadata);
-                                },
-                                V2FungibleAssetResource::FungibleAssetStore(
-                                    fungible_asset_store,
-                                ) => {
-                                    aggregated_data.fungible_asset_store =
-                                        Some(fungible_asset_store);
-                                },
-                                V2FungibleAssetResource::FungibleAssetSupply(
-                                    fungible_asset_supply,
-                                ) => {
-                                    aggregated_data.fungible_asset_supply =
-                                        Some(fungible_asset_supply);
-                                },
-                                V2FungibleAssetResource::ConcurrentFungibleAssetSupply(
-                                    concurrent_fungible_asset_supply,
-                                ) => {
-                                    aggregated_data.concurrent_fungible_asset_supply =
-                                        Some(concurrent_fungible_asset_supply);
-                                },
-                                V2FungibleAssetResource::ConcurrentFungibleAssetBalance(
-                                    concurrent_fungible_asset_balance,
-                                ) => {
-                                    aggregated_data.concurrent_fungible_asset_balance =
-                                        Some(concurrent_fungible_asset_balance);
-                                },
-                            }
-                        }
                     }
                 } else if let Change::DeleteResource(delete_resource) = wsc.change.as_ref().unwrap()
                 {

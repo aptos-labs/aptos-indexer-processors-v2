@@ -5,9 +5,7 @@ use crate::{
     db::resources::{FromWriteResource, V2TokenResource},
     processors::{
         fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FungibleAssetMetadata,
-        objects::v2_object_utils::{
-            ObjectAggregatedData, ObjectAggregatedDataMapping, ObjectWithMetadata,
-        },
+        objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
         token_v2::{
             token_models::{
                 token_claims::CurrentTokenPendingClaim,
@@ -134,68 +132,57 @@ pub async fn parse_v2_token(
             // Loop 1: Need to do a first pass to get all the object addresses and insert them into the helper
             for wsc in transaction_info.changes.iter() {
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
-                    if let Some(object) = ObjectWithMetadata::from_write_resource(wr).unwrap() {
-                        token_v2_metadata_helper.insert(
-                            standardize_address(&wr.address.to_string()),
-                            ObjectAggregatedData {
-                                object,
-                                ..ObjectAggregatedData::default()
-                            },
-                        );
-                    }
-                }
-            }
-
-            // Loop 2: Get the metdata relevant to parse v1 and v2 tokens
-            // Need to do a second pass to get all the structs related to the object
-            for wsc in transaction_info.changes.iter() {
-                if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
                     let address = standardize_address(&wr.address.to_string());
-                    if let Some(aggregated_data) = token_v2_metadata_helper.get_mut(&address) {
-                        if let Some(v2_token_resource) =
-                            V2TokenResource::from_write_resource(wr).unwrap()
-                        {
-                            match v2_token_resource {
-                                V2TokenResource::FixedSupply(fixed_supply) => {
-                                    aggregated_data.fixed_supply = Some(fixed_supply);
-                                },
-                                V2TokenResource::UnlimitedSupply(unlimited_supply) => {
-                                    aggregated_data.unlimited_supply = Some(unlimited_supply);
-                                },
-                                V2TokenResource::AptosCollection(aptos_collection) => {
-                                    aggregated_data.aptos_collection = Some(aptos_collection);
-                                },
-                                V2TokenResource::PropertyMapModel(property_map) => {
-                                    aggregated_data.property_map = Some(property_map);
-                                },
-                                V2TokenResource::ConcurrentSupply(concurrent_supply) => {
-                                    aggregated_data.concurrent_supply = Some(concurrent_supply);
-                                },
-                                V2TokenResource::TokenV2(token) => {
-                                    aggregated_data.token = Some(token);
-                                },
-                                V2TokenResource::TokenIdentifiers(token_identifier) => {
-                                    aggregated_data.token_identifier = Some(token_identifier);
-                                },
-                                V2TokenResource::Untransferable(untransferable) => {
-                                    aggregated_data.untransferable = Some(untransferable);
-                                },
-                                _ => {},
-                            }
+                    let entry = token_v2_metadata_helper.entry(address).or_default();
+
+                    // Update object if present
+                    if let Some(object) = ObjectWithMetadata::from_write_resource(wr).unwrap() {
+                        entry.object = Some(object);
+                        continue;
+                    }
+                    // Update token v2 resource if present
+                    else if let Some(v2) = V2TokenResource::from_write_resource(wr).unwrap() {
+                        match v2 {
+                            V2TokenResource::FixedSupply(fixed_supply) => {
+                                entry.fixed_supply = Some(fixed_supply);
+                            },
+                            V2TokenResource::UnlimitedSupply(unlimited_supply) => {
+                                entry.unlimited_supply = Some(unlimited_supply);
+                            },
+                            V2TokenResource::AptosCollection(aptos_collection) => {
+                                entry.aptos_collection = Some(aptos_collection);
+                            },
+                            V2TokenResource::PropertyMapModel(property_map) => {
+                                entry.property_map = Some(property_map);
+                            },
+                            V2TokenResource::ConcurrentSupply(concurrent_supply) => {
+                                entry.concurrent_supply = Some(concurrent_supply);
+                            },
+                            V2TokenResource::TokenV2(token) => {
+                                entry.token = Some(token);
+                            },
+                            V2TokenResource::TokenIdentifiers(token_identifier) => {
+                                entry.token_identifier = Some(token_identifier);
+                            },
+                            V2TokenResource::Untransferable(untransferable) => {
+                                entry.untransferable = Some(untransferable);
+                            },
+                            _ => {},
                         }
-                        if let Some(fungible_asset_metadata) =
-                            FungibleAssetMetadata::from_write_resource(wr).unwrap()
-                        {
-                            aggregated_data.fungible_asset_metadata = Some(fungible_asset_metadata);
-                        }
+                    }
+                    // Update fungible asset metadata if present
+                    else if let Some(fungible_asset_metadata) =
+                        FungibleAssetMetadata::from_write_resource(wr).unwrap()
+                    {
+                        entry.fungible_asset_metadata = Some(fungible_asset_metadata);
                     }
                 }
             }
 
-            // Loop 3: Pass through events to get the burn events and token activities v2
-            // This needs to be here because we need the metadata parsed in loop 2 for token activities
+            // Loop 2: Pass through events to get the burn events and token activities v2
+            // This needs to be here because we need the metadata parsed in loop 1 for token activities
             // and burn / transfer events need to come before the next loop
-            // Also parses token v1 claim events, which will be used in Loop 4 to build the claims table
+            // Also parses token v1 claim events, which will be used in Loop 3 to build the claims table
             for (index, event) in user_txn.events.iter().enumerate() {
                 if let Some(burn_event) = Burn::from_event(event, txn_version).unwrap() {
                     tokens_burned.insert(burn_event.get_token_address(), burn_event.clone());
@@ -262,7 +249,7 @@ pub async fn parse_v2_token(
                 }
             }
 
-            // Loop 4: Pass through the changes for collection, token data, token ownership, and token royalties
+            // Loop 3: Pass through the changes for collection, token data, token ownership, and token royalties
             for (index, wsc) in transaction_info.changes.iter().enumerate() {
                 let wsc_index = index as i64;
                 match wsc.change.as_ref().unwrap() {

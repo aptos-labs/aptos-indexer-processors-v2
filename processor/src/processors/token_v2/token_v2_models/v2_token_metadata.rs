@@ -94,22 +94,28 @@ impl CurrentTokenV2Metadata {
                     },
                 };
 
-                let state_key_hash = object_data.object.get_state_key_hash();
-                if state_key_hash != resource.state_key_hash {
-                    return Ok(None);
-                }
+                let state_key_hash = object_data
+                    .object
+                    .as_ref()
+                    .map(|object| object.get_state_key_hash());
 
-                let resource_type = truncate_str(&resource.resource_type, NAME_LENGTH);
-                return Ok(Some(CurrentTokenV2Metadata {
-                    object_address,
-                    resource_type,
-                    data: resource
-                        .data
-                        .context("data must be present in write resource")?,
-                    state_key_hash: resource.state_key_hash,
-                    last_transaction_version: txn_version,
-                    last_transaction_timestamp: txn_timestamp,
-                }));
+                if let Some(state_key_hash) = state_key_hash {
+                    if state_key_hash != resource.state_key_hash {
+                        return Ok(None);
+                    }
+
+                    let resource_type = truncate_str(&resource.resource_type, NAME_LENGTH);
+                    return Ok(Some(CurrentTokenV2Metadata {
+                        object_address,
+                        resource_type,
+                        data: resource
+                            .data
+                            .context("data must be present in write resource")?,
+                        state_key_hash: resource.state_key_hash,
+                        last_transaction_version: txn_version,
+                        last_transaction_timestamp: txn_timestamp,
+                    }));
+                }
             }
         }
         Ok(None)

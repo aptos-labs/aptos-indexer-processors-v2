@@ -6,7 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
-    db::resources::FromWriteResource,
+    db::resources::{FromWriteResource, BURN_ADDR},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         fungible_asset::{
@@ -65,7 +65,11 @@ impl FungibleAssetMetadataModel {
             // the new coin type
             let asset_type = standardize_address(&write_resource.address.to_string());
             if let Some(object_metadata) = object_metadatas.get(&asset_type) {
-                let object = &object_metadata.object.object_core;
+                let object = &object_metadata.object;
+                let owner_address = object
+                    .as_ref()
+                    .map(|object| object.object_core.get_owner_address())
+                    .unwrap_or(String::from(BURN_ADDR));
                 let (maximum_v2, supply_v2) = if let Some(fungible_asset_supply) =
                     object_metadata.fungible_asset_supply.as_ref()
                 {
@@ -86,7 +90,7 @@ impl FungibleAssetMetadataModel {
 
                 return Ok(Some(Self {
                     asset_type: asset_type.clone(),
-                    creator_address: object.get_owner_address(),
+                    creator_address: owner_address,
                     name: inner.get_name(),
                     symbol: inner.get_symbol(),
                     decimals: inner.decimals,

@@ -12,7 +12,7 @@ use super::{
     v2_fungible_asset_to_coin_mappings::{FungibleAssetToCoinMapping, FungibleAssetToCoinMappings},
 };
 use crate::{
-    db::resources::FromWriteResource,
+    db::resources::{FromWriteResource, BURN_ADDR},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         default::models::move_resources::MoveResource,
@@ -209,10 +209,16 @@ impl FungibleAssetBalance {
     ) -> anyhow::Result<Option<Self>> {
         if let Some(inner) = &FungibleAssetStore::from_write_resource(write_resource)? {
             let storage_id = standardize_address(write_resource.address.as_str());
+
             // Need to get the object of the store
             if let Some(object_data) = object_metadatas.get(&storage_id) {
-                let object = &object_data.object.object_core;
-                let owner_address = object.get_owner_address();
+                let owner_address = object_data
+                    .object
+                    .as_ref()
+                    .map(|object| object.object_core.get_owner_address())
+                    // If there is no ObjectCore resource, then this FA store is defacto ownerless, so
+                    // set the owner to the burn address.
+                    .unwrap_or(String::from(BURN_ADDR));
                 let asset_type = inner.metadata.get_reference_address();
                 let is_primary = Self::is_primary(&owner_address, &asset_type, &storage_id);
 

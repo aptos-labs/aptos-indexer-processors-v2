@@ -53,7 +53,7 @@ pub async fn process_objects(
                 {
                     // Object core is the first struct that we need to get
                     object_metadata_helper.insert(address.clone(), ObjectAggregatedData {
-                        object: object_with_metadata,
+                        object: Some(object_with_metadata),
                         token: None,
                         fungible_asset_store: None,
                         // The following structs are unused in this processor

@@ -6,6 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    db::resources::BURN_ADDR,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
@@ -94,10 +95,15 @@ impl TokenActivityV2 {
             };
 
             if let Some(metadata) = token_v2_metadata.get(&token_data_id) {
-                let object_core = &metadata.object.object_core;
+                // If there is no ObjectCore resource, then use 0x0 as the owner
+                let owner_address = metadata
+                    .object
+                    .as_ref()
+                    .map(|object| object.object_core.get_owner_address())
+                    .unwrap_or(String::from(BURN_ADDR));
                 let token_activity_helper = match token_event {
                     V2TokenEvent::MintEvent(_) => TokenActivityHelperV2 {
-                        from_address: Some(object_core.get_owner_address()),
+                        from_address: Some(owner_address),
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -105,7 +111,7 @@ impl TokenActivityV2 {
                         event_type: event_type.clone(),
                     },
                     V2TokenEvent::Mint(_) => TokenActivityHelperV2 {
-                        from_address: Some(object_core.get_owner_address()),
+                        from_address: Some(owner_address),
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -130,7 +136,7 @@ impl TokenActivityV2 {
                         event_type: "0x4::collection::MutationEvent".to_string(),
                     },
                     V2TokenEvent::BurnEvent(_) => TokenActivityHelperV2 {
-                        from_address: Some(object_core.get_owner_address()),
+                        from_address: Some(owner_address),
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -138,7 +144,7 @@ impl TokenActivityV2 {
                         event_type: event_type.clone(),
                     },
                     V2TokenEvent::Burn(_) => TokenActivityHelperV2 {
-                        from_address: Some(object_core.get_owner_address()),
+                        from_address: Some(owner_address),
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
