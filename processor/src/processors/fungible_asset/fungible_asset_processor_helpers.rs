@@ -189,7 +189,6 @@ pub async fn parse_v2_coin(
                     if let Some(object) = ObjectWithMetadata::from_write_resource(wr).unwrap() {
                         entry.object = Some(object);
                     }
-
                     // Update fungible asset resource if present
                     else if let Some(v2) = V2FungibleAssetResource::from_write_resource(wr).unwrap() {
                         match v2 {

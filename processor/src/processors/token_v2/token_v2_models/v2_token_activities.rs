@@ -6,7 +6,6 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
-    db::resources::BURN_ADDR,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
@@ -99,11 +98,10 @@ impl TokenActivityV2 {
                 let owner_address = metadata
                     .object
                     .as_ref()
-                    .map(|object| object.object_core.get_owner_address())
-                    .unwrap_or(String::from(BURN_ADDR));
+                    .map(|object| object.object_core.get_owner_address());
                 let token_activity_helper = match token_event {
                     V2TokenEvent::MintEvent(_) => TokenActivityHelperV2 {
-                        from_address: Some(owner_address),
+                        from_address: owner_address,
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -111,7 +109,7 @@ impl TokenActivityV2 {
                         event_type: event_type.clone(),
                     },
                     V2TokenEvent::Mint(_) => TokenActivityHelperV2 {
-                        from_address: Some(owner_address),
+                        from_address: owner_address,
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -136,15 +134,16 @@ impl TokenActivityV2 {
                         event_type: "0x4::collection::MutationEvent".to_string(),
                     },
                     V2TokenEvent::BurnEvent(_) => TokenActivityHelperV2 {
-                        from_address: Some(owner_address),
+                        from_address: owner_address,
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
                         after_value: None,
                         event_type: event_type.clone(),
                     },
-                    V2TokenEvent::Burn(_) => TokenActivityHelperV2 {
-                        from_address: Some(owner_address),
+                    V2TokenEvent::Burn(inner) => TokenActivityHelperV2 {
+                        // the new burn event has owner address now!
+                        from_address: inner.get_previous_owner_address(),
                         to_address: None,
                         token_amount: BigDecimal::one(),
                         before_value: None,
@@ -178,7 +177,7 @@ impl TokenActivityV2 {
                     transaction_timestamp: txn_timestamp,
                 }));
             } else {
-                // If the object metadata isn't found in the transaction, then the token was burnt.
+                // If the token resource isn't found in the transaction, then the token was burnt.
 
                 // the new burn event has owner address now!
                 let owner_address = if let V2TokenEvent::Burn(inner) = token_event {

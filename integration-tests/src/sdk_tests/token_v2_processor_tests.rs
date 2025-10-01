@@ -378,17 +378,8 @@ mod sdk_token_v2_processor_tests {
         .await;
     }
 
-    /**
-     * This test includes processing for the following:
-     * - Events
-     *      - 0x1::fungible_asset::MintEvent
-     *      - 0x1::fungible_asset::BurnEvent
-     * - Resources
-     *      - 0x1::fungible_asset::Supply
-     *      - 0x1::fungible_asset::Metadata
-     */
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_fungible_asset_processor_mint_and_burn_event() {
+    async fn test_token_v2_mint_and_burn_event() {
         process_single_transaction(
             IMPORTED_MAINNET_TXNS_445585423_TOKEN_MINT_AND_BURN_EVENT,
             Some("mint_and_burn_event".to_string()),
