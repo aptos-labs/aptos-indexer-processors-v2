@@ -65,10 +65,8 @@ impl FungibleAssetMetadataModel {
             // the new coin type
             let asset_type = standardize_address(&write_resource.address.to_string());
             if let Some(object_metadata) = object_metadatas.get(&asset_type) {
-                let object = &object_metadata.object;
-                let owner_address = object
-                    .as_ref()
-                    .map(|object| object.object_core.get_owner_address())
+                let owner_address = object_metadata
+                    .get_owner_address()
                     .unwrap_or(String::from(BURN_ADDR));
                 let (maximum_v2, supply_v2) = if let Some(fungible_asset_supply) =
                     object_metadata.fungible_asset_supply.as_ref()

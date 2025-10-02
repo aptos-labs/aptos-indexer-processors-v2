@@ -213,9 +213,7 @@ impl FungibleAssetBalance {
             // Need to get the object of the store
             if let Some(object_data) = object_metadatas.get(&storage_id) {
                 let owner_address = object_data
-                    .object
-                    .as_ref()
-                    .map(|object| object.object_core.get_owner_address())
+                    .get_owner_address()
                     // If there is no ObjectCore resource, then this FA store is defacto ownerless, so
                     // set the owner to the burn address.
                     .unwrap_or(String::from(BURN_ADDR));

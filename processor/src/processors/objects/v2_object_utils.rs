@@ -59,6 +59,14 @@ pub struct ObjectAggregatedData {
     pub token_identifier: Option<TokenIdentifiers>,
 }
 
+impl ObjectAggregatedData {
+    pub fn get_owner_address(&self) -> Option<String> {
+        self.object
+            .as_ref()
+            .map(|object| object.object_core.get_owner_address())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ObjectCore {
     pub allow_ungated_transfer: bool,

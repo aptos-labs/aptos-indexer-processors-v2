@@ -78,44 +78,49 @@ impl Object {
         block_timestamp: chrono::NaiveDateTime,
     ) -> anyhow::Result<Option<(Self, CurrentObject)>> {
         let address = standardize_address(&write_resource.address.to_string());
-        if let Some(object_aggregated_metadata) = object_metadata_mapping.get(&address) {
-            if let Some(object_with_metadata) = object_aggregated_metadata.object.as_ref() {
-                let object_core = &object_with_metadata.object_core;
-
-                let untransferrable =
-                    if object_aggregated_metadata.untransferable.as_ref().is_some() {
-                        true
-                    } else {
-                        !object_core.allow_ungated_transfer
-                    };
-                return Ok(Some((
-                    Self {
-                        transaction_version: txn_version,
-                        write_set_change_index,
-                        object_address: address.clone(),
-                        owner_address: object_core.get_owner_address(),
-                        state_key_hash: object_with_metadata.state_key_hash.clone(),
-                        guid_creation_num: object_core.guid_creation_num.clone(),
-                        allow_ungated_transfer: object_core.allow_ungated_transfer,
-                        is_deleted: false,
-                        untransferrable,
-                        block_timestamp,
-                    },
-                    CurrentObject {
-                        object_address: address,
-                        owner_address: object_core.get_owner_address(),
-                        state_key_hash: object_with_metadata.state_key_hash.clone(),
-                        allow_ungated_transfer: object_core.allow_ungated_transfer,
-                        last_guid_creation_num: object_core.guid_creation_num.clone(),
-                        last_transaction_version: txn_version,
-                        is_deleted: false,
-                        untransferrable,
-                        block_timestamp,
-                    },
-                )));
-            }
+        let object_aggregated_metadata = object_metadata_mapping.get(&address);
+        if object_aggregated_metadata.is_none() {
+            return Ok(None);
         }
-        Ok(None)
+
+        let object_with_metadata = object_aggregated_metadata.unwrap().object.as_ref();
+        if object_with_metadata.is_none() {
+            return Ok(None);
+        }
+
+        let object_core = &object_with_metadata.unwrap().object_core;
+        let untransferrable = object_aggregated_metadata
+            .unwrap()
+            .untransferable
+            .as_ref()
+            .is_some()
+            || !object_core.allow_ungated_transfer;
+
+        Ok(Some((
+            Self {
+                transaction_version: txn_version,
+                write_set_change_index,
+                object_address: address.clone(),
+                owner_address: object_core.get_owner_address(),
+                state_key_hash: object_with_metadata.unwrap().state_key_hash.clone(),
+                guid_creation_num: object_core.guid_creation_num.clone(),
+                allow_ungated_transfer: object_core.allow_ungated_transfer,
+                is_deleted: false,
+                untransferrable,
+                block_timestamp,
+            },
+            CurrentObject {
+                object_address: address,
+                owner_address: object_core.get_owner_address(),
+                state_key_hash: object_with_metadata.unwrap().state_key_hash.clone(),
+                allow_ungated_transfer: object_core.allow_ungated_transfer,
+                last_guid_creation_num: object_core.guid_creation_num.clone(),
+                last_transaction_version: txn_version,
+                is_deleted: false,
+                untransferrable,
+                block_timestamp,
+            },
+        )))
     }
 
     /// This handles the case where the entire object is deleted

@@ -147,9 +147,7 @@ impl TokenOwnershipV2 {
             .map(|object| object.object_core.allow_ungated_transfer);
         // If there is no ObjectCore resource, then use 0x0 as the owner
         let owner_address = object_data
-            .object
-            .as_ref()
-            .map(|object| object.object_core.get_owner_address())
+            .get_owner_address()
             .unwrap_or(String::from(BURN_ADDR));
         let storage_id = token_data_id.clone();
 
