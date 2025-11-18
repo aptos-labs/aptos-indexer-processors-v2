@@ -14,14 +14,7 @@ use aptos_indexer_processor_sdk::{
     },
     utils::convert::standardize_address,
 };
-use serde::Serialize;
 use tracing::warn;
-
-#[derive(Clone, Debug, Serialize)]
-struct AbstractSignature {
-    function_info: String,
-    signature: String,
-}
 
 /// This is the second layer of the signature proto. It's the start of the signatures table.
 pub fn get_account_signature_type(account_signature: &AccountSignature) -> String {
@@ -159,6 +152,7 @@ pub fn parse_single_key_signature(
         ),
         threshold: 1,
         public_key_indices: serde_json::Value::Array(vec![]),
+        function_info: None,
         signature: format!("0x{}", hex::encode(signature_bytes.as_slice())),
         multi_agent_index,
         multi_sig_index: 0,
@@ -200,6 +194,7 @@ pub fn parse_multi_key_signature(
             public_key_type: Some(any_public_key_type),
             public_key: format!("0x{}", hex::encode(public_key)),
             threshold: s.signatures_required as i64,
+            function_info: None,
             signature: format!("0x{}", hex::encode(signature_bytes.as_slice())),
             public_key_indices: serde_json::Value::Array(
                 public_key_indices
@@ -242,11 +237,8 @@ pub fn parse_abstraction_signature(
         public_key: "Not applicable".into(),
         threshold: 1,
         public_key_indices: serde_json::Value::Array(vec![]),
-        signature: serde_json::to_string(&AbstractSignature {
-            function_info: s.function_info.clone(),
-            signature: format!("0x{}", hex::encode(s.signature.as_slice())),
-        })
-        .unwrap_or_else(|_| "Parsing abstraction signature failed".into()),
+        function_info: Some(s.function_info.clone()),
+        signature: format!("0x{}", hex::encode(s.signature.as_slice())),
         multi_agent_index,
         multi_sig_index: 0,
     }

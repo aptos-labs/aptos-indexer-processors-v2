@@ -1039,6 +1039,8 @@ diesel::table! {
         inserted_at -> Timestamp,
         any_signature_type -> Nullable<Varchar>,
         public_key_type -> Nullable<Varchar>,
+        #[max_length = 1000]
+        function_info -> Nullable<Varchar>,
     }
 }
 

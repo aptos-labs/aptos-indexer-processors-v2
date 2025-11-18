@@ -11,7 +11,8 @@
     "signature": "0xa98656f8f1f1c32537df4bf00df9353daaf9bb546e30a8875900cec598fe8a7f6ed0aecd0e0d4db34b3ccfbedd7a731d63d1292f668d46d51a5cb8690c79269a",
     "threshold": 1,
     "public_key_indices": [],
-    "public_key_type": "secp256k1_ecdsa",
-    "any_signature_type": "secp256k1_ecdsa"
+    "function_info": null,
+    "any_signature_type": "secp256k1_ecdsa",
+    "public_key_type": "secp256k1_ecdsa"
   }
 ]

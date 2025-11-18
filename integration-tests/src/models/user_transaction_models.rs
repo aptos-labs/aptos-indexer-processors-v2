@@ -32,6 +32,7 @@ pub struct Signature {
     pub inserted_at: chrono::NaiveDateTime,
     pub any_signature_type: Option<String>,
     pub public_key_type: Option<String>,
+    pub function_info: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug, FieldCount, Identifiable, Insertable, Serialize, Queryable)]

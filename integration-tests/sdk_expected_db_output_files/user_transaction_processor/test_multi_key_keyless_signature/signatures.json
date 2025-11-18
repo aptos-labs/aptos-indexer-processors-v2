@@ -13,7 +13,8 @@
     "public_key_indices": [
       1
     ],
-    "public_key_type": "keyless",
-    "any_signature_type": "keyless"
+    "function_info": null,
+    "any_signature_type": "keyless",
+    "public_key_type": "keyless"
   }
 ]

@@ -11,7 +11,8 @@
     "signature": "0x37b89d3d3d6e68e66c4f72be6228890690d2a9c39e0a75aed12b122400ab5812f1170ac14151ad6ce8f75dda7dd29f8c98c5f2b176bb23fc0af574d10f713d0b",
     "threshold": 1,
     "public_key_indices": [],
-    "public_key_type": null,
-    "any_signature_type": null
+    "function_info": null,
+    "any_signature_type": null,
+    "public_key_type": null
   }
 ]

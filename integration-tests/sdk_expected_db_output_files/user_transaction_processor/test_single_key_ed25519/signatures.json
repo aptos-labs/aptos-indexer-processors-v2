@@ -11,7 +11,8 @@
     "signature": "0x2143fcb53d2da0d2f4c053a819ae2055c007c6902a1863fc7da72a50933feb1a630d3ae043e6713a29861fcb5071b04b536dbbf52241503d7616ec8d21b4a505",
     "threshold": 1,
     "public_key_indices": [],
-    "public_key_type": "ed25519",
-    "any_signature_type": "ed25519"
+    "function_info": null,
+    "any_signature_type": "ed25519",
+    "public_key_type": "ed25519"
   }
 ]

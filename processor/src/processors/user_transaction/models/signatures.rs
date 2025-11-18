@@ -30,6 +30,7 @@ pub struct Signature {
     pub signature: String,
     pub threshold: i64,
     pub public_key_indices: serde_json::Value,
+    pub function_info: Option<String>,
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -78,6 +79,7 @@ pub struct PostgresSignature {
     pub public_key_indices: serde_json::Value,
     pub any_signature_type: Option<String>,
     pub public_key_type: Option<String>,
+    pub function_info: Option<String>,
 }
 
 impl From<Signature> for PostgresSignature {
@@ -96,6 +98,7 @@ impl From<Signature> for PostgresSignature {
             public_key_indices: raw.public_key_indices,
             any_signature_type: raw.any_signature_type,
             public_key_type: raw.public_key_type,
+            function_info: raw.function_info,
         }
     }
 }
@@ -115,6 +118,7 @@ pub struct ParquetSignature {
     pub public_key: String,
     pub signature: String,
     pub threshold: Option<i64>, // if multi key or multi ed?
+    pub function_info: Option<String>,
     #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
@@ -145,6 +149,7 @@ impl From<Signature> for ParquetSignature {
             signature: raw.signature,
             threshold: Some(raw.threshold),
             block_timestamp: raw.block_timestamp,
+            function_info: raw.function_info,
         }
     }
 }
