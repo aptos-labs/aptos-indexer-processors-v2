@@ -127,109 +127,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    coin_activities (transaction_version, event_account_address, event_creation_number, event_sequence_number) {
-        transaction_version -> Int8,
-        #[max_length = 66]
-        event_account_address -> Varchar,
-        event_creation_number -> Int8,
-        event_sequence_number -> Int8,
-        #[max_length = 66]
-        owner_address -> Varchar,
-        #[max_length = 5000]
-        coin_type -> Varchar,
-        amount -> Numeric,
-        #[max_length = 200]
-        activity_type -> Varchar,
-        is_gas_fee -> Bool,
-        is_transaction_success -> Bool,
-        #[max_length = 1000]
-        entry_function_id_str -> Nullable<Varchar>,
-        block_height -> Int8,
-        transaction_timestamp -> Timestamp,
-        inserted_at -> Timestamp,
-        event_index -> Nullable<Int8>,
-        #[max_length = 66]
-        gas_fee_payer_address -> Nullable<Varchar>,
-        storage_refund_amount -> Numeric,
-    }
-}
-
-diesel::table! {
-    coin_balances (transaction_version, owner_address, coin_type_hash) {
-        transaction_version -> Int8,
-        #[max_length = 66]
-        owner_address -> Varchar,
-        #[max_length = 64]
-        coin_type_hash -> Varchar,
-        #[max_length = 5000]
-        coin_type -> Varchar,
-        amount -> Numeric,
-        transaction_timestamp -> Timestamp,
-        inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    coin_infos (coin_type_hash) {
-        #[max_length = 64]
-        coin_type_hash -> Varchar,
-        #[max_length = 5000]
-        coin_type -> Varchar,
-        transaction_version_created -> Int8,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 32]
-        name -> Varchar,
-        #[max_length = 10]
-        symbol -> Varchar,
-        decimals -> Int4,
-        transaction_created_timestamp -> Timestamp,
-        inserted_at -> Timestamp,
-        #[max_length = 66]
-        supply_aggregator_table_handle -> Nullable<Varchar>,
-        supply_aggregator_table_key -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    coin_supply (transaction_version, coin_type_hash) {
-        transaction_version -> Int8,
-        #[max_length = 64]
-        coin_type_hash -> Varchar,
-        #[max_length = 5000]
-        coin_type -> Varchar,
-        supply -> Numeric,
-        transaction_timestamp -> Timestamp,
-        transaction_epoch -> Int8,
-        inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    collection_datas (collection_data_id_hash, transaction_version) {
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        transaction_version -> Int8,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        description -> Text,
-        #[max_length = 512]
-        metadata_uri -> Varchar,
-        supply -> Numeric,
-        maximum -> Numeric,
-        maximum_mutable -> Bool,
-        uri_mutable -> Bool,
-        description_mutable -> Bool,
-        inserted_at -> Timestamp,
-        #[max_length = 66]
-        table_handle -> Varchar,
-        transaction_timestamp -> Timestamp,
-    }
-}
-
-diesel::table! {
     collections_v2 (transaction_version, write_set_change_index) {
         transaction_version -> Int8,
         write_set_change_index -> Int8,
@@ -254,23 +151,6 @@ diesel::table! {
         transaction_timestamp -> Timestamp,
         inserted_at -> Timestamp,
         collection_properties -> Nullable<Jsonb>,
-    }
-}
-
-diesel::table! {
-    current_ans_lookup (domain, subdomain) {
-        #[max_length = 64]
-        domain -> Varchar,
-        #[max_length = 64]
-        subdomain -> Varchar,
-        #[max_length = 66]
-        registered_address -> Nullable<Varchar>,
-        expiration_timestamp -> Timestamp,
-        last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
-        #[max_length = 140]
-        token_name -> Varchar,
-        is_deleted -> Bool,
     }
 }
 
@@ -325,45 +205,6 @@ diesel::table! {
         is_deleted -> Bool,
         last_transaction_version -> Int8,
         inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    current_coin_balances (owner_address, coin_type_hash) {
-        #[max_length = 66]
-        owner_address -> Varchar,
-        #[max_length = 64]
-        coin_type_hash -> Varchar,
-        #[max_length = 5000]
-        coin_type -> Varchar,
-        amount -> Numeric,
-        last_transaction_version -> Int8,
-        last_transaction_timestamp -> Timestamp,
-        inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    current_collection_datas (collection_data_id_hash) {
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        description -> Text,
-        #[max_length = 512]
-        metadata_uri -> Varchar,
-        supply -> Numeric,
-        maximum -> Numeric,
-        maximum_mutable -> Bool,
-        uri_mutable -> Bool,
-        description_mutable -> Bool,
-        last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
-        #[max_length = 66]
-        table_handle -> Varchar,
-        last_transaction_timestamp -> Timestamp,
     }
 }
 
@@ -540,40 +381,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    current_token_datas (token_data_id_hash) {
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        maximum -> Numeric,
-        supply -> Numeric,
-        largest_property_version -> Numeric,
-        #[max_length = 512]
-        metadata_uri -> Varchar,
-        #[max_length = 66]
-        payee_address -> Varchar,
-        royalty_points_numerator -> Numeric,
-        royalty_points_denominator -> Numeric,
-        maximum_mutable -> Bool,
-        uri_mutable -> Bool,
-        description_mutable -> Bool,
-        properties_mutable -> Bool,
-        royalty_mutable -> Bool,
-        default_properties -> Jsonb,
-        last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        last_transaction_timestamp -> Timestamp,
-        description -> Text,
-    }
-}
-
-diesel::table! {
     current_token_datas_v2 (token_data_id) {
         #[max_length = 66]
         token_data_id -> Varchar,
@@ -596,30 +403,6 @@ diesel::table! {
         inserted_at -> Timestamp,
         decimals -> Nullable<Int8>,
         is_deleted_v2 -> Nullable<Bool>,
-    }
-}
-
-diesel::table! {
-    current_token_ownerships (token_data_id_hash, property_version, owner_address) {
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        property_version -> Numeric,
-        #[max_length = 66]
-        owner_address -> Varchar,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        amount -> Numeric,
-        token_properties -> Jsonb,
-        last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        table_type -> Text,
-        last_transaction_timestamp -> Timestamp,
     }
 }
 
@@ -774,24 +557,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    events (transaction_version, event_index) {
-        sequence_number -> Int8,
-        creation_number -> Int8,
-        #[max_length = 66]
-        account_address -> Varchar,
-        transaction_version -> Int8,
-        transaction_block_height -> Int8,
-        #[sql_name = "type"]
-        type_ -> Text,
-        data -> Jsonb,
-        inserted_at -> Timestamp,
-        event_index -> Int8,
-        #[max_length = 300]
-        indexed_type -> Varchar,
-    }
-}
-
-diesel::table! {
     fungible_asset_activities (transaction_version, event_index) {
         transaction_version -> Int8,
         event_index -> Int8,
@@ -929,26 +694,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    move_resources (transaction_version, write_set_change_index) {
-        transaction_version -> Int8,
-        write_set_change_index -> Int8,
-        transaction_block_height -> Int8,
-        name -> Text,
-        #[max_length = 66]
-        address -> Varchar,
-        #[sql_name = "type"]
-        type_ -> Text,
-        module -> Text,
-        generic_type_params -> Nullable<Jsonb>,
-        data -> Nullable<Jsonb>,
-        is_deleted -> Bool,
-        inserted_at -> Timestamp,
-        #[max_length = 66]
-        state_key_hash -> Varchar,
-    }
-}
-
-diesel::table! {
     nft_points (transaction_version) {
         transaction_version -> Int8,
         #[max_length = 66]
@@ -1016,7 +761,7 @@ diesel::table! {
         last_transaction_version -> Int8,
         #[max_length = 50]
         signature_type -> Varchar,
-        #[max_length = 13000] // update MAX_ACCOUNT_PUBLIC_KEY_LENGTH when changing this value
+        #[max_length = 13000]
         account_public_key -> Nullable<Varchar>,
     }
 }
@@ -1079,39 +824,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    token_activities (transaction_version, event_account_address, event_creation_number, event_sequence_number) {
-        transaction_version -> Int8,
-        #[max_length = 66]
-        event_account_address -> Varchar,
-        event_creation_number -> Int8,
-        event_sequence_number -> Int8,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        property_version -> Numeric,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        #[max_length = 50]
-        transfer_type -> Varchar,
-        #[max_length = 66]
-        from_address -> Nullable<Varchar>,
-        #[max_length = 66]
-        to_address -> Nullable<Varchar>,
-        token_amount -> Numeric,
-        coin_type -> Nullable<Text>,
-        coin_amount -> Nullable<Numeric>,
-        inserted_at -> Timestamp,
-        transaction_timestamp -> Timestamp,
-        event_index -> Nullable<Int8>,
-    }
-}
-
-diesel::table! {
     token_activities_v2 (transaction_version, event_index) {
         transaction_version -> Int8,
         event_index -> Int8,
@@ -1136,40 +848,6 @@ diesel::table! {
         is_fungible_v2 -> Nullable<Bool>,
         transaction_timestamp -> Timestamp,
         inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    token_datas (token_data_id_hash, transaction_version) {
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        transaction_version -> Int8,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        maximum -> Numeric,
-        supply -> Numeric,
-        largest_property_version -> Numeric,
-        #[max_length = 512]
-        metadata_uri -> Varchar,
-        #[max_length = 66]
-        payee_address -> Varchar,
-        royalty_points_numerator -> Numeric,
-        royalty_points_denominator -> Numeric,
-        maximum_mutable -> Bool,
-        uri_mutable -> Bool,
-        description_mutable -> Bool,
-        properties_mutable -> Bool,
-        royalty_mutable -> Bool,
-        default_properties -> Jsonb,
-        inserted_at -> Timestamp,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        transaction_timestamp -> Timestamp,
-        description -> Text,
     }
 }
 
@@ -1201,31 +879,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    token_ownerships (token_data_id_hash, property_version, transaction_version, table_handle) {
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        property_version -> Numeric,
-        transaction_version -> Int8,
-        #[max_length = 66]
-        table_handle -> Varchar,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        #[max_length = 66]
-        owner_address -> Nullable<Varchar>,
-        amount -> Numeric,
-        table_type -> Nullable<Text>,
-        inserted_at -> Timestamp,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        transaction_timestamp -> Timestamp,
-    }
-}
-
-diesel::table! {
     token_ownerships_v2 (transaction_version, write_set_change_index) {
         transaction_version -> Int8,
         write_set_change_index -> Int8,
@@ -1251,59 +904,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    tokens (token_data_id_hash, property_version, transaction_version) {
-        #[max_length = 64]
-        token_data_id_hash -> Varchar,
-        property_version -> Numeric,
-        transaction_version -> Int8,
-        #[max_length = 66]
-        creator_address -> Varchar,
-        #[max_length = 128]
-        collection_name -> Varchar,
-        #[max_length = 128]
-        name -> Varchar,
-        token_properties -> Jsonb,
-        inserted_at -> Timestamp,
-        #[max_length = 64]
-        collection_data_id_hash -> Varchar,
-        transaction_timestamp -> Timestamp,
-    }
-}
-
-diesel::table! {
     transaction_size_info (transaction_version) {
         transaction_version -> Int8,
         size_bytes -> Int8,
         inserted_at -> Timestamp,
-    }
-}
-
-diesel::table! {
-    transactions (version) {
-        version -> Int8,
-        block_height -> Int8,
-        #[max_length = 66]
-        hash -> Varchar,
-        #[sql_name = "type"]
-        type_ -> Varchar,
-        payload -> Nullable<Jsonb>,
-        #[max_length = 66]
-        state_change_hash -> Varchar,
-        #[max_length = 66]
-        event_root_hash -> Varchar,
-        #[max_length = 66]
-        state_checkpoint_hash -> Nullable<Varchar>,
-        gas_used -> Numeric,
-        success -> Bool,
-        vm_status -> Text,
-        #[max_length = 66]
-        accumulator_root_hash -> Varchar,
-        num_events -> Int8,
-        num_write_set_changes -> Int8,
-        inserted_at -> Timestamp,
-        epoch -> Int8,
-        #[max_length = 50]
-        payload_type -> Nullable<Varchar>,
     }
 }
 
@@ -1368,18 +972,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     auth_key_account_addresses,
     backfill_processor_status,
     block_metadata_transactions,
-    coin_activities,
-    coin_balances,
-    coin_infos,
-    coin_supply,
-    collection_datas,
     collections_v2,
-    current_ans_lookup,
     current_ans_lookup_v2,
     current_ans_primary_name,
     current_ans_primary_name_v2,
-    current_coin_balances,
-    current_collection_datas,
     current_collections_v2,
     current_delegated_staking_pool_balances,
     current_delegated_voter,
@@ -1389,9 +985,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     current_objects,
     current_staking_pool_voter,
     current_table_items,
-    current_token_datas,
     current_token_datas_v2,
-    current_token_ownerships,
     current_token_ownerships_v2,
     current_token_pending_claims,
     current_token_royalty_v1,
@@ -1401,7 +995,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     delegated_staking_pools,
     delegator_balances,
     event_size_info,
-    events,
     fungible_asset_activities,
     fungible_asset_balances,
     fungible_asset_metadata,
@@ -1410,7 +1003,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     indexer_status,
     ledger_infos,
     move_modules,
-    move_resources,
     nft_points,
     objects,
     processor_status,
@@ -1420,15 +1012,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     spam_assets,
     table_items,
     table_metadatas,
-    token_activities,
     token_activities_v2,
-    token_datas,
     token_datas_v2,
-    token_ownerships,
     token_ownerships_v2,
-    tokens,
     transaction_size_info,
-    transactions,
     user_transactions,
     write_set_changes,
     write_set_size_info,
