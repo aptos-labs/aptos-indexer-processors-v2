@@ -23,7 +23,6 @@ DROP TABLE IF EXISTS coin_balances;
 DROP TABLE IF EXISTS coin_infos;
 DROP TABLE IF EXISTS coin_supply;
 DROP TABLE IF EXISTS collection_datas;
-DROP TABLE IF EXISTS current_ans_lookup;
 DROP TABLE IF EXISTS current_coin_balances;
 DROP TABLE IF EXISTS current_collection_datas;
 DROP TABLE IF EXISTS current_token_datas;
@@ -36,4 +35,5 @@ DROP TABLE IF EXISTS tokens;
 -- Drop ANS v1 tables (should have been dropped when ANS processor v1 was shut down)
 DROP TABLE IF EXISTS ans_lookup;
 DROP TABLE IF EXISTS ans_primary_name;
+DROP TABLE IF EXISTS current_ans_lookup;
 DROP TABLE IF EXISTS current_ans_primary_name;

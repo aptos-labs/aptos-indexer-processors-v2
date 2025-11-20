@@ -5,6 +5,7 @@
 use crate::{
     parquet_processors::{
         parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
+        parquet_events::parquet_events_model::ParquetEvent,
         parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
         parquet_utils::util::{format_table_name, NamedTable, VALID_TABLE_NAMES},
     },
@@ -25,7 +26,6 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
-        events::events_model::ParquetEvent,
         fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::ParquetFungibleAssetBalance,

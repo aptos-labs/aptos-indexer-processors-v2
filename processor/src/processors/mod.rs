@@ -2,7 +2,6 @@ pub mod account_restoration;
 pub mod account_transactions;
 pub mod ans;
 pub mod default;
-pub mod events;
 pub mod fungible_asset;
 pub mod gas_fees;
 pub mod monitoring;

@@ -19,8 +19,8 @@ type CurrentAnsLookupPK = (Domain, Subdomain);
 // PK of current_ans_primary_name, i.e. registered_address
 type CurrentAnsPrimaryNamePK = String;
 
-// TODO: This has to be deprecated, but currently there is a usage in ans_lookup_v2 model file which is not yet deprecated.
-// Note: These structs are used only for parsing v1 data and converting to v2. The v1 tables have been dropped.
+// This was previously a model for an ANS v1 table, but that table has been deprecated.
+// However, the struct is still used for parsing ANS v1 data before v2 was introduced.
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CurrentAnsLookup {
     pub domain: String,

@@ -5,7 +5,9 @@ use crate::{
     },
     parquet_processors::{
         initialize_database_pool, initialize_gcs_client, initialize_parquet_buffer_step,
-        parquet_events::parquet_events_extractor::ParquetEventsExtractor,
+        parquet_events::{
+            parquet_events_extractor::ParquetEventsExtractor, parquet_events_model::ParquetEvent,
+        },
         parquet_processor_status_saver::{
             get_parquet_end_version, get_parquet_starting_version, ParquetProcessorStatusSaver,
         },
@@ -14,7 +16,6 @@ use crate::{
         },
         set_backfill_table_flag, ParquetTypeEnum,
     },
-    processors::events::events_model::ParquetEvent,
     MIGRATIONS,
 };
 use aptos_indexer_processor_sdk::{

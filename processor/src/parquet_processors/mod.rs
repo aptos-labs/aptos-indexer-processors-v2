@@ -1,6 +1,7 @@
 use crate::{
     config::db_config::DbConfig,
     parquet_processors::{
+        parquet_events::parquet_events_model::ParquetEvent,
         parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
         parquet_utils::{
             gcs_uploader::{create_new_writer, GCSUploader},
@@ -21,7 +22,6 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
-        events::events_model::ParquetEvent,
         fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::ParquetFungibleAssetBalance,
