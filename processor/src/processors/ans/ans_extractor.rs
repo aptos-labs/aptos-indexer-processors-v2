@@ -78,10 +78,7 @@ impl Processable for AnsExtractor {
             _,
             raw_current_ans_primary_names_v2,
             _, // AnsPrimaryNameV2 is deprecated.
-        ) = parse_ans(
-            &input.data,
-            self.config.ans_v2_contract_address.clone(),
-        );
+        ) = parse_ans(&input.data, self.config.ans_v2_contract_address.clone());
 
         let postgres_current_ans_lookups_v2: Vec<PostgresCurrentAnsLookupV2> =
             raw_current_ans_lookups_v2
