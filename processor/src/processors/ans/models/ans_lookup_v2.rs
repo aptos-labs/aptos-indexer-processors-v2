@@ -8,10 +8,7 @@
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
-        ans::models::{
-            ans_lookup::{AnsLookup, CurrentAnsLookup},
-            ans_utils::{get_token_name, NameRecordV2, SubdomainExtV2},
-        },
+        ans::models::ans_utils::{get_token_name, NameRecordV2, SubdomainExtV2},
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::{ans_lookup_v2, current_ans_lookup_v2},
@@ -242,39 +239,6 @@ impl CurrentAnsLookupV2 {
             self.domain.clone(),
             self.subdomain.clone(),
             self.token_standard.clone(),
-        )
-    }
-
-    pub fn get_v2_from_v1(
-        v1_current_ans_lookup: CurrentAnsLookup,
-        v1_ans_lookup: AnsLookup,
-        block_timestamp: chrono::NaiveDateTime,
-    ) -> (Self, AnsLookupV2) {
-        (
-            Self {
-                domain: v1_current_ans_lookup.domain,
-                subdomain: v1_current_ans_lookup.subdomain,
-                token_standard: TokenStandard::V1.to_string(),
-                registered_address: v1_current_ans_lookup.registered_address,
-                last_transaction_version: v1_current_ans_lookup.last_transaction_version,
-                expiration_timestamp: v1_current_ans_lookup.expiration_timestamp,
-                token_name: v1_current_ans_lookup.token_name,
-                is_deleted: v1_current_ans_lookup.is_deleted,
-                subdomain_expiration_policy: None,
-            },
-            AnsLookupV2 {
-                transaction_version: v1_ans_lookup.transaction_version,
-                write_set_change_index: v1_ans_lookup.write_set_change_index,
-                domain: v1_ans_lookup.domain,
-                subdomain: v1_ans_lookup.subdomain,
-                token_standard: TokenStandard::V1.to_string(),
-                registered_address: v1_ans_lookup.registered_address,
-                expiration_timestamp: v1_ans_lookup.expiration_timestamp,
-                token_name: v1_ans_lookup.token_name,
-                is_deleted: v1_ans_lookup.is_deleted,
-                subdomain_expiration_policy: None,
-                block_timestamp,
-            },
         )
     }
 

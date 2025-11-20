@@ -13,14 +13,12 @@ use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         fungible_asset::{
-            coin_models::{
-                coin_activities::CoinActivity,
-                coin_utils::{CoinEvent, EventGuidResource},
-            },
+            coin_models::coin_utils::{CoinEvent, EventGuidResource},
             fungible_asset_models::v2_fungible_asset_utils::{FeeStatement, FungibleAssetEvent},
         },
         objects::v2_object_utils::ObjectAggregatedDataMapping,
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
+        user_transaction::models::signature_utils::parent_signature_utils::get_fee_payer_address,
     },
     schema::fungible_asset_activities,
 };
@@ -29,7 +27,10 @@ use allocative::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{Event, TransactionInfo, UserTransactionRequest},
-    utils::convert::{bigdecimal_to_u64, standardize_address},
+    utils::{
+        constants::APTOS_COIN_TYPE_STR,
+        convert::{bigdecimal_to_u64, standardize_address, u64_to_bigdecimal},
+    },
 };
 use bigdecimal::{BigDecimal, Zero};
 use field_count::FieldCount;
@@ -283,37 +284,40 @@ impl FungibleAssetActivity {
         block_height: i64,
         fee_statement: Option<FeeStatement>,
     ) -> Self {
-        let v1_activity = CoinActivity::get_gas_event(
-            txn_info,
-            user_transaction_request,
-            entry_function_id_str,
-            transaction_version,
-            transaction_timestamp,
-            block_height,
-            fee_statement,
-        );
+        // Inline logic from deprecated CoinActivity::get_gas_event
+        let aptos_coin_burned =
+            BigDecimal::from(txn_info.gas_used * user_transaction_request.gas_unit_price);
+        let gas_fee_payer_address = match user_transaction_request.signature.as_ref() {
+            Some(signature) => get_fee_payer_address(signature, transaction_version),
+            None => None,
+        };
+        let owner_address = standardize_address(&user_transaction_request.sender.to_string());
+        let coin_type = APTOS_COIN_TYPE_STR.to_string();
+
         // Storage id should be derived (for the FA migration)
-        let metadata_addr = get_paired_metadata_address(&v1_activity.coin_type);
-        let storage_id =
-            get_primary_fungible_store_address(&v1_activity.owner_address, &metadata_addr)
-                .expect("calculate primary fungible store failed");
+        let metadata_addr = get_paired_metadata_address(&coin_type);
+        let storage_id = get_primary_fungible_store_address(&owner_address, &metadata_addr)
+            .expect("calculate primary fungible store failed");
+
         Self {
             transaction_version,
-            event_index: v1_activity.event_index.unwrap(),
-            owner_address: Some(v1_activity.owner_address),
+            event_index: BURN_GAS_EVENT_INDEX,
+            owner_address: Some(owner_address),
             storage_id,
-            asset_type: Some(v1_activity.coin_type),
+            asset_type: Some(coin_type),
             is_frozen: None,
-            amount: Some(v1_activity.amount),
-            event_type: v1_activity.activity_type,
-            is_gas_fee: v1_activity.is_gas_fee,
-            gas_fee_payer_address: v1_activity.gas_fee_payer_address,
-            is_transaction_success: v1_activity.is_transaction_success,
-            entry_function_id_str: v1_activity.entry_function_id_str,
+            amount: Some(aptos_coin_burned),
+            event_type: GAS_FEE_EVENT.to_string(),
+            is_gas_fee: true,
+            gas_fee_payer_address,
+            is_transaction_success: txn_info.success,
+            entry_function_id_str: entry_function_id_str.clone(),
             block_height,
             token_standard: TokenStandard::V1.to_string(),
             transaction_timestamp,
-            storage_refund_amount: v1_activity.storage_refund_amount,
+            storage_refund_amount: fee_statement
+                .map(|fs| u64_to_bigdecimal(fs.storage_fee_refund_octas))
+                .unwrap_or(BigDecimal::zero()),
         }
     }
 }

@@ -8,10 +8,7 @@ use super::ans_lookup_v2::TokenStandardType;
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
-        ans::models::{
-            ans_lookup::{AnsPrimaryName, CurrentAnsPrimaryName},
-            ans_utils::SetReverseLookupEvent,
-        },
+        ans::models::ans_utils::SetReverseLookupEvent,
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },
     schema::{ans_primary_name_v2, current_ans_primary_name_v2},
@@ -210,35 +207,6 @@ impl From<CurrentAnsPrimaryNameV2> for PostgresCurrentAnsPrimaryNameV2 {
 impl CurrentAnsPrimaryNameV2 {
     pub fn pk(&self) -> CurrentAnsPrimaryNameV2PK {
         (self.registered_address.clone(), self.token_standard.clone())
-    }
-
-    pub fn get_v2_from_v1(
-        v1_current_primary_name: CurrentAnsPrimaryName,
-        v1_primary_name: AnsPrimaryName,
-        txn_timestamp: chrono::NaiveDateTime,
-    ) -> (Self, AnsPrimaryNameV2) {
-        (
-            Self {
-                registered_address: v1_current_primary_name.registered_address,
-                token_standard: TokenStandard::V1.to_string(),
-                domain: v1_current_primary_name.domain,
-                subdomain: v1_current_primary_name.subdomain,
-                token_name: v1_current_primary_name.token_name,
-                is_deleted: v1_current_primary_name.is_deleted,
-                last_transaction_version: v1_current_primary_name.last_transaction_version,
-            },
-            AnsPrimaryNameV2 {
-                transaction_version: v1_primary_name.transaction_version,
-                write_set_change_index: v1_primary_name.write_set_change_index,
-                registered_address: v1_primary_name.registered_address,
-                token_standard: TokenStandard::V1.to_string(),
-                domain: v1_primary_name.domain,
-                subdomain: v1_primary_name.subdomain,
-                token_name: v1_primary_name.token_name,
-                is_deleted: v1_primary_name.is_deleted,
-                transaction_timestamp: txn_timestamp,
-            },
-        )
     }
 
     // Parse v2 primary name record from SetReverseLookupEvent

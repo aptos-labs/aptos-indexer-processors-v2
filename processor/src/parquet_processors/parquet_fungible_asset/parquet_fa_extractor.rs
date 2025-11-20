@@ -75,7 +75,6 @@ impl Processable for ParquetFungibleAssetExtractor {
             raw_fungible_asset_metadata,
             raw_fungible_asset_balances,
             _,
-            _raw_coin_supply,
             raw_fa_to_coin_mappings,
         ) = parse_v2_coin(&transactions.data, Some(&self.fa_to_coin_mapping)).await;
 

@@ -6,7 +6,6 @@ use crate::{
     processors::ans::{
         ans_processor::AnsProcessorConfig,
         models::{
-            ans_lookup::{CurrentAnsLookup, CurrentAnsPrimaryName},
             ans_lookup_v2::{AnsLookupV2, CurrentAnsLookupV2, PostgresCurrentAnsLookupV2},
             ans_primary_name_v2::{
                 AnsPrimaryNameV2, CurrentAnsPrimaryNameV2, PostgresCurrentAnsPrimaryNameV2,
@@ -118,8 +117,8 @@ impl NamedStep for AnsExtractor {
 
 pub fn parse_ans(
     transactions: &[Transaction],
-    ans_v1_primary_names_table_handle: String,
-    ans_v1_name_records_table_handle: String,
+    _ans_v1_primary_names_table_handle: String,
+    _ans_v1_name_records_table_handle: String,
     ans_v2_contract_address: String,
 ) -> (
     Vec<CurrentAnsLookupV2>,
@@ -127,10 +126,6 @@ pub fn parse_ans(
     Vec<CurrentAnsPrimaryNameV2>,
     Vec<AnsPrimaryNameV2>,
 ) {
-    let mut all_current_ans_lookups = AHashMap::new();
-    let mut all_ans_lookups = vec![];
-    let mut all_current_ans_primary_names = AHashMap::new();
-    let mut all_ans_primary_names = vec![];
     let mut all_current_ans_lookups_v2 = AHashMap::new();
     let mut all_ans_lookups_v2 = vec![];
     let mut all_current_ans_primary_names_v2 = AHashMap::new();
@@ -218,128 +213,9 @@ pub fn parse_ans(
                 }
             }
 
-            // Parse V1 ANS write set changes
+            // Parse V2 ANS write set changes
             for (wsc_index, wsc) in transaction_info.changes.iter().enumerate() {
                 match wsc.change.as_ref().unwrap() {
-                    WriteSetChange::WriteTableItem(table_item) => {
-                        if let Some((current_ans_lookup, ans_lookup)) =
-                            CurrentAnsLookup::parse_name_record_from_write_table_item_v1(
-                                table_item,
-                                &ans_v1_name_records_table_handle,
-                                txn_version,
-                                wsc_index as i64,
-                            )
-                            .unwrap_or_else(|e| {
-                                error!(
-                                    error = ?e,
-                                    write_set_change_index = wsc_index,
-                                    transaction_version = txn_version,
-                                    "Error parsing ANS v1 name record from write table item"
-                                );
-                                panic!();
-                            })
-                        {
-                            all_current_ans_lookups
-                                .insert(current_ans_lookup.pk(), current_ans_lookup.clone());
-                            all_ans_lookups.push(ans_lookup.clone());
-
-                            // Include all v1 lookups in v2 data
-                            let (current_ans_lookup_v2, ans_lookup_v2) =
-                                CurrentAnsLookupV2::get_v2_from_v1(
-                                    current_ans_lookup,
-                                    ans_lookup,
-                                    block_timestamp,
-                                );
-                            all_current_ans_lookups_v2
-                                .insert(current_ans_lookup_v2.pk(), current_ans_lookup_v2);
-                            all_ans_lookups_v2.push(ans_lookup_v2);
-                        }
-                        if let Some((current_primary_name, primary_name)) =
-                            CurrentAnsPrimaryName::parse_primary_name_record_from_write_table_item_v1(
-                                table_item,
-                                &ans_v1_primary_names_table_handle,
-                                txn_version,
-                                wsc_index as i64,
-                            )
-                                .unwrap_or_else(|e| {
-                                    error!(
-                                error = ?e,
-                                write_set_change_index = wsc_index,
-                                "Error parsing ANS v1 primary name from write table item"
-                            );
-                                    panic!();
-                                })
-                        {
-                            all_current_ans_primary_names
-                                .insert(current_primary_name.pk(), current_primary_name.clone());
-                            all_ans_primary_names.push(primary_name.clone());
-
-                            // Include all v1 primary names in v2 data
-                            let (current_primary_name_v2, primary_name_v2) =
-                                CurrentAnsPrimaryNameV2::get_v2_from_v1(current_primary_name.clone(), primary_name.clone(), block_timestamp);
-                            all_current_ans_primary_names_v2
-                                .insert(current_primary_name_v2.pk(), current_primary_name_v2);
-                            all_ans_primary_names_v2.push(primary_name_v2);
-                        }
-                    },
-                    WriteSetChange::DeleteTableItem(table_item) => {
-                        if let Some((current_ans_lookup, ans_lookup)) =
-                            CurrentAnsLookup::parse_name_record_from_delete_table_item_v1(
-                                table_item,
-                                &ans_v1_name_records_table_handle,
-                                txn_version,
-                                wsc_index as i64,
-                            )
-                            .unwrap_or_else(|e| {
-                                error!(
-                                    error = ?e,
-                                    "Error parsing ANS v1 name record from delete table item"
-                                );
-                                panic!();
-                            })
-                        {
-                            all_current_ans_lookups
-                                .insert(current_ans_lookup.pk(), current_ans_lookup.clone());
-                            all_ans_lookups.push(ans_lookup.clone());
-
-                            // Include all v1 lookups in v2 data
-                            let (current_ans_lookup_v2, ans_lookup_v2) =
-                                CurrentAnsLookupV2::get_v2_from_v1(
-                                    current_ans_lookup,
-                                    ans_lookup,
-                                    block_timestamp,
-                                );
-                            all_current_ans_lookups_v2
-                                .insert(current_ans_lookup_v2.pk(), current_ans_lookup_v2);
-                            all_ans_lookups_v2.push(ans_lookup_v2);
-                        }
-                        if let Some((current_primary_name, primary_name)) =
-                            CurrentAnsPrimaryName::parse_primary_name_record_from_delete_table_item_v1(
-                                table_item,
-                                &ans_v1_primary_names_table_handle,
-                                txn_version,
-                                wsc_index as i64,
-                            )
-                                .unwrap_or_else(|e| {
-                                    error!(
-                                error = ?e,
-                                "Error parsing ANS v1 primary name from delete table item"
-                            );
-                                    panic!();
-                                })
-                        {
-                            all_current_ans_primary_names
-                                .insert(current_primary_name.pk(), current_primary_name.clone());
-                            all_ans_primary_names.push(primary_name.clone());
-
-                            // Include all v1 primary names in v2 data
-                            let (current_primary_name_v2, primary_name_v2) =
-                                CurrentAnsPrimaryNameV2::get_v2_from_v1(current_primary_name, primary_name, block_timestamp);
-                            all_current_ans_primary_names_v2
-                                .insert(current_primary_name_v2.pk(), current_primary_name_v2);
-                            all_ans_primary_names_v2.push(primary_name_v2);
-                        }
-                    },
                     WriteSetChange::WriteResource(write_resource) => {
                         if let Some((current_ans_lookup_v2, ans_lookup_v2)) =
                             CurrentAnsLookupV2::parse_name_record_from_write_resource_v2(
@@ -373,12 +249,6 @@ pub fn parse_ans(
     }
     // Boilerplate after this for diesel
     // Sort ans lookup values for postgres insert
-    let mut all_current_ans_lookups = all_current_ans_lookups
-        .into_values()
-        .collect::<Vec<CurrentAnsLookup>>();
-    let mut all_current_ans_primary_names = all_current_ans_primary_names
-        .into_values()
-        .collect::<Vec<CurrentAnsPrimaryName>>();
     let mut all_current_ans_lookups_v2 = all_current_ans_lookups_v2
         .into_values()
         .collect::<Vec<CurrentAnsLookupV2>>();
@@ -386,8 +256,6 @@ pub fn parse_ans(
         .into_values()
         .collect::<Vec<CurrentAnsPrimaryNameV2>>();
 
-    all_current_ans_lookups.sort();
-    all_current_ans_primary_names.sort();
     all_current_ans_lookups_v2.sort();
     all_current_ans_primary_names_v2.sort();
     (

@@ -4,16 +4,13 @@
 use crate::{
     config::processor_config::DefaultProcessorConfig,
     filter_datasets,
-    processors::fungible_asset::{
-        coin_models::coin_supply::CoinSupply,
-        fungible_asset_models::{
-            v2_fungible_asset_activities::PostgresFungibleAssetActivity,
-            v2_fungible_asset_balances::{
-                PostgresCurrentUnifiedFungibleAssetBalance, PostgresFungibleAssetBalance,
-            },
-            v2_fungible_asset_to_coin_mappings::PostgresFungibleAssetToCoinMapping,
-            v2_fungible_metadata::PostgresFungibleAssetMetadataModel,
+    processors::fungible_asset::fungible_asset_models::{
+        v2_fungible_asset_activities::PostgresFungibleAssetActivity,
+        v2_fungible_asset_balances::{
+            PostgresCurrentUnifiedFungibleAssetBalance, PostgresFungibleAssetBalance,
         },
+        v2_fungible_asset_to_coin_mappings::PostgresFungibleAssetToCoinMapping,
+        v2_fungible_metadata::PostgresFungibleAssetMetadataModel,
     },
     schema,
     utils::table_flags::{filter_data, TableFlags},
@@ -69,7 +66,6 @@ impl Processable for FungibleAssetStorer {
             Vec<PostgresCurrentUnifiedFungibleAssetBalance>,
             Vec<PostgresCurrentUnifiedFungibleAssetBalance>,
         ),
-        Vec<CoinSupply>,
         Vec<PostgresFungibleAssetToCoinMapping>,
     );
     type Output = ();
@@ -85,7 +81,6 @@ impl Processable for FungibleAssetStorer {
                 Vec<PostgresCurrentUnifiedFungibleAssetBalance>,
                 Vec<PostgresCurrentUnifiedFungibleAssetBalance>,
             ),
-            Vec<CoinSupply>,
             Vec<PostgresFungibleAssetToCoinMapping>,
         )>,
     ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
@@ -94,7 +89,6 @@ impl Processable for FungibleAssetStorer {
             fungible_asset_metadata,
             _,
             (current_unified_fab_v1, current_unified_fab_v2),
-            _,
             fa_to_coin_mappings,
         ) = input.data;
 

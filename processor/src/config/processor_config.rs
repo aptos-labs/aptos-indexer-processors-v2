@@ -102,7 +102,6 @@ pub enum ProcessorConfig {
     AccountTransactionsProcessor(DefaultProcessorConfig),
     AnsProcessor(AnsProcessorConfig),
     DefaultProcessor(DefaultProcessorConfig),
-    EventsProcessor(DefaultProcessorConfig),
     FungibleAssetProcessor(DefaultProcessorConfig),
     UserTransactionProcessor(DefaultProcessorConfig),
     StakeProcessor(StakeProcessorConfig),

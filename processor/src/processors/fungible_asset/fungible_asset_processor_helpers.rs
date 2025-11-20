@@ -5,20 +5,17 @@ use super::fungible_asset_models::v2_fungible_asset_activities::StoreAddressToDe
 use crate::{
     db::resources::{FromWriteResource, V2FungibleAssetResource},
     processors::{
-        fungible_asset::{
-            coin_models::coin_supply::CoinSupply,
-            fungible_asset_models::{
-                v2_fungible_asset_activities::{EventToCoinType, FungibleAssetActivity},
-                v2_fungible_asset_balances::{
-                    CurrentUnifiedFungibleAssetBalance, FungibleAssetBalance,
-                },
-                v2_fungible_asset_to_coin_mappings::{
-                    FungibleAssetToCoinMapping, FungibleAssetToCoinMappings,
-                    FungibleAssetToCoinMappingsForDB,
-                },
-                v2_fungible_asset_utils::{FeeStatement, FungibleAssetStoreDeletionEvent},
-                v2_fungible_metadata::{FungibleAssetMetadataMapping, FungibleAssetMetadataModel},
+        fungible_asset::fungible_asset_models::{
+            v2_fungible_asset_activities::{EventToCoinType, FungibleAssetActivity},
+            v2_fungible_asset_balances::{
+                CurrentUnifiedFungibleAssetBalance, FungibleAssetBalance,
             },
+            v2_fungible_asset_to_coin_mappings::{
+                FungibleAssetToCoinMapping, FungibleAssetToCoinMappings,
+                FungibleAssetToCoinMappingsForDB,
+            },
+            v2_fungible_asset_utils::{FeeStatement, FungibleAssetStoreDeletionEvent},
+            v2_fungible_metadata::{FungibleAssetMetadataMapping, FungibleAssetMetadataModel},
         },
         objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
     },
@@ -97,12 +94,10 @@ pub async fn parse_v2_coin(
         Vec<CurrentUnifiedFungibleAssetBalance>,
         Vec<CurrentUnifiedFungibleAssetBalance>,
     ),
-    Vec<CoinSupply>,
     Vec<FungibleAssetToCoinMapping>,
 ) {
     let mut fungible_asset_activities: Vec<FungibleAssetActivity> = vec![];
     let mut fungible_asset_balances: Vec<FungibleAssetBalance> = vec![];
-    let mut all_coin_supply: Vec<CoinSupply> = vec![];
     let mut fungible_asset_metadata: FungibleAssetMetadataMapping = AHashMap::new();
     let mut fa_to_coin_mappings: FungibleAssetToCoinMappingsForDB = AHashMap::new();
 
@@ -112,7 +107,6 @@ pub async fn parse_v2_coin(
             let mut fungible_asset_activities = vec![];
             let mut fungible_asset_metadata = AHashMap::new();
             let mut fungible_asset_balances = vec![];
-            let mut all_coin_supply = vec![];
             let mut fa_to_coin_mappings: FungibleAssetToCoinMappingsForDB = AHashMap::new();
 
             // Get Metadata for fungible assets by object address
@@ -132,7 +126,6 @@ pub async fn parse_v2_coin(
                     fungible_asset_activities,
                     fungible_asset_metadata,
                     fungible_asset_balances,
-                    all_coin_supply,
                     fa_to_coin_mappings,
                 );
             }
@@ -146,7 +139,7 @@ pub async fn parse_v2_coin(
             #[allow(deprecated)]
             let txn_timestamp = NaiveDateTime::from_timestamp_opt(txn_timestamp, 0)
                 .expect("Txn Timestamp is invalid!");
-            let txn_epoch = txn.epoch as i64;
+            let _txn_epoch = txn.epoch as i64;
 
             let default = vec![];
             let (events, user_request, entry_function_id_str) = match txn_data {
@@ -388,18 +381,6 @@ pub async fn parse_v2_coin(
                             fungible_asset_balances.push(balance);
                         }
                     },
-                    Change::WriteTableItem(table_item) => {
-                        if let Some(coin_supply) = CoinSupply::from_write_table_item(
-                            table_item,
-                            txn_version,
-                            txn_timestamp,
-                            txn_epoch,
-                        )
-                        .unwrap()
-                        {
-                            all_coin_supply.push(coin_supply);
-                        }
-                    },
                     Change::DeleteResource(delete_resource) => {
                         if let Some(deleted_balance) = FungibleAssetBalance::get_v2_from_delete_resource(
                             delete_resource,
@@ -426,16 +407,14 @@ pub async fn parse_v2_coin(
                 fungible_asset_activities,
                 fungible_asset_metadata,
                 fungible_asset_balances,
-                all_coin_supply,
                 fa_to_coin_mappings,
             )
         })
         .collect();
 
-    for (faa, fam, fab, acs, ctfm) in data {
+    for (faa, fam, fab, ctfm) in data {
         fungible_asset_activities.extend(faa);
         fungible_asset_balances.extend(fab);
-        all_coin_supply.extend(acs);
         fungible_asset_metadata.extend(fam);
         fa_to_coin_mappings.extend(ctfm);
     }
@@ -472,7 +451,6 @@ pub async fn parse_v2_coin(
         fungible_asset_metadata,
         fungible_asset_balances,
         (current_unified_fab_v1, current_unified_fab_v2),
-        all_coin_supply,
         fa_to_coin_mapping,
     )
 }

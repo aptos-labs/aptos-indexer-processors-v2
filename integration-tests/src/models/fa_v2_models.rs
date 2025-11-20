@@ -7,8 +7,8 @@ use bigdecimal::BigDecimal;
 use diesel::{Identifiable, Insertable, Queryable};
 use field_count::FieldCount;
 use processor::schema::{
-    coin_supply, current_fungible_asset_balances, fungible_asset_activities,
-    fungible_asset_balances, fungible_asset_metadata, fungible_asset_to_coin_mappings,
+    current_fungible_asset_balances, fungible_asset_activities, fungible_asset_balances,
+    fungible_asset_metadata, fungible_asset_to_coin_mappings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,19 +96,6 @@ pub struct FungibleAssetMetadataModel {
     pub is_token_v2: Option<bool>,
     pub supply_v2: Option<BigDecimal>,
     pub maximum_v2: Option<BigDecimal>,
-}
-
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize, Queryable)]
-#[diesel(primary_key(transaction_version, coin_type_hash))]
-#[diesel(table_name = coin_supply)]
-pub struct CoinSupply {
-    pub transaction_version: i64,
-    pub coin_type_hash: String,
-    pub coin_type: String,
-    pub supply: BigDecimal,
-    pub transaction_timestamp: chrono::NaiveDateTime,
-    pub transaction_epoch: i64,
-    pub inserted_at: chrono::NaiveDateTime,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]

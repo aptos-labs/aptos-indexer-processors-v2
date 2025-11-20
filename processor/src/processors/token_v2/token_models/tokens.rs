@@ -6,12 +6,9 @@
 #![allow(clippy::unused_unit)]
 
 use super::token_utils::TokenResource;
-use crate::{
-    processors::{
-        default::models::move_resources::MoveResource,
-        token_v2::token_v2_models::v2_token_activities::TokenActivityHelperV1,
-    },
-    schema::tokens,
+use crate::processors::{
+    default::models::move_resources::MoveResource,
+    token_v2::token_v2_models::v2_token_activities::TokenActivityHelperV1,
 };
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
@@ -23,8 +20,6 @@ use aptos_indexer_processor_sdk::{
     utils::convert::standardize_address,
 };
 use bigdecimal::BigDecimal;
-use field_count::FieldCount;
-use serde::{Deserialize, Serialize};
 use tracing::error;
 
 type TableHandle = String;
@@ -47,21 +42,6 @@ pub struct TokenV1AggregatedEvents {
     pub token_offer_module_events: Vec<TokenActivityHelperV1>,
     pub token_offer_claim_module_events: Vec<TokenActivityHelperV1>,
     pub token_offer_cancel_module_events: Vec<TokenActivityHelperV1>,
-}
-
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
-#[diesel(primary_key(token_data_id_hash, property_version, transaction_version))]
-#[diesel(table_name = tokens)]
-pub struct Token {
-    pub token_data_id_hash: String,
-    pub property_version: BigDecimal,
-    pub transaction_version: i64,
-    pub creator_address: String,
-    pub collection_name: String,
-    pub name: String,
-    pub token_properties: serde_json::Value,
-    pub collection_data_id_hash: String,
-    pub transaction_timestamp: chrono::NaiveDateTime,
 }
 
 #[derive(Debug)]

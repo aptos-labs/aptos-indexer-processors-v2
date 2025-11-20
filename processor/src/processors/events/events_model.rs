@@ -2,7 +2,6 @@
 
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
-    schema::events,
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use allocative_derive::Allocative;
@@ -13,7 +12,6 @@ use aptos_indexer_processor_sdk::{
     },
     utils::convert::{standardize_address, truncate_str},
 };
-use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -166,37 +164,6 @@ impl From<Event> for ParquetEvent {
             type_tag_bytes: raw_event.type_tag_bytes.unwrap_or(0),
             total_bytes: raw_event.total_bytes.unwrap_or(0),
             block_timestamp: raw_event.block_timestamp.unwrap(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, FieldCount, Identifiable, Insertable, Serialize)]
-#[diesel(primary_key(transaction_version, event_index))]
-#[diesel(table_name = events)]
-pub struct PostgresEvent {
-    pub sequence_number: i64,
-    pub creation_number: i64,
-    pub account_address: String,
-    pub transaction_version: i64,
-    pub transaction_block_height: i64,
-    pub type_: String,
-    pub data: serde_json::Value,
-    pub event_index: i64,
-    pub indexed_type: String,
-}
-
-impl From<Event> for PostgresEvent {
-    fn from(raw_event: Event) -> Self {
-        PostgresEvent {
-            sequence_number: raw_event.sequence_number,
-            creation_number: raw_event.creation_number,
-            account_address: raw_event.account_address,
-            transaction_version: raw_event.transaction_version,
-            transaction_block_height: raw_event.transaction_block_height,
-            type_: raw_event.type_,
-            data: serde_json::from_str(&raw_event.data).unwrap(),
-            event_index: raw_event.event_index,
-            indexed_type: raw_event.indexed_type,
         }
     }
 }
