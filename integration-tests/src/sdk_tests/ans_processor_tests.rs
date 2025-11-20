@@ -24,10 +24,6 @@ pub fn setup_ans_processor_config(
     let db_config = DbConfig::PostgresConfig(postgres_config);
 
     let ans_processor_config = AnsProcessorConfig {
-        ans_v1_primary_names_table_handle:
-            "0x1d5f57aa505a2fa463b7a46341913b65757e3177c46a5e483a29d953627bee62".to_string(),
-        ans_v1_name_records_table_handle:
-            "0x21a0fd41330f3a0a38173c7c0e4ac59cd51505f0594f64d3d637c12425c3c155".to_string(),
         ans_v2_contract_address:
             "0x867ed1f6bf916171b1de3ee92849b8978b7d1b9e0a8cc982a3d19d535dfd9c0c".to_string(),
         default: DefaultProcessorConfig {

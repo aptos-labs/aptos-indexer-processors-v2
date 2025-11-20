@@ -50,8 +50,6 @@ impl Processable for ParquetAnsExtractor {
             raw_ans_primary_name_v2,
         ) = parse_ans(
             &input.data,
-            self.ans_config.ans_v1_primary_names_table_handle.clone(),
-            self.ans_config.ans_v1_name_records_table_handle.clone(),
             self.ans_config.ans_v2_contract_address.clone(),
         );
 

@@ -42,8 +42,6 @@ use tracing::{debug, info};
 pub struct ParquetAnsProcessorConfig {
     #[serde(flatten)]
     pub default: ParquetDefaultProcessorConfig,
-    pub ans_v1_primary_names_table_handle: String,
-    pub ans_v1_name_records_table_handle: String,
     pub ans_v2_contract_address: String,
 }
 

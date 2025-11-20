@@ -80,8 +80,6 @@ impl Processable for AnsExtractor {
             _, // AnsPrimaryNameV2 is deprecated.
         ) = parse_ans(
             &input.data,
-            self.config.ans_v1_primary_names_table_handle.clone(),
-            self.config.ans_v1_name_records_table_handle.clone(),
             self.config.ans_v2_contract_address.clone(),
         );
 
@@ -117,8 +115,6 @@ impl NamedStep for AnsExtractor {
 
 pub fn parse_ans(
     transactions: &[Transaction],
-    _ans_v1_primary_names_table_handle: String,
-    _ans_v1_name_records_table_handle: String,
     ans_v2_contract_address: String,
 ) -> (
     Vec<CurrentAnsLookupV2>,
