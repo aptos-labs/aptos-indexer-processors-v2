@@ -53,7 +53,7 @@ pub fn setup_stake_processor_config(
 #[cfg(test)]
 mod tests {
     use crate::{
-        diff_test_helper::event_processor::load_data,
+        diff_test_helper::stake_processor::load_data,
         sdk_tests::{
             stake_processor_tests::setup_stake_processor_config,
             test_helpers::{

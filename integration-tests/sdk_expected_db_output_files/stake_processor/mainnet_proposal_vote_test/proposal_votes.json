@@ -1,0 +1,11 @@
+[
+  {
+    "transaction_version": 118489,
+    "proposal_id": 0,
+    "voter_address": "0xf8beaf5570741b3034306fea06f384d1353ec73587a51dd014456301d8a4d09f",
+    "staking_pool_address": "0xd60280852b50c341b22bba06562a817293d7b834eac251e7600b25d8bdd9efa3",
+    "num_votes": "100004794376617",
+    "should_pass": true,
+    "transaction_timestamp": "2022-10-13T05:30:39.148518"
+  }
+]
