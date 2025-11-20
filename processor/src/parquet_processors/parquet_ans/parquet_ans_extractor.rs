@@ -48,7 +48,12 @@ impl Processable for ParquetAnsExtractor {
             raw_ans_lookups_v2,
             raw_current_ans_primary_names_v2,
             raw_ans_primary_name_v2,
-        ) = parse_ans(&input.data, self.ans_config.ans_v2_contract_address.clone());
+        ) = parse_ans(
+            &input.data,
+            self.ans_config.ans_v1_primary_names_table_handle.clone(),
+            self.ans_config.ans_v1_name_records_table_handle.clone(),
+            self.ans_config.ans_v2_contract_address.clone(),
+        );
 
         let parquet_ans_lookup_v2: Vec<ParquetAnsLookupV2> = raw_ans_lookups_v2
             .into_iter()

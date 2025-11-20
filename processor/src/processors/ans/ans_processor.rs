@@ -35,6 +35,8 @@ use tracing::{debug, info};
 pub struct AnsProcessorConfig {
     #[serde(flatten)]
     pub default: DefaultProcessorConfig,
+    pub ans_v1_primary_names_table_handle: String,
+    pub ans_v1_name_records_table_handle: String,
     pub ans_v2_contract_address: String,
 }
 
