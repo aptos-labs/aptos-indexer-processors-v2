@@ -483,6 +483,36 @@ GROUP BY 1,
   3,
   4;
 
+-- Recreate ANS v1 tables (should have been dropped when ANS processor v1 was shut down)
+-- Note: current_ans_lookup and current_ans_primary_name were already created above with other deprecated tables
+CREATE TABLE ans_lookup (
+  transaction_version BIGINT NOT NULL,
+  write_set_change_index BIGINT NOT NULL,
+  domain VARCHAR(64) NOT NULL,
+  subdomain VARCHAR(64) NOT NULL,
+  registered_address VARCHAR(66),
+  expiration_timestamp TIMESTAMP,
+  token_name VARCHAR(140) NOT NULL,
+  is_deleted BOOLEAN NOT NULL,
+  inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (transaction_version, write_set_change_index)
+);
+CREATE INDEX al_insat_index ON ans_lookup (inserted_at);
+
+CREATE TABLE ans_primary_name (
+  transaction_version BIGINT NOT NULL,
+  write_set_change_index BIGINT NOT NULL,
+  registered_address VARCHAR(66) NOT NULL,
+  domain VARCHAR(64),
+  subdomain VARCHAR(64),
+  token_name VARCHAR(140),
+  is_deleted BOOLEAN NOT NULL,
+  inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (transaction_version, write_set_change_index, domain, subdomain)
+);
+CREATE INDEX apn_insat_index ON ans_primary_name (inserted_at);
+CREATE INDEX apn_tn_index ON ans_primary_name (token_name);
+
 -- Recreate legacy_migration_v1 schema and its views
 CREATE SCHEMA IF NOT EXISTS legacy_migration_v1;
 

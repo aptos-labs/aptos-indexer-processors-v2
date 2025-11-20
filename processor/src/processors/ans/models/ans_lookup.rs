@@ -203,6 +203,9 @@ impl CurrentAnsPrimaryName {
         self.registered_address.clone()
     }
 
+    // Parse the primary name reverse record from write table item.
+    // The table key is the target address the primary name points to.
+    // The table value data has the domain and subdomain of the primary name.
     pub fn parse_primary_name_record_from_write_table_item_v1(
         write_table_item: &WriteTableItem,
         ans_v1_primary_names_table_handle: &str,
@@ -212,40 +215,44 @@ impl CurrentAnsPrimaryName {
         let table_handle = standardize_address(&write_table_item.handle.to_string());
         if table_handle == standardize_address(ans_v1_primary_names_table_handle) {
             if let Some(data) = write_table_item.data.as_ref() {
+                // Return early if key is not address type. This should not be possible but just a precaution
+                // in case we input the wrong table handle
+                if data.key_type != "address" {
+                    return Ok(None);
+                }
+                let decoded_key: String = serde_json::from_str(data.key.as_str()).unwrap();
+                let registered_address = standardize_address(decoded_key.as_str());
                 let value_type_name = get_name_from_unnested_move_type(data.value_type.as_ref());
-                let key_type_name = get_name_from_unnested_move_type(data.key_type.as_ref());
-                // Key is just address so no need to parse from key
-                let registered_address = standardize_address(&data.key);
                 if let Some(AnsTableItem::NameRecordKeyV1(name_record_key)) =
                     &AnsTableItem::from_table_item(value_type_name, &data.value, txn_version)?
                 {
-                    if key_type_name == "address" {
-                        return Ok(Some((
-                            Self {
-                                registered_address: registered_address.clone(),
-                                domain: Some(name_record_key.get_domain_trunc()),
-                                subdomain: Some(name_record_key.get_subdomain_trunc()),
-                                token_name: Some(name_record_key.get_token_name()),
-                                is_deleted: false,
-                                last_transaction_version: txn_version,
-                            },
-                            AnsPrimaryName {
-                                transaction_version: txn_version,
-                                write_set_change_index,
-                                registered_address,
-                                domain: Some(name_record_key.get_domain_trunc()),
-                                subdomain: Some(name_record_key.get_subdomain_trunc()),
-                                token_name: Some(name_record_key.get_token_name()),
-                                is_deleted: false,
-                            },
-                        )));
-                    }
+                    return Ok(Some((
+                        Self {
+                            registered_address: registered_address.clone(),
+                            domain: Some(name_record_key.get_domain_trunc()),
+                            subdomain: Some(name_record_key.get_subdomain_trunc()),
+                            token_name: Some(name_record_key.get_token_name()),
+                            last_transaction_version: txn_version,
+                            is_deleted: false,
+                        },
+                        AnsPrimaryName {
+                            transaction_version: txn_version,
+                            write_set_change_index,
+                            registered_address,
+                            domain: Some(name_record_key.get_domain_trunc()),
+                            subdomain: Some(name_record_key.get_subdomain_trunc()),
+                            token_name: Some(name_record_key.get_token_name()),
+                            is_deleted: false,
+                        },
+                    )));
                 }
             }
         }
         Ok(None)
     }
 
+    // Parse primary name from delete table item
+    // We need to lookup which domain the address points to so we can mark it as non-primary.
     pub fn parse_primary_name_record_from_delete_table_item_v1(
         delete_table_item: &DeleteTableItem,
         ans_v1_primary_names_table_handle: &str,
@@ -255,30 +262,32 @@ impl CurrentAnsPrimaryName {
         let table_handle = standardize_address(&delete_table_item.handle.to_string());
         if table_handle == standardize_address(ans_v1_primary_names_table_handle) {
             if let Some(data) = delete_table_item.data.as_ref() {
-                let key_type_name = get_name_from_unnested_move_type(data.key_type.as_ref());
-                // Key is just address so no need to parse from key
-                let registered_address = standardize_address(&data.key);
-                if key_type_name == "address" {
-                    return Ok(Some((
-                        Self {
-                            registered_address: registered_address.clone(),
-                            domain: None,
-                            subdomain: None,
-                            token_name: None,
-                            is_deleted: true,
-                            last_transaction_version: txn_version,
-                        },
-                        AnsPrimaryName {
-                            transaction_version: txn_version,
-                            write_set_change_index,
-                            registered_address,
-                            domain: None,
-                            subdomain: None,
-                            token_name: None,
-                            is_deleted: true,
-                        },
-                    )));
+                // Return early if key is not address type. This should not be possible but just a precaution
+                // in case we input the wrong table handle
+                if data.key_type != "address" {
+                    return Ok(None);
                 }
+                let decoded_key: String = serde_json::from_str(data.key.as_str()).unwrap();
+                let registered_address = standardize_address(decoded_key.as_str());
+                return Ok(Some((
+                    Self {
+                        registered_address: registered_address.clone(),
+                        domain: None,
+                        subdomain: None,
+                        token_name: None,
+                        last_transaction_version: txn_version,
+                        is_deleted: true,
+                    },
+                    AnsPrimaryName {
+                        transaction_version: txn_version,
+                        write_set_change_index,
+                        registered_address,
+                        domain: None,
+                        subdomain: None,
+                        token_name: None,
+                        is_deleted: true,
+                    },
+                )));
             }
         }
         Ok(None)

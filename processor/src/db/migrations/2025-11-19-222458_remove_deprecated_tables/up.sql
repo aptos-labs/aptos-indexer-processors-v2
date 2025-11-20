@@ -32,3 +32,8 @@ DROP TABLE IF EXISTS token_activities;
 DROP TABLE IF EXISTS token_datas;
 DROP TABLE IF EXISTS token_ownerships;
 DROP TABLE IF EXISTS tokens;
+
+-- Drop ANS v1 tables (should have been dropped when ANS processor v1 was shut down)
+DROP TABLE IF EXISTS ans_lookup;
+DROP TABLE IF EXISTS ans_primary_name;
+DROP TABLE IF EXISTS current_ans_primary_name;
