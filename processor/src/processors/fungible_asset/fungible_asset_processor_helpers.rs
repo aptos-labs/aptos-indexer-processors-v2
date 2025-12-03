@@ -212,8 +212,10 @@ pub async fn parse_v2_coin(
                     &event.data,
                     txn_version,
                 ) {
+                    // Standardize the store address to ensure consistent lookup
+                    let standardized_store = standardize_address(&fa_store_deletion_event.store);
                     store_address_to_deleted_fa_store_events.insert(
-                        fa_store_deletion_event.clone().store,
+                        standardized_store,
                         fa_store_deletion_event,
                     );
                 }
