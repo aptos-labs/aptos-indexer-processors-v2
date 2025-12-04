@@ -68,6 +68,7 @@ mod sdk_fungible_asset_processor_tests {
         IMPORTED_MAINNET_TXNS_2448304257_COINSTORE_DELETION_EVENT,
         IMPORTED_MAINNET_TXNS_255894550_STORAGE_REFUND,
         IMPORTED_MAINNET_TXNS_2662373625_FA_SECONDARY_STORE_BURNT_WITH_DELETION_EVENT,
+        IMPORTED_MAINNET_TXNS_2953383999_FA_SECONDARY_STORE_DELETION,
         IMPORTED_MAINNET_TXNS_2975888978_FA_SECONDARY_STORE_BURNT_OBJECT_STILL_EXISTS,
         IMPORTED_MAINNET_TXNS_508365567_FA_V1_EVENTS,
         IMPORTED_MAINNET_TXNS_550582915_MULTIPLE_TRANSFER_EVENT,
@@ -350,6 +351,15 @@ mod sdk_fungible_asset_processor_tests {
         process_single_batch_txns(
             &[IMPORTED_MAINNET_TXNS_2424873868_FA_SECONDARY_STORE_EXISTS_OBJECT_CORE_DELETED],
             Some("fa_store_exists_object_core_deleted".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_fungible_asset_processor_fa_secondary_store_deletion() {
+        process_single_batch_txns(
+            &[IMPORTED_MAINNET_TXNS_2953383999_FA_SECONDARY_STORE_DELETION],
+            Some("fa_secondary_store_deletion".to_string()),
         )
         .await;
     }

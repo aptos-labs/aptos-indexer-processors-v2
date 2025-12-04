@@ -29,7 +29,7 @@ anyhow = "1.0.98"
 aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.1.2", features = [
     "postgres_partial",
 ] }
-aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "b39141ba41f0f83ad16c9be5202b341c7eb6380c" }
+aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "797f47b4cbf99391bb90a87a0e817f098a65fc08" }
 assert-json-diff = "2.0.2"
 async-trait = "0.1.53"
 backtrace = "0.3.58"
