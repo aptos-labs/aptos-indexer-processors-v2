@@ -135,3 +135,7 @@ tracing-subscriber = { version = "0.3.17", features = ["json", "env-filter"] }
 unescape = "0.1.0"
 url = { version = "2.4.0", features = ["serde"] }
 warp = { version = "0.3.5", features = ["tls"] }
+
+[patch.crates-io]
+# Can be removed once the dependencies on aptos-core and aptos-indexer-processor-sdk have been updated (so we stop pulling any old jemalloc-sys).
+jemalloc-sys = { git = "https://github.com/aptos-labs/jemalloc-sys-shim", rev = "e0920246dd74303fab9a14b990768c6ac990a59b" }
