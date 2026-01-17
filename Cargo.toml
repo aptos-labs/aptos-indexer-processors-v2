@@ -13,7 +13,7 @@ license = "Apache-2.0"
 publish = false
 repository = "https://github.com/aptos-labs/aptos-indexer-processors-v2"
 # This needs to match aptos-core's version to run the processors in the CLI. 
-rust-version = "1.78"
+rust-version = "1.90"
 
 [workspace.dependencies]
 
@@ -26,10 +26,10 @@ anyhow = "1.0.98"
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
 # Do NOT enable the testing_framework feature here, it is conditionally enabled as a dev dependency
 # in the integration-tests/Cargo.toml file.
-aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.1.2", features = [
+aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.1.4", features = [
     "postgres_partial",
 ] }
-aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "797f47b4cbf99391bb90a87a0e817f098a65fc08" }
+aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "d181eb37ea0681d5248cd9aa7a536dd3787f03e8" }
 assert-json-diff = "2.0.2"
 async-trait = "0.1.53"
 backtrace = "0.3.58"
