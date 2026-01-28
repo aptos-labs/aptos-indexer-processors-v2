@@ -10,7 +10,7 @@ use crate::processors::user_transaction::models::signatures::Signature;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
         account_signature::{Signature as AccountSignatureEnum, Type as AccountSignatureTypeEnum},
-        AbstractionSignature, AccountSignature, MultiKeySignature, SingleKeySignature,
+        AbstractSignature, AccountSignature, MultiKeySignature, SingleKeySignature,
     },
     utils::convert::standardize_address,
 };
@@ -214,7 +214,7 @@ pub fn get_public_key_indices_from_multi_key_signature(s: &MultiKeySignature) ->
 }
 
 pub fn parse_abstraction_signature(
-    s: &AbstractionSignature,
+    s: &AbstractSignature,
     account_signature_type: &str,
     sender: &String,
     transaction_version: i64,
