@@ -195,7 +195,11 @@ pub fn insert_fungible_asset_activities_query(
         .values(items_to_insert)
         .on_conflict((transaction_version, event_index))
         .do_update()
-        .set(storage_id.eq(excluded(storage_id)))
+        .set((
+            storage_id.eq(excluded(storage_id)),
+            owner_address.eq(excluded(owner_address)),
+            asset_type.eq(excluded(asset_type)),
+        ))
 }
 
 pub fn insert_fungible_asset_metadata_query(

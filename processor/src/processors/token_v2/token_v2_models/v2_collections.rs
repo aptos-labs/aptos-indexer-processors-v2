@@ -126,7 +126,7 @@ impl CollectionV2 {
                 if let Some(supply) = concurrent_supply {
                     (current_supply, max_supply, total_minted_v2) = (
                         supply.current_supply.value.clone(),
-                        if supply.current_supply.max_value == u64::MAX.into() {
+                        if supply.current_supply.max_value == BigDecimal::from(u64::MAX) {
                             None
                         } else {
                             Some(supply.current_supply.max_value.clone())
