@@ -224,3 +224,56 @@ impl From<MoveModule> for PostgresMoveModule {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
+        move_function::Visibility, MoveFunction, MoveType, MoveTypes,
+    };
+
+    /// Regression test: MoveFunction with signed integer types must serialize without panic.
+    /// SDK v2.1.2 failed with "Invalid variant 15" on MoveTypes::I8+.
+    #[test]
+    fn test_move_function_with_signed_integer_types_serializes() {
+        let move_func = MoveFunction {
+            name: "test_signed_ints".to_string(),
+            visibility: Visibility::Public as i32,
+            is_entry: false,
+            generic_type_params: vec![],
+            params: vec![
+                MoveType {
+                    r#type: MoveTypes::I8 as i32,
+                    content: None,
+                },
+                MoveType {
+                    r#type: MoveTypes::I16 as i32,
+                    content: None,
+                },
+                MoveType {
+                    r#type: MoveTypes::I32 as i32,
+                    content: None,
+                },
+                MoveType {
+                    r#type: MoveTypes::I64 as i32,
+                    content: None,
+                },
+                MoveType {
+                    r#type: MoveTypes::I128 as i32,
+                    content: None,
+                },
+                MoveType {
+                    r#type: MoveTypes::I256 as i32,
+                    content: None,
+                },
+            ],
+            r#return: vec![MoveType {
+                r#type: MoveTypes::I8 as i32,
+                content: None,
+            }],
+        };
+
+        let result = serde_json::to_value(&move_func);
+        assert!(result.is_ok(), "Failed to serialize: {:?}", result.err());
+        assert_eq!(result.unwrap()["params"].as_array().unwrap().len(), 6);
+    }
+}
