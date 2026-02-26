@@ -167,6 +167,9 @@ CREATE TABLE user_transactions (
   inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
   -- Constraints
   CONSTRAINT fk_versions FOREIGN KEY (version) REFERENCES transactions (version),
+  -- The blockchain (validators) enforce that a (sender, sequence_number) pair is unique across
+  -- all regular (non-orderless) transactions, including failed ones. A failed transaction still
+  -- consumes its sequence number and it cannot be reused.
   UNIQUE (sender, sequence_number)
 );
 CREATE INDEX ut_sender_seq_index ON user_transactions (sender, sequence_number);
