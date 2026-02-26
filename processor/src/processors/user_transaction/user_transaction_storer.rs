@@ -21,8 +21,10 @@ use async_trait::async_trait;
 use diesel::{
     pg::{upsert::excluded, Pg},
     query_builder::QueryFragment,
+    result::{DatabaseErrorInformation, DatabaseErrorKind},
     ExpressionMethods,
 };
+use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
@@ -69,14 +71,15 @@ impl Processable for UserTransactionStorer {
             signatures => TableFlags::SIGNATURES,
         });
 
-        let ut_res = execute_in_chunks(
-            self.conn_pool.clone(),
-            insert_user_transactions_query,
-            &user_txns,
-            get_config_table_chunk_size::<PostgresUserTransaction>(
-                "user_transactions",
-                &per_table_chunk_sizes,
-            ),
+        let ut_pool = self.conn_pool.clone();
+        let ut_chunk_size = get_config_table_chunk_size::<PostgresUserTransaction>(
+            "user_transactions",
+            &per_table_chunk_sizes,
+        );
+        let ut_res = insert_user_transactions_with_diagnostics(
+            ut_pool,
+            user_txns.clone(),
+            ut_chunk_size,
         );
         let s_res = execute_in_chunks(
             self.conn_pool.clone(),
@@ -85,19 +88,7 @@ impl Processable for UserTransactionStorer {
             get_config_table_chunk_size::<PostgresSignature>("signatures", &per_table_chunk_sizes),
         );
 
-        let result = futures::try_join!(ut_res, s_res);
-
-        if let Err(ref e) = result {
-            let err_str = format!("{e:?}");
-            if err_str.contains("UniqueViolation")
-                || err_str.contains("unique constraint")
-                || err_str.contains("duplicate key")
-            {
-                log_unique_violation_diagnostics(&self.conn_pool, &user_txns).await;
-            }
-        }
-
-        result?;
+        futures::try_join!(ut_res, s_res)?;
 
         Ok(Some(TransactionContext {
             data: (),
@@ -126,6 +117,81 @@ pub fn insert_user_transactions_query(
             parent_signature_type.eq(excluded(parent_signature_type)),
             inserted_at.eq(excluded(inserted_at)),
         ))
+}
+
+/// Insert user transactions with detailed error diagnostics. On UniqueViolation,
+/// extracts PostgreSQL's DETAIL field (which contains the actual conflicting key values)
+/// and falls back to row-by-row insertion to identify the exact failing row.
+async fn insert_user_transactions_with_diagnostics(
+    pool: ArcDbPool,
+    items: Vec<PostgresUserTransaction>,
+    chunk_size: usize,
+) -> Result<(), ProcessorError> {
+    for (chunk_idx, chunk) in items.chunks(chunk_size).enumerate() {
+        let query = insert_user_transactions_query(chunk.to_vec());
+        let conn = &mut pool.get().await.map_err(|e| ProcessorError::DBStoreError {
+            message: format!("Connection pool error: {e:#}"),
+            query: None,
+        })?;
+
+        match query.execute(conn).await {
+            Ok(_) => {},
+            Err(diesel::result::Error::DatabaseError(DatabaseErrorKind::UniqueViolation, info)) => {
+                let db_info = info.as_ref();
+                error!(
+                    chunk_index = chunk_idx,
+                    chunk_size = chunk.len(),
+                    message = %db_info.message(),
+                    detail = ?db_info.details(),
+                    hint = ?db_info.hint(),
+                    table = ?db_info.table_name(),
+                    column = ?db_info.column_name(),
+                    constraint = ?db_info.constraint_name(),
+                    "UNIQUE VIOLATION with full PostgreSQL error details"
+                );
+
+                // Fall back to row-by-row to find the exact failing row.
+                for (row_idx, row) in chunk.iter().enumerate() {
+                    let single_query = insert_user_transactions_query(vec![row.clone()]);
+                    let conn2 = &mut pool.get().await.map_err(|e| {
+                        ProcessorError::DBStoreError {
+                            message: format!("Connection pool error: {e:#}"),
+                            query: None,
+                        }
+                    })?;
+                    if let Err(e) = single_query.execute(conn2).await {
+                        error!(
+                            row_index = row_idx,
+                            version = row.version,
+                            sender = %row.sender,
+                            sequence_number = ?row.sequence_number,
+                            replay_protection_nonce = ?row.replay_protection_nonce,
+                            error = %e,
+                            "EXACT FAILING ROW found via row-by-row insert"
+                        );
+                        break;
+                    }
+                }
+
+                return Err(ProcessorError::DBStoreError {
+                    message: format!(
+                        "UniqueViolation: {} (detail: {:?}, constraint: {:?})",
+                        db_info.message(),
+                        db_info.details(),
+                        db_info.constraint_name()
+                    ),
+                    query: None,
+                });
+            },
+            Err(e) => {
+                return Err(ProcessorError::DBStoreError {
+                    message: format!("{e:#}"),
+                    query: None,
+                });
+            },
+        }
+    }
+    Ok(())
 }
 
 /// When a UniqueViolation occurs, log detailed diagnostics to help identify
