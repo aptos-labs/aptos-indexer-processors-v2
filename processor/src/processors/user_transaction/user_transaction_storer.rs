@@ -10,7 +10,9 @@ use crate::{
 use ahash::AHashMap;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    postgres::utils::database::{execute_in_chunks, get_config_table_chunk_size, ArcDbPool},
+    postgres::utils::database::{
+        execute_in_chunks, execute_with_better_error, get_config_table_chunk_size, ArcDbPool,
+    },
     traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
@@ -21,6 +23,8 @@ use diesel::{
     query_builder::QueryFragment,
     ExpressionMethods,
 };
+use std::collections::HashMap;
+use tracing::{error, info, warn};
 
 pub struct UserTransactionStorer
 where
@@ -81,7 +85,19 @@ impl Processable for UserTransactionStorer {
             get_config_table_chunk_size::<PostgresSignature>("signatures", &per_table_chunk_sizes),
         );
 
-        futures::try_join!(ut_res, s_res)?;
+        let result = futures::try_join!(ut_res, s_res);
+
+        if let Err(ref e) = result {
+            let err_str = format!("{e:?}");
+            if err_str.contains("UniqueViolation")
+                || err_str.contains("unique constraint")
+                || err_str.contains("duplicate key")
+            {
+                log_unique_violation_diagnostics(&self.conn_pool, &user_txns).await;
+            }
+        }
+
+        result?;
 
         Ok(Some(TransactionContext {
             data: (),
@@ -110,6 +126,99 @@ pub fn insert_user_transactions_query(
             parent_signature_type.eq(excluded(parent_signature_type)),
             inserted_at.eq(excluded(inserted_at)),
         ))
+}
+
+/// When a UniqueViolation occurs, log detailed diagnostics to help identify
+/// the conflicting rows. Checks for duplicate (sender, sequence_number)
+/// within the batch and against the existing DB state.
+async fn log_unique_violation_diagnostics(
+    pool: &ArcDbPool,
+    user_txns: &[PostgresUserTransaction],
+) {
+    error!(
+        count = user_txns.len(),
+        "UniqueViolation detected in user_transactions INSERT. Running diagnostics..."
+    );
+
+    // 1. Check for duplicates within the batch itself.
+    let mut seen: HashMap<(String, Option<i64>), Vec<i64>> = HashMap::new();
+    for txn in user_txns {
+        seen.entry((txn.sender.clone(), txn.sequence_number))
+            .or_default()
+            .push(txn.version);
+    }
+    for ((sender, seqnum), versions) in &seen {
+        if versions.len() > 1 {
+            error!(
+                sender = %sender,
+                sequence_number = ?seqnum,
+                versions = ?versions,
+                "INTRA-BATCH DUPLICATE: same (sender, sequence_number) at multiple versions"
+            );
+        }
+    }
+
+    // 2. Log the version range and a sample of the data.
+    let versions: Vec<i64> = user_txns.iter().map(|t| t.version).collect();
+    let min_v = versions.iter().min().copied().unwrap_or(0);
+    let max_v = versions.iter().max().copied().unwrap_or(0);
+    info!(
+        min_version = min_v,
+        max_version = max_v,
+        count = versions.len(),
+        "Batch version range"
+    );
+    for txn in user_txns.iter().take(5) {
+        info!(
+            version = txn.version,
+            sender = %txn.sender,
+            sequence_number = ?txn.sequence_number,
+            replay_protection_nonce = ?txn.replay_protection_nonce,
+            "Sample row from failing batch"
+        );
+    }
+
+    // 3. Query the DB for conflicting (sender, seqnum) pairs.
+    let query_sql = format!(
+        "SELECT version, sender, sequence_number \
+         FROM user_transactions \
+         WHERE (sender, sequence_number) IN ({}) \
+         AND version NOT IN ({}) \
+         LIMIT 20",
+        seen.iter()
+            .filter(|((_, seqnum), _)| seqnum.is_some())
+            .take(50)
+            .map(|((sender, seqnum), _)| {
+                format!("('{}', {})", sender, seqnum.unwrap())
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        versions
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+
+    match execute_with_better_error(
+        pool.clone(),
+        diesel::sql_query(&query_sql),
+    )
+    .await
+    {
+        Ok(count) => {
+            info!(
+                conflicting_row_count = count,
+                "DB rows with same (sender, seqnum) at different versions"
+            );
+        },
+        Err(e) => {
+            warn!(error = %e, "Failed to run conflict diagnostic query");
+        },
+    }
+
+    // 4. Log the full diagnostic query so it can be run manually.
+    info!(query = %query_sql, "Run this query manually for full details");
 }
 
 pub fn insert_signatures_query(
