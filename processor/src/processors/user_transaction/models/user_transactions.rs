@@ -110,7 +110,10 @@ impl UserTransaction {
                     .map(get_parent_signature_type)
                     .unwrap_or_default(),
                 sender: standardize_address(&user_request.sender),
-                // For orderless transactions, we set sequence_number to None instead of u64::MAX
+                // For regular (non-orderless) transactions, the blockchain enforces
+                // that each (sender, sequence_number) pair is globally unique, even for
+                // failed transactions. A failed txn still consumes its sequence number.
+                // For orderless transactions we set sequence_number to None.
                 sequence_number: replay_protection_nonce
                     .is_none()
                     .then_some(user_request.sequence_number as i64),
