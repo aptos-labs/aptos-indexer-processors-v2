@@ -13,8 +13,8 @@ use crate::{
 use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
-        transaction::{TransactionType, TxnData},
         Transaction as TransactionPB, TransactionInfo, TransactionSizeInfo,
+        transaction::{TransactionType, TxnData},
     },
     utils::{
         convert::standardize_address,

@@ -15,8 +15,8 @@ use aptos_indexer_processor_sdk::{
     utils::{
         convert::{deserialize_from_string, standardize_address, truncate_str},
         extract::{
-            deserialize_token_object_property_map_from_bcs_hexstring, Aggregator,
-            AggregatorSnapshot, DerivedStringSnapshot,
+            Aggregator, AggregatorSnapshot, DerivedStringSnapshot,
+            deserialize_token_object_property_map_from_bcs_hexstring,
         },
     },
 };

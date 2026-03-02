@@ -61,7 +61,7 @@ mod tests {
         sdk_tests::{
             ans_processor_tests::setup_ans_processor_config,
             test_helpers::{
-                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+                DEFAULT_OUTPUT_FOLDER, run_processor_test, setup_test_environment, validate_json,
             },
         },
     };
@@ -69,9 +69,9 @@ mod tests {
         cli_parser::get_test_config, database::TestDatabase,
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
-        IMPORTED_MAINNET_TXNS_1056780409_ANS_CURRENT_ANS_PRIMARY_NAME_V2,
         IMPORTED_MAINNET_TXNS_2080538_ANS_LOOKUP_V1, IMPORTED_MAINNET_TXNS_303690531_ANS_LOOKUP_V2,
         IMPORTED_MAINNET_TXNS_438536688_ANS_CURRENT_ANS_LOOKUP_V2,
+        IMPORTED_MAINNET_TXNS_1056780409_ANS_CURRENT_ANS_PRIMARY_NAME_V2,
     };
     use processor::processors::ans::ans_processor::AnsProcessor;
 

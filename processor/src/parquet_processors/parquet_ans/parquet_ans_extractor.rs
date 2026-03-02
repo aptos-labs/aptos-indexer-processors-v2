@@ -1,8 +1,8 @@
 use crate::{
     parquet_processors::{
+        ParquetTypeEnum, ParquetTypeStructs,
         parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
-        parquet_utils::util::add_to_map_if_opted_in_for_backfill, ParquetTypeEnum,
-        ParquetTypeStructs,
+        parquet_utils::util::add_to_map_if_opted_in_for_backfill,
     },
     processors::ans::{
         ans_extractor::parse_ans,
@@ -15,7 +15,7 @@ use crate::{
 };
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };

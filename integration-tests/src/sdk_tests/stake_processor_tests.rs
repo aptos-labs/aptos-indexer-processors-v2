@@ -57,7 +57,7 @@ mod tests {
         sdk_tests::{
             stake_processor_tests::setup_stake_processor_config,
             test_helpers::{
-                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+                DEFAULT_OUTPUT_FOLDER, run_processor_test, setup_test_environment, validate_json,
             },
         },
     };
@@ -65,12 +65,11 @@ mod tests {
         cli_parser::get_test_config, database::TestDatabase,
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
-        IMPORTED_MAINNET_TXNS_118489_PROPOSAL_VOTE,
+        IMPORTED_MAINNET_TXNS_118489_PROPOSAL_VOTE, IMPORTED_MAINNET_TXNS_4827964_STAKE_INITIALIZE,
         IMPORTED_MAINNET_TXNS_121508544_STAKE_DISTRIBUTE,
         IMPORTED_MAINNET_TXNS_139449359_STAKE_REACTIVATE,
         IMPORTED_MAINNET_TXNS_1830706009_STAKER_GOVERNANCE_RECORD,
         IMPORTED_MAINNET_TXNS_1831971037_STAKE_DELEGATION_POOL,
-        IMPORTED_MAINNET_TXNS_4827964_STAKE_INITIALIZE,
     };
     use processor::processors::stake::stake_processor::StakeProcessor;
 

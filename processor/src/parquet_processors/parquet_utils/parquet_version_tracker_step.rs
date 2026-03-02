@@ -2,7 +2,7 @@ use crate::parquet_processors::ParquetTypeEnum;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     traits::{
-        pollable_async_step::PollableAsyncRunType, NamedStep, PollableAsyncStep, Processable,
+        NamedStep, PollableAsyncStep, Processable, pollable_async_step::PollableAsyncRunType,
     },
     types::transaction_context::{TransactionContext, TransactionMetadata},
     utils::errors::ProcessorError,
@@ -90,15 +90,16 @@ where
                 current_metadata.end_version
             );
             if let Some(last_success) = self.last_success_batch.get(parquet_type)
-                && last_success.metadata.end_version + 1 != current_metadata.start_version {
-                    return Err(ProcessorError::ProcessError {
-                        message: format!(
-                            "Gap detected for {:?} starting from version: {}",
-                            &parquet_type.to_string(),
-                            current_metadata.start_version
-                        ),
-                    });
-                }
+                && last_success.metadata.end_version + 1 != current_metadata.start_version
+            {
+                return Err(ProcessorError::ProcessError {
+                    message: format!(
+                        "Gap detected for {:?} starting from version: {}",
+                        &parquet_type.to_string(),
+                        current_metadata.start_version
+                    ),
+                });
+            }
 
             processed_data.insert(*parquet_type, current_metadata.clone());
 

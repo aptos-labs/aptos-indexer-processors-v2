@@ -13,7 +13,7 @@ use crate::processors::token_v2::{
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
     postgres::utils::database::{ArcDbPool, DbContext},
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };

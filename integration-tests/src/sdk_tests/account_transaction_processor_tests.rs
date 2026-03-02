@@ -49,7 +49,7 @@ mod tests {
         sdk_tests::{
             account_transaction_processor_tests::setup_acc_txn_processor_config,
             test_helpers::{
-                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+                DEFAULT_OUTPUT_FOLDER, run_processor_test, setup_test_environment, validate_json,
             },
         },
     };

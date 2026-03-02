@@ -49,7 +49,7 @@ mod tests {
         sdk_tests::{
             default_processor_tests::setup_default_processor_config,
             test_helpers::{
-                run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+                DEFAULT_OUTPUT_FOLDER, run_processor_test, setup_test_environment, validate_json,
             },
         },
     };
@@ -59,9 +59,9 @@ mod tests {
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
         IMPORTED_DEVNET_TXNS_133807428_SIGNED_INTEGERS,
         IMPORTED_MAINNET_TXNS_155112189_DEFAULT_TABLE_ITEMS,
-        IMPORTED_MAINNET_TXNS_1845035942_DEFAULT_CURRENT_TABLE_ITEMS,
         IMPORTED_MAINNET_TXNS_423176063_ACCOUNT_TRANSACTION_DELETE,
         IMPORTED_MAINNET_TXNS_513424821_DEFAULT_BLOCK_METADATA_TRANSACTIONS,
+        IMPORTED_MAINNET_TXNS_1845035942_DEFAULT_CURRENT_TABLE_ITEMS,
     };
     use processor::processors::default::default_processor::DefaultProcessor;
 

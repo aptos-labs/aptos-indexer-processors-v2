@@ -5,9 +5,9 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{db::resources::COIN_ADDR, processors::default::models::move_resources::MoveResource};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use aptos_indexer_processor_sdk::{
-    aptos_protos::transaction::v1::{move_type::Content, DeleteResource, MoveType, WriteResource},
+    aptos_protos::transaction::v1::{DeleteResource, MoveType, WriteResource, move_type::Content},
     utils::{
         convert::{deserialize_from_string, standardize_address, truncate_str},
         extract::hash_str,

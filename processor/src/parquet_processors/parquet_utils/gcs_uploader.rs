@@ -1,7 +1,7 @@
 use crate::{
     parquet_processors::{
-        parquet_utils::util::{HasParquetSchema, HasVersion, ParquetProcessorError},
         ParquetTypeEnum, ParquetTypeStructs, ParquetTypeTrait,
+        parquet_utils::util::{HasParquetSchema, HasVersion, ParquetProcessorError},
     },
     utils::counters::PARQUET_BUFFER_SIZE,
 };
@@ -13,7 +13,7 @@ use google_cloud_storage::{
     client::Client as GCSClient,
     http::objects::upload::{Media, UploadObjectRequest, UploadType},
 };
-use hyper::{body::HttpBody, Body};
+use hyper::{Body, body::HttpBody};
 use parquet::{
     file::{properties::WriterProperties, writer::SerializedFileWriter},
     record::RecordWriter,
@@ -24,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{Duration, sleep, timeout};
 use tracing::{debug, error, info};
 
 const MAX_RETRIES: usize = 3;

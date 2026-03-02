@@ -5,10 +5,10 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
-    transaction::TxnData, Transaction,
+    Transaction, transaction::TxnData,
 };
 use hex;
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 fn deserialize_bytes_from_hex_with_0x<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
@@ -55,7 +55,6 @@ impl KeyRotationToPublicKeyEvent {
             _ => return None,
         };
 
-        
         events.iter().find_map(|event| {
             let event_type = event.type_str.as_str();
             KeyRotationToPublicKeyEvent::from_event(

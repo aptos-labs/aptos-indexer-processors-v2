@@ -1,25 +1,25 @@
 use crate::{
+    MIGRATIONS,
     config::{
         db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig,
         processor_config::ProcessorConfig,
     },
     processors::processor_status_saver::{
-        get_end_version, get_starting_version, PostgresProcessorStatusSaver,
+        PostgresProcessorStatusSaver, get_end_version, get_starting_version,
     },
-    MIGRATIONS,
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
     common_steps::{
-        TransactionStreamStep, VersionTrackerStep, DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
+        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
     },
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
-        database::{new_db_pool, run_migrations, ArcDbPool},
+        database::{ArcDbPool, new_db_pool, run_migrations},
     },
-    traits::{processor_trait::ProcessorTrait, IntoRunnableStep},
+    traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::chain_id_check::check_or_update_chain_id,
 };
 use tracing::{debug, info};
@@ -95,7 +95,7 @@ impl ProcessorTrait for MonitoringProcessor {
                 return Err(anyhow::anyhow!(
                     "Invalid processor config for MonitoringProcessor: {:?}",
                     self.config.processor_config
-                ))
+                ));
             },
         };
         let channel_size = processor_config.channel_size;

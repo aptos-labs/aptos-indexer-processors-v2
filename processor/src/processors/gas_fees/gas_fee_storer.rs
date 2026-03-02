@@ -5,13 +5,13 @@ use super::models::GasFee;
 use crate::{
     config::processor_config::DefaultProcessorConfig,
     schema,
-    utils::table_flags::{filter_data, TableFlags},
+    utils::table_flags::{TableFlags, filter_data},
 };
 use ahash::AHashMap;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    postgres::utils::database::{execute_in_chunks, get_config_table_chunk_size, ArcDbPool},
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    postgres::utils::database::{ArcDbPool, execute_in_chunks, get_config_table_chunk_size},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
@@ -74,7 +74,7 @@ impl Processable for GasFeeStorer {
                         input.metadata.start_version, input.metadata.end_version, e,
                     ),
                     query: None,
-                })
+                });
             },
         }
 

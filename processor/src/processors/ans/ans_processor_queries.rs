@@ -9,9 +9,9 @@ use crate::{
     schema,
 };
 use diesel::{
-    pg::{upsert::excluded, Pg},
-    query_builder::QueryFragment,
     ExpressionMethods,
+    pg::{Pg, upsert::excluded},
+    query_builder::QueryFragment,
 };
 
 pub fn insert_current_ans_lookups_v2_query(
@@ -36,7 +36,9 @@ pub fn insert_current_ans_lookups_v2_query(
                 inserted_at.eq(excluded(inserted_at)),
                 subdomain_expiration_policy.eq(excluded(subdomain_expiration_policy)),
             )),
-        Some(" WHERE current_ans_lookup_v2.last_transaction_version <= excluded.last_transaction_version "),
+        Some(
+            " WHERE current_ans_lookup_v2.last_transaction_version <= excluded.last_transaction_version ",
+        ),
     )
 }
 
@@ -61,6 +63,8 @@ pub fn insert_current_ans_primary_names_v2_query(
                 last_transaction_version.eq(excluded(last_transaction_version)),
                 inserted_at.eq(excluded(inserted_at)),
             )),
-        Some(" WHERE current_ans_primary_name_v2.last_transaction_version <= excluded.last_transaction_version "),
+        Some(
+            " WHERE current_ans_primary_name_v2.last_transaction_version <= excluded.last_transaction_version ",
+        ),
     )
 }

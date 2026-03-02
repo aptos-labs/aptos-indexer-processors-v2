@@ -34,7 +34,7 @@ use crate::{
 use ahash::{AHashMap, AHashSet};
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
-    aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Change, Transaction},
+    aptos_protos::transaction::v1::{Transaction, transaction::TxnData, write_set_change::Change},
     postgres::utils::database::DbContext,
     utils::{convert::standardize_address, extract::get_entry_function_from_user_request},
 };
@@ -205,18 +205,18 @@ pub async fn parse_v2_token(
                     TransferEvent::from_event(event, txn_version).unwrap()
                     && let Some(aggregated_data) =
                         token_v2_metadata_helper.get_mut(&transfer_events.get_object_address())
-                    {
-                        // we don't want index to be 0 otherwise we might have collision with write set change index
-                        // note that these will be multiplied by -1 so that it doesn't conflict with wsc index
-                        let index = if index == 0 {
-                            user_txn.events.len()
-                        } else {
-                            index
-                        };
-                        aggregated_data
-                            .transfer_events
-                            .push((index as i64, transfer_events));
-                    }
+                {
+                    // we don't want index to be 0 otherwise we might have collision with write set change index
+                    // note that these will be multiplied by -1 so that it doesn't conflict with wsc index
+                    let index = if index == 0 {
+                        user_txn.events.len()
+                    } else {
+                        index
+                    };
+                    aggregated_data
+                        .transfer_events
+                        .push((index as i64, transfer_events));
+                }
                 // handling all the token v1 events
                 if let Some(event) = TokenActivityV2::get_v1_from_parsed_event(
                     event,

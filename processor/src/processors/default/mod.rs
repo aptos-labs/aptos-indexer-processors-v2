@@ -16,7 +16,7 @@ use crate::{
 };
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
-    transaction::TxnData, write_set_change::Change as WriteSetChangeEnum, Transaction,
+    Transaction, transaction::TxnData, write_set_change::Change as WriteSetChangeEnum,
 };
 use models::move_modules::MoveModule;
 

@@ -1,18 +1,20 @@
 use crate::{
+    MIGRATIONS,
     config::{
         db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig,
         processor_config::ProcessorConfig,
     },
     parquet_processors::{
-        initialize_database_pool, initialize_gcs_client, initialize_parquet_buffer_step,
+        ParquetTypeEnum, initialize_database_pool, initialize_gcs_client,
+        initialize_parquet_buffer_step,
         parquet_processor_status_saver::{
-            get_parquet_end_version, get_parquet_starting_version, ParquetProcessorStatusSaver,
+            ParquetProcessorStatusSaver, get_parquet_end_version, get_parquet_starting_version,
         },
         parquet_token_v2::parquet_token_v2_extractor::ParquetTokenV2Extractor,
         parquet_utils::{
             parquet_version_tracker_step::ParquetVersionTrackerStep, util::HasParquetSchema,
         },
-        set_backfill_table_flag, ParquetTypeEnum,
+        set_backfill_table_flag,
     },
     processors::token_v2::{
         token_models::{
@@ -27,17 +29,16 @@ use crate::{
             v2_token_ownerships::{ParquetCurrentTokenOwnershipV2, ParquetTokenOwnershipV2},
         },
     },
-    MIGRATIONS,
 };
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
-    common_steps::{TransactionStreamStep, DEFAULT_UPDATE_PROCESSOR_STATUS_SECS},
+    common_steps::{DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep},
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
-        database::{run_migrations, ArcDbPool},
+        database::{ArcDbPool, run_migrations},
     },
-    traits::{processor_trait::ProcessorTrait, IntoRunnableStep},
+    traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::chain_id_check::check_or_update_chain_id,
 };
 use parquet::schema::types::Type;

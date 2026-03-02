@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use once_cell::sync::Lazy;
-use prometheus::{register_int_counter_vec, register_int_gauge_vec, IntCounterVec, IntGaugeVec};
+use prometheus::{IntCounterVec, IntGaugeVec, register_int_counter_vec, register_int_gauge_vec};
 
 /// Processor unknown type count.
 pub static PROCESSOR_UNKNOWN_TYPE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {

@@ -23,7 +23,7 @@ use crate::{
 };
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
-    aptos_protos::transaction::v1::{transaction::TxnData, write_set_change::Change, Transaction},
+    aptos_protos::transaction::v1::{Transaction, transaction::TxnData, write_set_change::Change},
     utils::{convert::standardize_address, extract::get_entry_function_from_user_request},
 };
 use chrono::NaiveDateTime;
@@ -57,16 +57,14 @@ pub async fn get_fa_to_coin_mapping(transactions: &[Transaction]) -> FungibleAss
                                 "[Parser] error parsing fungible metadata v1");
                             panic!("[Parser] error parsing fungible metadata v1");
                         })
-                    {
-                        let fa_to_coin_mapping =
-                            FungibleAssetToCoinMapping::from_raw_fungible_asset_metadata(
-                                &fa_metadata,
-                            );
-                        kv_mapping.insert(
-                            fa_to_coin_mapping.fungible_asset_metadata_address.clone(),
-                            fa_to_coin_mapping.coin_type.clone(),
-                        );
-                    }
+                {
+                    let fa_to_coin_mapping =
+                        FungibleAssetToCoinMapping::from_raw_fungible_asset_metadata(&fa_metadata);
+                    kv_mapping.insert(
+                        fa_to_coin_mapping.fungible_asset_metadata_address.clone(),
+                        fa_to_coin_mapping.coin_type.clone(),
+                    );
+                }
             }
             kv_mapping
         })

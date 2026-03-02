@@ -13,7 +13,7 @@ use crate::{
         token_v2::{
             token_models::token_utils::TokenWriteSet,
             token_v2_models::v2_token_utils::{
-                TokenStandard, TokenV2, TokenV2Burned, DEFAULT_NONE,
+                DEFAULT_NONE, TokenStandard, TokenV2, TokenV2Burned,
             },
         },
     },
