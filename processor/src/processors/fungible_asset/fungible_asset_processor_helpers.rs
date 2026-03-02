@@ -41,8 +41,8 @@ pub async fn get_fa_to_coin_mapping(transactions: &[Transaction]) -> FungibleAss
             let txn_version = txn.version as i64;
             let transaction_info = txn.info.as_ref().expect("Transaction info doesn't exist!");
             for (index, wsc) in transaction_info.changes.iter().enumerate() {
-                if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
-                    if let Some(fa_metadata) =
+                if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap()
+                    && let Some(fa_metadata) =
                         FungibleAssetMetadataModel::get_v1_from_write_resource(
                             wr,
                             index as i64,
@@ -67,7 +67,6 @@ pub async fn get_fa_to_coin_mapping(transactions: &[Transaction]) -> FungibleAss
                             fa_to_coin_mapping.coin_type.clone(),
                         );
                     }
-                }
             }
             kv_mapping
         })
@@ -239,8 +238,7 @@ pub async fn parse_v2_coin(
                         event_to_v1_coin_type.extend(event_to_coin);
                     }
                 } else if let Change::DeleteResource(delete_resource) = wsc.change.as_ref().unwrap()
-                {
-                    if let Some((balance, single_deleted_coin_type)) =
+                    && let Some((balance, single_deleted_coin_type)) =
                         FungibleAssetBalance::get_v1_from_delete_resource(
                             delete_resource,
                             index as i64,
@@ -252,7 +250,6 @@ pub async fn parse_v2_coin(
                         fungible_asset_balances.push(balance);
                         owner_address_to_deleted_coin_type.extend(single_deleted_coin_type);
                     }
-                }
             }
 
             // The artificial gas event, only need for v1

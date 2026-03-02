@@ -634,7 +634,8 @@ impl ParquetTypeStructs {
 
 async fn initialize_gcs_client(credentials: Option<String>) -> Arc<GCSClient> {
     if let Some(credentials) = credentials {
-        std::env::set_var(GOOGLE_APPLICATION_CREDENTIALS, credentials);
+        // SAFETY: This is called during single-threaded initialization before any concurrent work.
+        unsafe { std::env::set_var(GOOGLE_APPLICATION_CREDENTIALS, credentials) };
     }
 
     let gcs_config = GcsClientConfig::default()
@@ -648,7 +649,7 @@ async fn initialize_gcs_client(credentials: Option<String>) -> Arc<GCSClient> {
 /// Initializes the database connection pool.
 async fn initialize_database_pool(config: &DbConfig) -> anyhow::Result<ArcDbPool> {
     match config {
-        DbConfig::ParquetConfig(ref parquet_config) => {
+        DbConfig::ParquetConfig(parquet_config) => {
             let conn_pool = new_db_pool(
                 &parquet_config.connection_string,
                 Some(parquet_config.db_pool_size),
@@ -721,7 +722,8 @@ pub trait ParquetProcessorTrait {
 
     fn set_google_credentials(&self, credentials: Option<String>) {
         if let Some(credentials) = credentials {
-            std::env::set_var(GOOGLE_APPLICATION_CREDENTIALS, credentials);
+            // SAFETY: This is called during single-threaded initialization before any concurrent work.
+            unsafe { std::env::set_var(GOOGLE_APPLICATION_CREDENTIALS, credentials) };
         }
     }
 }

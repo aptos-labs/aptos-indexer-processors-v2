@@ -93,8 +93,8 @@ pub fn parse_account_restoration_models(
                 PublicKeyAuthKeyHelper::get_multi_key_from_signature(sig, txn_version)
             });
             for wsc in transaction_info.changes.iter() {
-                if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap() {
-                    if let Some(V2TokenResource::Account(account)) =
+                if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap()
+                    && let Some(V2TokenResource::Account(account)) =
                         V2TokenResource::from_write_resource(wr).unwrap()
                     {
                         let auth_key = standardize_address(&account.authentication_key);
@@ -143,7 +143,6 @@ pub fn parse_account_restoration_models(
                             );
                         }
                     }
-                }
             }
 
             // If there is a KeyRotationToPublicKeyEvent event, use the PublicKeyAuthKeyHelper constructed from it instead.
@@ -155,9 +154,9 @@ pub fn parse_account_restoration_models(
                 );
             }
 
-            if let Some(helper) = &multi_key_helper {
-                if let Some(sender) = sender {
-                    if let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
+            if let Some(helper) = &multi_key_helper
+                && let Some(sender) = sender
+                    && let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
                     {
                         public_key_auth_keys.extend(
                             PublicKeyAuthKeyHelper::get_public_key_auth_keys(
@@ -167,8 +166,6 @@ pub fn parse_account_restoration_models(
                             ),
                         );
                     }
-                }
-            }
 
             (auth_key_account_addresses, public_key_auth_keys)
         })

@@ -89,8 +89,8 @@ where
                 current_metadata.start_version,
                 current_metadata.end_version
             );
-            if let Some(last_success) = self.last_success_batch.get(parquet_type) {
-                if last_success.metadata.end_version + 1 != current_metadata.start_version {
+            if let Some(last_success) = self.last_success_batch.get(parquet_type)
+                && last_success.metadata.end_version + 1 != current_metadata.start_version {
                     return Err(ProcessorError::ProcessError {
                         message: format!(
                             "Gap detected for {:?} starting from version: {}",
@@ -99,7 +99,6 @@ where
                         ),
                     });
                 }
-            }
 
             processed_data.insert(*parquet_type, current_metadata.clone());
 

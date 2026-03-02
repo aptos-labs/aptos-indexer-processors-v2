@@ -55,15 +55,15 @@ impl KeyRotationToPublicKeyEvent {
             _ => return None,
         };
 
-        let key_rotation_to_public_key_event = events.iter().find_map(|event| {
+        
+        events.iter().find_map(|event| {
             let event_type = event.type_str.as_str();
             KeyRotationToPublicKeyEvent::from_event(
                 event_type,
                 &event.data,
                 transaction.version as i64,
             )
-        });
-        key_rotation_to_public_key_event
+        })
     }
 
     /// Parse a KeyRotationToPublicKey event from event data.
