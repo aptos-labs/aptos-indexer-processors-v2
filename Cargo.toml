@@ -17,10 +17,10 @@ rust-version = "1.78"
 
 [workspace.dependencies]
 
-ahash = { version = "0.8.7", features = ["serde"] }
-allocative = "0.3.3"
+ahash = { version = "0.8.12", features = ["serde"] }
+allocative = "0.3.4"
 allocative_derive = "0.3.3"
-anyhow = "1.0.98"
+anyhow = "1.0.102"
 # Do NOT enable the postgres_full feature here, it is conditionally enabled in a feature
 # block in the Cargo.toml file for the processor crate.
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
@@ -31,17 +31,17 @@ aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-index
 ] }
 aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "beb39c01fe275bfe1c275e0777a10f2521b858b0" }
 assert-json-diff = "2.0.2"
-async-trait = "0.1.53"
-backtrace = "0.3.58"
+async-trait = "0.1.89"
+backtrace = "0.3.76"
 base64 = "0.13.0"
 bb8 = "0.8.1"
 bcs = { git = "https://github.com/aptos-labs/bcs.git", rev = "d31fab9d81748e2594be5cd5cdf845786a30562d" }
-bigdecimal = { version = "0.4.0", features = ["serde"] }
-bitflags = "2.5.0"
+bigdecimal = { version = "0.4.10", features = ["serde"] }
+bitflags = "2.11.0"
 canonical_json = "0.5.0"
-chrono = { version = "0.4.19", features = ["clock", "serde"] }
-clap = { version = "4.3.5", features = ["derive", "unstable-styles"] }
-const_format = "0.2.33"
+chrono = { version = "0.4.44", features = ["clock", "serde"] }
+clap = { version = "4.5.60", features = ["derive", "unstable-styles"] }
+const_format = "0.2.35"
 # Do NOT enable the postgres feature here, it is conditionally enabled in a feature
 # block in the Cargo.toml file for the processor crate.
 # https://github.com/aptos-labs/aptos-indexer-processors/pull/325
@@ -57,14 +57,14 @@ diesel-async = { version = "0.7.4", features = [
     "bb8",
     "tokio",
 ] }
-diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+diesel_migrations = { version = "2.3.1", features = ["postgres"] }
 dirs = "5.0.1"
 downcast-rs = "1.2.1"
-enum_dispatch = "0.3.12"
+enum_dispatch = "0.3.13"
 field_count = "0.1.1"
-futures = "0.3.30"
-futures-core = "0.3.25"
-futures-util = "0.3.21"
+futures = "0.3.32"
+futures-core = "0.3.32"
+futures-util = "0.3.32"
 gcloud-sdk = { version = "0.20.4", features = [
     "google-cloud-bigquery-storage-v1",
 ] }
@@ -75,15 +75,15 @@ hex = "0.4.3"
 hyper = { version = "0.14.18", features = ["full"] }
 itertools = "0.12.1"
 json-structural-diff = "0.1.0"
-lazy_static = "1.4.0"
-log = "0.4.22"
+lazy_static = "1.5.0"
+log = "0.4.29"
 mockall = "0.12.1"
 
 # Postgres SSL support
-native-tls = "0.2.11"
-num = "0.4.0"
-num_cpus = "1.16.0"
-once_cell = "1.10.0"
+native-tls = "0.2.18"
+num = "0.4.3"
+num_cpus = "1.17.0"
+once_cell = "1.21.3"
 
 # Parquet support
 parquet = { version = "52.0.0", default-features = false, features = [
@@ -92,31 +92,31 @@ parquet = { version = "52.0.0", default-features = false, features = [
 ] }
 parquet_derive = { version = "52.0.0" }
 pbjson = "0.5.1"
-postgres-native-tls = "0.5.0"
+postgres-native-tls = "0.5.2"
 processor = { path = "processor" }
 prometheus = { version = "0.13.3", default-features = false }
 prost = { version = "0.13.4", features = ["no-recursion-limit"] }
 prost-types = "0.13.4"
 # Keep it compatible with the aptos-core version.
-rayon = "1.5.2"
-regex = "1.5.5"
+rayon = "1.11.0"
+regex = "1.12.3"
 reqwest = { version = "0.11.20", features = [
     "blocking",
     "cookies",
     "json",
     "stream",
 ] }
-serde = { version = "1.0.193", features = ["derive", "rc"] }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_canonical_json = "1.0.0"
-serde_json = { version = "1.0.81", features = ["preserve_order"] }
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
 serde_yaml = "0.8.24"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 sha3 = "0.10.8"
 strum = { version = "0.24.1", features = ["derive"] }
-tempfile = "3.3.0"
+tempfile = "3.26.0"
 tiny-keccak = { version = "2.0.2", features = ["keccak", "sha3"] }
-tokio = { version = "1.35.1", features = ["full"] }
-tokio-postgres = "0.7.10"
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-postgres = "0.7.16"
 toml = "0.7.4"
 tonic = { version = "0.12.3", features = [
     "tls",
@@ -127,8 +127,8 @@ tonic = { version = "0.12.3", features = [
     "codegen",
     "zstd",
 ] }
-tracing = "0.1.34"
-tracing-subscriber = { version = "0.3.17", features = ["json", "env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
 unescape = "0.1.0"
-url = { version = "2.4.0", features = ["serde"] }
+url = { version = "2.5.8", features = ["serde"] }
 warp = { version = "0.3.5", features = ["tls"] }
