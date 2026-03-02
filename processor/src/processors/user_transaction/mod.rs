@@ -13,7 +13,7 @@ use crate::{
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
-    transaction::TxnData, Transaction,
+    Transaction, transaction::TxnData,
 };
 
 /// Helper function to parse user transactions and signatures from the transaction data.

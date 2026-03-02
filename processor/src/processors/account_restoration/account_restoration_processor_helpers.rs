@@ -12,7 +12,7 @@ use crate::{
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
-        transaction::TxnData, write_set_change::Change, Transaction, WriteResource,
+        Transaction, WriteResource, transaction::TxnData, write_set_change::Change,
     },
     utils::{convert::standardize_address, extract::get_entry_function_from_user_request},
 };
@@ -96,53 +96,53 @@ pub fn parse_account_restoration_models(
                 if let Change::WriteResource(wr) = wsc.change.as_ref().unwrap()
                     && let Some(V2TokenResource::Account(account)) =
                         V2TokenResource::from_write_resource(wr).unwrap()
-                    {
-                        let auth_key = standardize_address(&account.authentication_key);
-                        let account_address = standardize_address(&wr.address);
-                        // If the this isn't a change on the sender account (i.e. it is a change of a recipient
-                        // account's token resource), we skip.
-                        if sender.as_ref() != Some(&account_address) {
-                            continue;
-                        }
-
-                        // If the transaction is an unverified key rotation transaction, we need to insert the auth key account address
-                        // with is_auth_key_used set to false.  This allows us to filter out accounts that are not actually owned by the
-                        // owner of the auth key.
-                        if ROTATE_AUTH_KEY_UNVERIFIED_ENTRY_FUNCTIONS
-                            .contains(&entry_function_id_str.as_deref().unwrap_or(""))
-                        {
-                            auth_key_account_addresses.insert(
-                                account_address.clone(),
-                                AuthKeyAccountAddress {
-                                    auth_key: auth_key.clone(),
-                                    account_address,
-                                    last_transaction_version: txn_version,
-                                    is_auth_key_used: false,
-                                },
-                            );
-                        }
-                        // In all other cases
-                        // - If the transaction is a verified key rotation transaction
-                        // - If the transaction is a multi-key transaction
-                        // - If the transaction is on a rotated account
-                        // we need to insert the auth key account address with is_auth_key_used set to true.
-                        else if ROTATE_AUTH_KEY_ENTRY_FUNCTIONS
-                            .contains(&entry_function_id_str.as_deref().unwrap_or(""))
-                            || auth_key != account_address
-                            || multi_key_helper.is_some()
-                            || key_rotation_event.is_some()
-                        {
-                            auth_key_account_addresses.insert(
-                                account_address.clone(),
-                                AuthKeyAccountAddress {
-                                    auth_key: auth_key.clone(),
-                                    account_address,
-                                    last_transaction_version: txn_version,
-                                    is_auth_key_used: true,
-                                },
-                            );
-                        }
+                {
+                    let auth_key = standardize_address(&account.authentication_key);
+                    let account_address = standardize_address(&wr.address);
+                    // If the this isn't a change on the sender account (i.e. it is a change of a recipient
+                    // account's token resource), we skip.
+                    if sender.as_ref() != Some(&account_address) {
+                        continue;
                     }
+
+                    // If the transaction is an unverified key rotation transaction, we need to insert the auth key account address
+                    // with is_auth_key_used set to false.  This allows us to filter out accounts that are not actually owned by the
+                    // owner of the auth key.
+                    if ROTATE_AUTH_KEY_UNVERIFIED_ENTRY_FUNCTIONS
+                        .contains(&entry_function_id_str.as_deref().unwrap_or(""))
+                    {
+                        auth_key_account_addresses.insert(
+                            account_address.clone(),
+                            AuthKeyAccountAddress {
+                                auth_key: auth_key.clone(),
+                                account_address,
+                                last_transaction_version: txn_version,
+                                is_auth_key_used: false,
+                            },
+                        );
+                    }
+                    // In all other cases
+                    // - If the transaction is a verified key rotation transaction
+                    // - If the transaction is a multi-key transaction
+                    // - If the transaction is on a rotated account
+                    // we need to insert the auth key account address with is_auth_key_used set to true.
+                    else if ROTATE_AUTH_KEY_ENTRY_FUNCTIONS
+                        .contains(&entry_function_id_str.as_deref().unwrap_or(""))
+                        || auth_key != account_address
+                        || multi_key_helper.is_some()
+                        || key_rotation_event.is_some()
+                    {
+                        auth_key_account_addresses.insert(
+                            account_address.clone(),
+                            AuthKeyAccountAddress {
+                                auth_key: auth_key.clone(),
+                                account_address,
+                                last_transaction_version: txn_version,
+                                is_auth_key_used: true,
+                            },
+                        );
+                    }
+                }
             }
 
             // If there is a KeyRotationToPublicKeyEvent event, use the PublicKeyAuthKeyHelper constructed from it instead.
@@ -156,16 +156,14 @@ pub fn parse_account_restoration_models(
 
             if let Some(helper) = &multi_key_helper
                 && let Some(sender) = sender
-                    && let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
-                    {
-                        public_key_auth_keys.extend(
-                            PublicKeyAuthKeyHelper::get_public_key_auth_keys(
-                                helper,
-                                &auth_key_account_address.auth_key,
-                                txn_version,
-                            ),
-                        );
-                    }
+                && let Some(auth_key_account_address) = auth_key_account_addresses.get(&sender)
+            {
+                public_key_auth_keys.extend(PublicKeyAuthKeyHelper::get_public_key_auth_keys(
+                    helper,
+                    &auth_key_account_address.auth_key,
+                    txn_version,
+                ));
+            }
 
             (auth_key_account_addresses, public_key_auth_keys)
         })

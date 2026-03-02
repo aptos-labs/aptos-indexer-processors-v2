@@ -7,7 +7,7 @@ use crate::{
         parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
         parquet_events::parquet_events_model::ParquetEvent,
         parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
-        parquet_utils::util::{format_table_name, NamedTable, VALID_TABLE_NAMES},
+        parquet_utils::util::{NamedTable, VALID_TABLE_NAMES, format_table_name},
     },
     processors::{
         account_transactions::account_transactions_model::ParquetAccountTransaction,
@@ -150,7 +150,7 @@ impl ProcessorConfig {
                 return Err(anyhow::anyhow!(
                     "Invalid parquet processor config: {:?}",
                     self
-                ))
+                ));
             },
         };
 

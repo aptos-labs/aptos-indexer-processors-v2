@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
-    any_public_key::Type as AnyPublicKeyEnum, AnyPublicKey,
+    AnyPublicKey, any_public_key::Type as AnyPublicKeyEnum,
 };
 
 pub fn get_any_public_key_type(any_public_key: &AnyPublicKey) -> String {

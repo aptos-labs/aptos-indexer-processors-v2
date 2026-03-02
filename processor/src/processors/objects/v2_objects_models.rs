@@ -151,7 +151,7 @@ impl Object {
                     return Err(anyhow::anyhow!(
                         "Error getting resource from delete resource: {}",
                         e
-                    ))
+                    ));
                 },
             };
 
@@ -200,11 +200,11 @@ impl Object {
                         Ok(object) => object,
                         Err(_) => {
                             tracing::error!(
-                            transaction_version = txn_version,
-                            lookup_key = &resource.resource_address,
-                            "Missing current_object for object_address: {}. You probably should backfill db.",
-                            resource.resource_address,
-                        );
+                                transaction_version = txn_version,
+                                lookup_key = &resource.resource_address,
+                                "Missing current_object for object_address: {}. You probably should backfill db.",
+                                resource.resource_address,
+                            );
                             return Ok(None);
                         },
                     }

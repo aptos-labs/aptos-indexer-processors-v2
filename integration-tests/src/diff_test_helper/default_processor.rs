@@ -1,6 +1,6 @@
 use crate::models::default_models::{BlockMetadataTransaction, CurrentTableItem, TableItem};
 use anyhow::Result;
-use diesel::{pg::PgConnection, query_dsl::methods::ThenOrderDsl, ExpressionMethods, RunQueryDsl};
+use diesel::{ExpressionMethods, RunQueryDsl, pg::PgConnection, query_dsl::methods::ThenOrderDsl};
 use processor::schema::{
     block_metadata_transactions::dsl as bmt_dsl, current_table_items::dsl as cti_dsl,
     table_items::dsl as ti_dsl,

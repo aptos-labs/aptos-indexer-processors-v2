@@ -10,7 +10,7 @@ use crate::{
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
-    aptos_protos::transaction::v1::{write_set_change::Change, Transaction},
+    aptos_protos::transaction::v1::{Transaction, write_set_change::Change},
     utils::convert::standardize_address,
 };
 use field_count::FieldCount;
@@ -43,17 +43,17 @@ impl CurrentStakingPoolVoter {
                     write_resource,
                     txn_version,
                     block_timestamp,
-                )? {
-                    let staking_pool_address =
-                        standardize_address(&write_resource.address.to_string());
-                    staking_pool_voters.insert(staking_pool_address.clone(), Self {
-                        staking_pool_address,
-                        voter_address: inner.get_delegated_voter(),
-                        last_transaction_version: txn_version,
-                        operator_address: inner.get_operator_address(),
-                        block_timestamp,
-                    });
-                }
+                )?
+            {
+                let staking_pool_address = standardize_address(&write_resource.address.to_string());
+                staking_pool_voters.insert(staking_pool_address.clone(), Self {
+                    staking_pool_address,
+                    voter_address: inner.get_delegated_voter(),
+                    last_transaction_version: txn_version,
+                    operator_address: inner.get_operator_address(),
+                    block_timestamp,
+                });
+            }
         }
 
         Ok(staking_pool_voters)

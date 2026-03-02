@@ -1,6 +1,6 @@
 use crate::models::objects_models::{CurrentObject, Object};
 use anyhow::Result;
-use diesel::{pg::PgConnection, ExpressionMethods, QueryDsl, RunQueryDsl};
+use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, pg::PgConnection};
 use processor::schema::{current_objects::dsl as co_dsl, objects::dsl as o_dsl};
 use serde_json::Value;
 use std::collections::HashMap;

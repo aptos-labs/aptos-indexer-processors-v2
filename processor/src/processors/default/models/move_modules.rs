@@ -228,7 +228,7 @@ impl From<MoveModule> for PostgresMoveModule {
 #[cfg(test)]
 mod tests {
     use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::{
-        move_function::Visibility, MoveFunction, MoveType, MoveTypes,
+        MoveFunction, MoveType, MoveTypes, move_function::Visibility,
     };
 
     /// Regression test: MoveFunction with signed integer types must serialize without panic.

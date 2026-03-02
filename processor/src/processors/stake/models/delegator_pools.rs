@@ -16,7 +16,7 @@ use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{
-        transaction::TxnData, write_set_change::Change, Transaction, WriteResource, WriteTableItem,
+        Transaction, WriteResource, WriteTableItem, transaction::TxnData, write_set_change::Change,
     },
     utils::convert::standardize_address,
 };

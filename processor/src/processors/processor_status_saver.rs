@@ -15,13 +15,13 @@ use aptos_indexer_processor_sdk::{
     postgres::{
         models::processor_status::{ProcessorStatus, ProcessorStatusQuery},
         processor_metadata_schema::processor_metadata::processor_status,
-        utils::database::{execute_with_better_error, ArcDbPool},
+        utils::database::{ArcDbPool, execute_with_better_error},
     },
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use diesel::{query_dsl::methods::FilterDsl, upsert::excluded, ExpressionMethods};
+use diesel::{ExpressionMethods, query_dsl::methods::FilterDsl, upsert::excluded};
 
 /// A trait implementation of ProcessorStatusSaver for Postgres.
 pub struct PostgresProcessorStatusSaver {
@@ -335,18 +335,18 @@ pub fn log_ascii_warning(version: u64) {
 mod tests {
     use super::*;
     use crate::{
+        MIGRATIONS,
         config::{
             db_config::{DbConfig, PostgresConfig},
             indexer_processor_config::IndexerProcessorConfig,
             processor_config::{DefaultProcessorConfig, ProcessorConfig},
         },
         db::backfill_processor_status::{BackfillProcessorStatus, BackfillStatus},
-        MIGRATIONS,
     };
     use ahash::AHashMap;
     use aptos_indexer_processor_sdk::{
         aptos_indexer_transaction_stream::{
-            utils::additional_headers::AdditionalHeaders, TransactionStreamConfig,
+            TransactionStreamConfig, utils::additional_headers::AdditionalHeaders,
         },
         postgres::{
             models::processor_status::ProcessorStatus,

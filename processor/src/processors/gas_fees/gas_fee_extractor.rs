@@ -2,7 +2,7 @@ use crate::processors::gas_fees::models::GasFee;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };

@@ -16,10 +16,10 @@ use crate::{
     schema,
 };
 use diesel::{
-    pg::{upsert::excluded, Pg},
+    ExpressionMethods,
+    pg::{Pg, upsert::excluded},
     query_builder::QueryFragment,
     query_dsl::methods::FilterDsl,
-    ExpressionMethods,
 };
 
 pub fn insert_current_collections_v2_query(

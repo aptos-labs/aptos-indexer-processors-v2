@@ -4,7 +4,7 @@ use crate::{
         parquet_events::parquet_events_model::ParquetEvent,
         parquet_transaction_metadata::transaction_metadata_models::write_set_size_info::ParquetWriteSetSize,
         parquet_utils::{
-            gcs_uploader::{create_new_writer, GCSUploader},
+            gcs_uploader::{GCSUploader, create_new_writer},
             parquet_buffer_step::ParquetBufferStep,
         },
     },
@@ -54,7 +54,7 @@ use crate::{
     utils::table_flags::TableFlags,
 };
 use aptos_indexer_processor_sdk::{
-    postgres::utils::database::{new_db_pool, ArcDbPool},
+    postgres::utils::database::{ArcDbPool, new_db_pool},
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;

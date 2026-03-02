@@ -4,7 +4,7 @@ use crate::models::stake_models::{
     DelegatorPoolBalance, ProposalVote,
 };
 use anyhow::Result;
-use diesel::{pg::PgConnection, RunQueryDsl};
+use diesel::{RunQueryDsl, pg::PgConnection};
 use processor::schema::{
     current_delegated_staking_pool_balances::dsl as cdsp_dsl,
     current_delegated_voter::dsl as cdv_dsl, current_delegator_balances::dsl as cdb_dsl,

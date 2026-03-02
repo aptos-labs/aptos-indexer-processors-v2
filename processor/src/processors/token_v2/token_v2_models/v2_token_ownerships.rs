@@ -6,7 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
-    db::resources::{FromWriteResource, BURN_ADDR},
+    db::resources::{BURN_ADDR, FromWriteResource},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
@@ -18,7 +18,7 @@ use crate::{
             token_v2_models::{
                 v2_token_datas::TokenDataV2,
                 v2_token_utils::{
-                    TokenStandard, TokenV2Burned, DEFAULT_NONE, DEFAULT_OWNER_ADDRESS,
+                    DEFAULT_NONE, DEFAULT_OWNER_ADDRESS, TokenStandard, TokenV2Burned,
                 },
             },
         },

@@ -49,25 +49,25 @@ mod sdk_user_txn_processor_tests {
     use crate::{
         diff_test_helper::user_transaction_processor::load_data,
         sdk_tests::test_helpers::{
-            run_processor_test, setup_test_environment, validate_json, DEFAULT_OUTPUT_FOLDER,
+            DEFAULT_OUTPUT_FOLDER, run_processor_test, setup_test_environment, validate_json,
         },
     };
     use aptos_indexer_processor_sdk::testing_framework::{
         cli_parser::get_test_config, database::TestDatabase,
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
-        IMPORTED_MAINNET_TXNS_103958588_MULTI_AGENTS,
-        IMPORTED_MAINNET_TXNS_1803170308_USER_TXN_MULTI_KEY_KEYLESS,
+        IMPORTED_MAINNET_TXNS_685_USER_TXN_ED25519,
         IMPORTED_MAINNET_TXNS_2175935_USER_TXN_MULTI_ED25519,
+        IMPORTED_MAINNET_TXNS_103958588_MULTI_AGENTS,
         IMPORTED_MAINNET_TXNS_407418623_USER_TXN_SINGLE_KEY_SECP256K1_ECDSA,
         IMPORTED_MAINNET_TXNS_464961735_USER_TXN_SINGLE_KEY_ED25519,
         IMPORTED_MAINNET_TXNS_527013476_USER_TXN_SINGLE_SENDER_SECP256K1_ECDSA,
         IMPORTED_MAINNET_TXNS_551057865_USER_TXN_SINGLE_SENDER_WEBAUTH,
         IMPORTED_MAINNET_TXNS_590098441_USER_TXN_SINGLE_SENDER_ED25519,
-        IMPORTED_MAINNET_TXNS_685_USER_TXN_ED25519,
         IMPORTED_MAINNET_TXNS_976087151_USER_TXN_SINGLE_SENDER_KEYLESS,
-        IMPORTED_TESTNET_TXNS_6616059810_ACCOUNT_ABSTRACTION_AUTHENTICATOR,
+        IMPORTED_MAINNET_TXNS_1803170308_USER_TXN_MULTI_KEY_KEYLESS,
         IMPORTED_TESTNET_TXNS_769222973_MULTISIG,
+        IMPORTED_TESTNET_TXNS_6616059810_ACCOUNT_ABSTRACTION_AUTHENTICATOR,
     };
     use processor::processors::user_transaction::user_transaction_processor::UserTransactionProcessor;
 

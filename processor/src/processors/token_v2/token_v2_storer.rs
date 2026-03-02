@@ -18,13 +18,13 @@ use crate::{
             insert_current_token_royalties_v1_query, insert_token_activities_v2_query,
         },
     },
-    utils::table_flags::{filter_data, TableFlags},
+    utils::table_flags::{TableFlags, filter_data},
 };
 use ahash::AHashMap;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    postgres::utils::database::{execute_in_chunks, get_config_table_chunk_size, ArcDbPool},
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    postgres::utils::database::{ArcDbPool, execute_in_chunks, get_config_table_chunk_size},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
@@ -201,7 +201,9 @@ impl Processable for TokenV2Storer {
             ta_v2_res,
             ctr_v1_res,
             ctc_v1_res,
-        ) = tokio::join!(cc_v2, ctd_v2, cdtd_v2, cto_v2, cdto_v2, ta_v2, ctr_v1, ctc_v1);
+        ) = tokio::join!(
+            cc_v2, ctd_v2, cdtd_v2, cto_v2, cdto_v2, ta_v2, ctr_v1, ctc_v1
+        );
 
         for res in [
             cc_v2_res,
@@ -222,7 +224,7 @@ impl Processable for TokenV2Storer {
                             input.metadata.start_version, input.metadata.end_version, e,
                         ),
                         query: None,
-                    })
+                    });
                 },
             }
         }

@@ -1,14 +1,14 @@
 use crate::{
     parquet_processors::{
+        ParquetTypeEnum, ParquetTypeStructs,
         parquet_transaction_metadata::transaction_metadata_processor_helpers::process_transactions,
-        parquet_utils::util::add_to_map_if_opted_in_for_backfill, ParquetTypeEnum,
-        ParquetTypeStructs,
+        parquet_utils::util::add_to_map_if_opted_in_for_backfill,
     },
     utils::table_flags::TableFlags,
 };
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };

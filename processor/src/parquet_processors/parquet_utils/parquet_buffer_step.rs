@@ -7,7 +7,7 @@ use crate::{
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     traits::{
-        pollable_async_step::PollableAsyncRunType, NamedStep, PollableAsyncStep, Processable,
+        NamedStep, PollableAsyncStep, Processable, pollable_async_step::PollableAsyncRunType,
     },
     types::transaction_context::{TransactionContext, TransactionMetadata},
     utils::errors::ProcessorError,
@@ -289,7 +289,7 @@ mod tests {
     use crate::{
         config::db_config::ParquetConfig,
         parquet_processors::parquet_utils::{
-            gcs_uploader::{create_new_writer, GCSUploader},
+            gcs_uploader::{GCSUploader, create_new_writer},
             parquet_buffer_step::{ParquetBufferStep, ParquetTypeEnum, ParquetTypeStructs},
             util::HasParquetSchema,
         },

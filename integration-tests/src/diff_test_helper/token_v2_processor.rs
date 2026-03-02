@@ -1,6 +1,6 @@
 use crate::models::token_v2_models::*;
 use anyhow::Result;
-use diesel::{pg::PgConnection, query_dsl::methods::ThenOrderDsl, ExpressionMethods, RunQueryDsl};
+use diesel::{ExpressionMethods, RunQueryDsl, pg::PgConnection, query_dsl::methods::ThenOrderDsl};
 use processor::schema::{
     current_collections_v2::dsl as ccv2_dsl, current_token_datas_v2::dsl as ctdv2_dsl,
     current_token_ownerships_v2::dsl as ctov2_dsl, current_token_pending_claims::dsl as ctpc_dsl,

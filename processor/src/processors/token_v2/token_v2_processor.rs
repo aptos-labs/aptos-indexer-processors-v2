@@ -1,4 +1,5 @@
 use crate::{
+    MIGRATIONS,
     config::{
         db_config::DbConfig,
         indexer_processor_config::{
@@ -8,25 +9,24 @@ use crate::{
     },
     processors::{
         processor_status_saver::{
-            get_end_version, get_starting_version, PostgresProcessorStatusSaver,
+            PostgresProcessorStatusSaver, get_end_version, get_starting_version,
         },
         token_v2::{token_v2_extractor::TokenV2Extractor, token_v2_storer::TokenV2Storer},
     },
     utils::table_flags::TableFlags,
-    MIGRATIONS,
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
     common_steps::{
-        TransactionStreamStep, VersionTrackerStep, DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
+        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
     },
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
-        database::{new_db_pool, run_migrations, ArcDbPool},
+        database::{ArcDbPool, new_db_pool, run_migrations},
     },
-    traits::{processor_trait::ProcessorTrait, IntoRunnableStep},
+    traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::chain_id_check::check_or_update_chain_id,
 };
 use serde::{Deserialize, Serialize};

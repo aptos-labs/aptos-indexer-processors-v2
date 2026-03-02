@@ -12,7 +12,7 @@ use super::{
     v2_fungible_asset_to_coin_mappings::{FungibleAssetToCoinMapping, FungibleAssetToCoinMappings},
 };
 use crate::{
-    db::resources::{FromWriteResource, BURN_ADDR},
+    db::resources::{BURN_ADDR, FromWriteResource},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         default::models::move_resources::MoveResource,
@@ -36,7 +36,7 @@ use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteResource, WriteResource},
     utils::{
-        constants::{APTOS_COIN_TYPE_STR, APT_METADATA_ADDRESS_HEX, APT_METADATA_ADDRESS_RAW},
+        constants::{APT_METADATA_ADDRESS_HEX, APT_METADATA_ADDRESS_RAW, APTOS_COIN_TYPE_STR},
         convert::{hex_to_raw_bytes, sha3_256, standardize_address},
     },
 };
@@ -296,7 +296,7 @@ impl FungibleAssetBalance {
                     return Err(anyhow::anyhow!(
                         "Error getting resource from delete resource: {}",
                         e
-                    ))
+                    ));
                 },
             };
 
@@ -661,6 +661,11 @@ mod tests {
             get_paired_metadata_address("0x1::aptos_coin::AptosCoin"),
             *APT_METADATA_ADDRESS_HEX
         );
-        assert_eq!(get_paired_metadata_address("0x66c34778730acbb120cefa57a3d98fd21e0c8b3a51e9baee530088b2e444e94c::moon_coin::MoonCoin"), "0xf772c28c069aa7e4417d85d771957eb3c5c11b5bf90b1965cda23b899ebc0384");
+        assert_eq!(
+            get_paired_metadata_address(
+                "0x66c34778730acbb120cefa57a3d98fd21e0c8b3a51e9baee530088b2e444e94c::moon_coin::MoonCoin"
+            ),
+            "0xf772c28c069aa7e4417d85d771957eb3c5c11b5bf90b1965cda23b899ebc0384"
+        );
     }
 }

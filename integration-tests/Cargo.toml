@@ -5,7 +5,7 @@ version = "1.0.0"
 
 # Workspace inherited keys
 authors = ["Aptos Labs <opensource@aptoslabs.com>"]
-edition.workspace = true
+edition = { workspace = true }
 homepage = "https://aptoslabs.com"
 license = "Apache-2.0"
 publish = false

@@ -16,13 +16,13 @@ use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     postgres::{
         models::processor_status::ProcessorStatusQuery,
-        utils::database::{execute_with_better_error, ArcDbPool},
+        utils::database::{ArcDbPool, execute_with_better_error},
     },
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use diesel::{upsert::excluded, ExpressionMethods};
+use diesel::{ExpressionMethods, upsert::excluded};
 
 /// A trait implementation of ProcessorStatusSaver for Parquet.
 pub struct ParquetProcessorStatusSaver {
@@ -351,17 +351,17 @@ async fn get_parquet_backfill_statuses(
 mod tests {
     use super::*;
     use crate::{
+        MIGRATIONS,
         config::{
             db_config::{DbConfig, ParquetConfig},
             indexer_processor_config::IndexerProcessorConfig,
             processor_config::{ParquetDefaultProcessorConfig, ProcessorConfig},
         },
         db::backfill_processor_status::{BackfillProcessorStatus, BackfillStatus},
-        MIGRATIONS,
     };
     use aptos_indexer_processor_sdk::{
         aptos_indexer_transaction_stream::{
-            utils::additional_headers::AdditionalHeaders, TransactionStreamConfig,
+            TransactionStreamConfig, utils::additional_headers::AdditionalHeaders,
         },
         postgres::{
             models::processor_status::ProcessorStatus,

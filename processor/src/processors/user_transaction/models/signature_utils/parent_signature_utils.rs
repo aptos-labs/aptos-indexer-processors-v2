@@ -7,10 +7,10 @@ use super::account_signature_utils::{
 use crate::processors::user_transaction::models::signatures::Signature;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
-        account_signature::Type as AccountSignatureTypeEnum,
-        signature::{Signature as SignatureEnum, Type as SignatureTypeEnum},
         Ed25519Signature, FeePayerSignature, MultiAgentSignature, MultiEd25519Signature,
         Signature as SignaturePb, SingleSender,
+        account_signature::Type as AccountSignatureTypeEnum,
+        signature::{Signature as SignatureEnum, Type as SignatureTypeEnum},
     },
     utils::convert::standardize_address,
 };

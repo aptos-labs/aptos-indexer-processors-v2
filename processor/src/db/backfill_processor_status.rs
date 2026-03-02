@@ -6,6 +6,7 @@
 use crate::schema::backfill_processor_status;
 use aptos_indexer_processor_sdk::postgres::utils::database::DbPoolConnection;
 use diesel::{
+    AsChangeset, ExpressionMethods, Insertable, OptionalExtension, QueryDsl, Queryable,
     deserialize,
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
@@ -13,7 +14,6 @@ use diesel::{
     serialize,
     serialize::{IsNull, Output, ToSql},
     sql_types::Text,
-    AsChangeset, ExpressionMethods, Insertable, OptionalExtension, QueryDsl, Queryable,
 };
 use diesel_async::RunQueryDsl;
 use std::io::Write;

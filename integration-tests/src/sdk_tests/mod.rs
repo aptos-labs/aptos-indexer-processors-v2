@@ -23,7 +23,7 @@ pub mod test_helpers {
     use aptos_indexer_processor_sdk::{
         testing_framework::{
             database::{PostgresTestDatabase, TestDatabase},
-            sdk_test_context::{remove_inserted_at, SdkTestContext},
+            sdk_test_context::{SdkTestContext, remove_inserted_at},
         },
         traits::processor_trait::ProcessorTrait,
     };

@@ -10,7 +10,7 @@ use crate::{
     processors::{
         ans::models::{
             ans_lookup::{AnsLookup, CurrentAnsLookup},
-            ans_utils::{get_token_name, NameRecordV2, SubdomainExtV2},
+            ans_utils::{NameRecordV2, SubdomainExtV2, get_token_name},
         },
         token_v2::token_v2_models::v2_token_utils::TokenStandard,
     },

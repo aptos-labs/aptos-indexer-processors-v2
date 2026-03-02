@@ -6,7 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
-    db::resources::{FromWriteResource, BURN_ADDR},
+    db::resources::{BURN_ADDR, FromWriteResource},
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         fungible_asset::{

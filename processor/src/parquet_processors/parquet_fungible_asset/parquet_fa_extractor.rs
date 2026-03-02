@@ -1,7 +1,7 @@
 use crate::{
     parquet_processors::{
-        parquet_utils::util::add_to_map_if_opted_in_for_backfill, ParquetTypeEnum,
-        ParquetTypeStructs,
+        ParquetTypeEnum, ParquetTypeStructs,
+        parquet_utils::util::add_to_map_if_opted_in_for_backfill,
     },
     processors::fungible_asset::{
         fungible_asset_models::{
@@ -21,7 +21,7 @@ use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Transaction,
     postgres::utils::database::ArcDbPool,
-    traits::{async_step::AsyncRunType, AsyncStep, NamedStep, Processable},
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
