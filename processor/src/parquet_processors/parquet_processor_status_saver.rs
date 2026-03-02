@@ -394,15 +394,15 @@ mod tests {
                 indexer_grpc_data_service_address: Url::parse("https://test.com").unwrap(),
                 starting_version: None,
                 request_ending_version: None,
-                auth_token: "test".to_string(),
+                auth_token: Some("test".to_string()),
                 request_name_header: "test".to_string(),
                 indexer_grpc_http2_ping_interval_secs: 1,
                 indexer_grpc_http2_ping_timeout_secs: 1,
-                indexer_grpc_reconnection_timeout_secs: 1,
                 indexer_grpc_response_item_timeout_secs: 1,
-                indexer_grpc_reconnection_max_retries: 1,
+                reconnection_config: Default::default(),
                 additional_headers: AdditionalHeaders::default(),
                 transaction_filter: None,
+                backup_endpoints: vec![],
             },
         }
     }
