@@ -268,8 +268,8 @@ mod sdk_account_restoration_processor_tests {
         let db_url = db.get_db_url();
         let (mut indexer_processor_config, processor_name) =
             setup_account_restoration_processor_config(test_context, &db_url);
-        if let Some(chunk_size) = chunk_size {
-            if let ProcessorConfig::AccountRestorationProcessor(ref mut config) =
+        if let Some(chunk_size) = chunk_size
+            && let ProcessorConfig::AccountRestorationProcessor(ref mut config) =
                 indexer_processor_config.processor_config
             {
                 for table_name in [
@@ -282,7 +282,6 @@ mod sdk_account_restoration_processor_tests {
                         .insert(table_name.to_string(), chunk_size);
                 }
             }
-        }
         let account_restoration_processor =
             AccountRestorationProcessor::new(indexer_processor_config)
                 .await

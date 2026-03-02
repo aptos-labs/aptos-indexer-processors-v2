@@ -151,8 +151,8 @@ pub async fn parse_stake_data(
 
             // we need one last loop to prefill delegators that got in before the delegated voting contract was deployed
             for wsc in &transaction_info.changes {
-                if let Change::WriteTableItem(write_table_item) = wsc.change.as_ref().unwrap() {
-                    if let Some(voter) =
+                if let Change::WriteTableItem(write_table_item) = wsc.change.as_ref().unwrap()
+                    && let Some(voter) =
                         CurrentDelegatedVoter::get_delegators_pre_contract_deployment(
                             write_table_item,
                             txn_version,
@@ -168,7 +168,6 @@ pub async fn parse_stake_data(
                     {
                         all_current_delegated_voter.insert(voter.pk(), voter);
                     }
-                }
             }
         }
     }

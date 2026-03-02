@@ -78,13 +78,12 @@ pub async fn process_objects(
         for wsc in changes.iter() {
             if let Change::WriteResource(write_resource) = wsc.change.as_ref().unwrap() {
                 let address = standardize_address(&write_resource.address.to_string());
-                if let Some(aggregated_data) = object_metadata_helper.get_mut(&address) {
-                    if let Some(untransferable) =
+                if let Some(aggregated_data) = object_metadata_helper.get_mut(&address)
+                    && let Some(untransferable) =
                         Untransferable::from_write_resource(write_resource).unwrap()
                     {
                         aggregated_data.untransferable = Some(untransferable);
                     }
-                }
             }
         }
 

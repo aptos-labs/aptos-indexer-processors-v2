@@ -100,8 +100,8 @@ impl CurrentAnsLookup {
         write_set_change_index: i64,
     ) -> anyhow::Result<Option<(Self, AnsLookup)>> {
         let table_handle = standardize_address(&write_table_item.handle.to_string());
-        if table_handle == standardize_address(ans_v1_name_records_table_handle) {
-            if let Some(data) = write_table_item.data.as_ref() {
+        if table_handle == standardize_address(ans_v1_name_records_table_handle)
+            && let Some(data) = write_table_item.data.as_ref() {
                 // Get the name only, e.g. 0x1::domain::Name. This will return Name
                 let key_type_name = get_name_from_unnested_move_type(data.key_type.as_ref());
 
@@ -137,7 +137,6 @@ impl CurrentAnsLookup {
                     }
                 }
             }
-        }
         Ok(None)
     }
 
@@ -151,8 +150,8 @@ impl CurrentAnsLookup {
         write_set_change_index: i64,
     ) -> anyhow::Result<Option<(Self, AnsLookup)>> {
         let table_handle = standardize_address(&delete_table_item.handle.to_string());
-        if table_handle == standardize_address(ans_v1_name_records_table_handle) {
-            if let Some(data) = delete_table_item.data.as_ref() {
+        if table_handle == standardize_address(ans_v1_name_records_table_handle)
+            && let Some(data) = delete_table_item.data.as_ref() {
                 let key_type_name = get_name_from_unnested_move_type(data.key_type.as_ref());
 
                 if let Some(AnsTableItem::NameRecordKeyV1(name_record_key)) =
@@ -181,7 +180,6 @@ impl CurrentAnsLookup {
                     )));
                 }
             }
-        }
         Ok(None)
     }
 }
@@ -213,8 +211,8 @@ impl CurrentAnsPrimaryName {
         write_set_change_index: i64,
     ) -> anyhow::Result<Option<(Self, AnsPrimaryName)>> {
         let table_handle = standardize_address(&write_table_item.handle.to_string());
-        if table_handle == standardize_address(ans_v1_primary_names_table_handle) {
-            if let Some(data) = write_table_item.data.as_ref() {
+        if table_handle == standardize_address(ans_v1_primary_names_table_handle)
+            && let Some(data) = write_table_item.data.as_ref() {
                 // Return early if key is not address type. This should not be possible but just a precaution
                 // in case we input the wrong table handle
                 if data.key_type != "address" {
@@ -247,7 +245,6 @@ impl CurrentAnsPrimaryName {
                     )));
                 }
             }
-        }
         Ok(None)
     }
 
@@ -260,8 +257,8 @@ impl CurrentAnsPrimaryName {
         write_set_change_index: i64,
     ) -> anyhow::Result<Option<(Self, AnsPrimaryName)>> {
         let table_handle = standardize_address(&delete_table_item.handle.to_string());
-        if table_handle == standardize_address(ans_v1_primary_names_table_handle) {
-            if let Some(data) = delete_table_item.data.as_ref() {
+        if table_handle == standardize_address(ans_v1_primary_names_table_handle)
+            && let Some(data) = delete_table_item.data.as_ref() {
                 // Return early if key is not address type. This should not be possible but just a precaution
                 // in case we input the wrong table handle
                 if data.key_type != "address" {
@@ -289,7 +286,6 @@ impl CurrentAnsPrimaryName {
                     },
                 )));
             }
-        }
         Ok(None)
     }
 }

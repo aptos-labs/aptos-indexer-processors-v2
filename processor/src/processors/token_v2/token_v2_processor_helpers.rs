@@ -203,8 +203,7 @@ pub async fn parse_v2_token(
                     tokens_minted.insert(mint_event.get_token_address());
                 } else if let Some(transfer_events) =
                     TransferEvent::from_event(event, txn_version).unwrap()
-                {
-                    if let Some(aggregated_data) =
+                    && let Some(aggregated_data) =
                         token_v2_metadata_helper.get_mut(&transfer_events.get_object_address())
                     {
                         // we don't want index to be 0 otherwise we might have collision with write set change index
@@ -218,7 +217,6 @@ pub async fn parse_v2_token(
                             .transfer_events
                             .push((index as i64, transfer_events));
                     }
-                }
                 // handling all the token v1 events
                 if let Some(event) = TokenActivityV2::get_v1_from_parsed_event(
                     event,

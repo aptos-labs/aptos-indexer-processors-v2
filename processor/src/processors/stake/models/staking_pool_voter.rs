@@ -38,8 +38,8 @@ impl CurrentStakingPoolVoter {
             .expect("Transaction timestamp doesn't exist!");
         let block_timestamp = parse_timestamp(timestamp, txn_version).naive_utc();
         for wsc in &transaction.info.as_ref().unwrap().changes {
-            if let Change::WriteResource(write_resource) = wsc.change.as_ref().unwrap() {
-                if let Some(StakeResource::StakePool(inner)) = StakeResource::from_write_resource(
+            if let Change::WriteResource(write_resource) = wsc.change.as_ref().unwrap()
+                && let Some(StakeResource::StakePool(inner)) = StakeResource::from_write_resource(
                     write_resource,
                     txn_version,
                     block_timestamp,
@@ -54,7 +54,6 @@ impl CurrentStakingPoolVoter {
                         block_timestamp,
                     });
                 }
-            }
         }
 
         Ok(staking_pool_voters)
