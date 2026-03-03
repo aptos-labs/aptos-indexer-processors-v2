@@ -62,9 +62,8 @@ dirs = "5.0.1"
 downcast-rs = "1.2.1"
 enum_dispatch = "0.3.13"
 field_count = "0.1.1"
-futures = "0.3.32"
-futures-core = "0.3.32"
-futures-util = "0.3.32"
+futures = "0.3.30"
+futures-util = "0.3.30"
 gcloud-sdk = { version = "0.20.4", features = [
     "google-cloud-bigquery-storage-v1",
 ] }
