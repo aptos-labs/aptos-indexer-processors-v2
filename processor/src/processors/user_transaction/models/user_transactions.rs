@@ -29,6 +29,9 @@ use aptos_indexer_processor_sdk::{
     utils::{
         convert::{bigdecimal_to_u64, standardize_address, u64_to_bigdecimal},
         extract::{
+            get_decryption_nonce_from_user_request,
+            get_encrypted_payload_hash_from_user_request,
+            get_encrypted_state_from_user_request,
             get_entry_function_contract_address_from_user_request,
             get_entry_function_from_user_request,
             get_entry_function_function_name_from_user_request,
@@ -68,6 +71,9 @@ pub struct UserTransaction {
     pub is_transaction_success: bool,
     pub storage_refund_octa: u64,
     pub gas_fee_payer_address: Option<String>,
+    pub encrypted_state: Option<String>,
+    pub encrypted_payload_hash: Option<String>,
+    pub decryption_nonce: Option<BigDecimal>,
 }
 
 impl UserTransaction {
@@ -143,6 +149,10 @@ impl UserTransaction {
                     .map(|fs| fs.storage_fee_refund_octas)
                     .unwrap_or(0),
                 gas_fee_payer_address,
+                encrypted_state: get_encrypted_state_from_user_request(user_request),
+                encrypted_payload_hash: get_encrypted_payload_hash_from_user_request(user_request),
+                decryption_nonce: get_decryption_nonce_from_user_request(user_request)
+                    .map(u64_to_bigdecimal),
                 num_signatures, // Corrected to use the calculated number of signatures
             },
             Self::get_signatures(user_request, version, block_height, block_timestamp),
@@ -196,6 +206,9 @@ pub struct ParquetUserTransaction {
     pub storage_refund_octa: u64,
     pub is_transaction_success: bool,
     pub num_signatures: i64,
+    pub encrypted_state: Option<String>,
+    pub encrypted_payload_hash: Option<String>,
+    pub decryption_nonce: Option<String>,
 }
 
 impl NamedTable for ParquetUserTransaction {
@@ -230,6 +243,9 @@ impl From<UserTransaction> for ParquetUserTransaction {
             storage_refund_octa: user_transaction.storage_refund_octa,
             is_transaction_success: user_transaction.is_transaction_success,
             num_signatures: user_transaction.num_signatures,
+            encrypted_state: user_transaction.encrypted_state,
+            encrypted_payload_hash: user_transaction.encrypted_payload_hash,
+            decryption_nonce: user_transaction.decryption_nonce.map(|n| n.to_string()),
         }
     }
 }
@@ -254,6 +270,9 @@ pub struct PostgresUserTransaction {
     pub entry_function_contract_address: Option<String>,
     pub entry_function_module_name: Option<String>,
     pub entry_function_function_name: Option<String>,
+    pub encrypted_state: Option<String>,
+    pub encrypted_payload_hash: Option<String>,
+    pub decryption_nonce: Option<BigDecimal>,
 }
 
 impl From<UserTransaction> for PostgresUserTransaction {
@@ -278,6 +297,9 @@ impl From<UserTransaction> for PostgresUserTransaction {
             entry_function_contract_address: user_transaction.entry_function_contract_address,
             entry_function_module_name: user_transaction.entry_function_module_name,
             entry_function_function_name: user_transaction.entry_function_function_name,
+            encrypted_state: user_transaction.encrypted_state,
+            encrypted_payload_hash: user_transaction.encrypted_payload_hash,
+            decryption_nonce: user_transaction.decryption_nonce,
         }
     }
 }

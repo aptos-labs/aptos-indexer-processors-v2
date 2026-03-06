@@ -13,6 +13,7 @@ pub fn get_any_public_key_type(any_public_key: &AnyPublicKey) -> String {
         AnyPublicKeyEnum::Secp256r1Ecdsa => "secp256r1_ecdsa".to_string(),
         AnyPublicKeyEnum::Keyless => "keyless".to_string(),
         AnyPublicKeyEnum::FederatedKeyless => "federated_keyless".to_string(),
+        AnyPublicKeyEnum::SlhDsaSha2128s => "slh_dsa_sha2_128s".to_string(),
         AnyPublicKeyEnum::Unspecified => {
             tracing::warn!("Unspecified public key type not supported");
             "unknown".to_string()

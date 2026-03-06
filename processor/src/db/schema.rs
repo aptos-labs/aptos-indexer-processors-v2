@@ -884,6 +884,11 @@ diesel::table! {
         #[max_length = 255]
         entry_function_function_name -> Nullable<Varchar>,
         replay_protection_nonce -> Nullable<Numeric>,
+        #[max_length = 50]
+        encrypted_state -> Nullable<Varchar>,
+        #[max_length = 130]
+        encrypted_payload_hash -> Nullable<Varchar>,
+        decryption_nonce -> Nullable<Numeric>,
     }
 }
 
