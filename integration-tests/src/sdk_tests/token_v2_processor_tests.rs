@@ -46,6 +46,7 @@ pub fn setup_token_v2_processor_config(
                 override_starting_version: transaction_stream_config.starting_version.unwrap(),
                 ending_version: transaction_stream_config.request_ending_version,
             }),
+            progress_health_config: None,
         },
         processor_name,
     )

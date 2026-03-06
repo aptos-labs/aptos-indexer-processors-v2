@@ -35,6 +35,15 @@ pub enum DbConfig {
     ParquetConfig(ParquetConfig),
 }
 
+impl DbConfig {
+    pub fn connection_string(&self) -> &str {
+        match self {
+            DbConfig::PostgresConfig(config) => &config.connection_string,
+            DbConfig::ParquetConfig(config) => &config.connection_string,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PostgresConfig {
