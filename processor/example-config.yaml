@@ -14,3 +14,7 @@ server_config:
   db_config:
     type: postgres_config
     connection_string: postgresql://postgres:@localhost:5432/example
+  # Optional: configure progress-based liveness checking. Enabled by default (45s threshold).
+  # Set to null to disable, or customize the threshold:
+  # progress_health_config:
+  #   no_progress_threshold_secs: 45

@@ -31,7 +31,8 @@ use crate::{
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig, server_framework::RunnableConfig,
+    aptos_indexer_transaction_stream::TransactionStreamConfig,
+    server_framework::{ProgressHealthConfig, RunnableConfig},
     traits::processor_trait::ProcessorTrait,
 };
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,15 @@ pub struct IndexerProcessorConfig {
     pub transaction_stream_config: TransactionStreamConfig,
     pub db_config: DbConfig,
     pub processor_mode: ProcessorMode,
+    /// Optional configuration for progress-based liveness checking. When set, the `/healthz`
+    /// endpoint returns 503 if the processor hasn't updated its status within the threshold.
+    /// Enabled by default with the SDK default threshold (45s).
+    #[serde(default = "default_progress_health_config")]
+    pub progress_health_config: Option<ProgressHealthConfig>,
+}
+
+fn default_progress_health_config() -> Option<ProgressHealthConfig> {
+    Some(ProgressHealthConfig::default())
 }
 
 #[async_trait::async_trait]

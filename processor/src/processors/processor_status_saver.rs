@@ -392,6 +392,7 @@ mod tests {
                 transaction_filter: None,
                 backup_endpoints: vec![],
             },
+            progress_health_config: None,
         }
     }
 
