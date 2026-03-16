@@ -3,6 +3,7 @@
 
 // TODO: add back all models and configs back as we migrate
 use crate::{
+    processors::event_file::event_file_config::EventFileProcessorConfig,
     parquet_processors::{
         parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
         parquet_events::parquet_events_model::ParquetEvent,
@@ -109,6 +110,8 @@ pub enum ProcessorConfig {
     ObjectsProcessor(ObjectsProcessorConfig),
     MonitoringProcessor(DefaultProcessorConfig),
     GasFeeProcessor(DefaultProcessorConfig),
+    // Event file processor (GCS-based, no DB)
+    EventFileProcessor(EventFileProcessorConfig),
     // ParquetProcessor
     ParquetDefaultProcessor(ParquetDefaultProcessorConfig),
     ParquetObjectsProcessor(ParquetDefaultProcessorConfig),

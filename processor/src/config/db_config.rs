@@ -36,6 +36,9 @@ use serde::{Deserialize, Serialize};
 pub enum DbConfig {
     PostgresConfig(PostgresConfig),
     ParquetConfig(ParquetConfig),
+    /// Used by processors that do not need a database (e.g. the event file
+    /// processor which writes directly to GCS).
+    NoneConfig,
 }
 
 impl DbConfig {
@@ -43,6 +46,7 @@ impl DbConfig {
         match self {
             DbConfig::PostgresConfig(config) => &config.connection_string,
             DbConfig::ParquetConfig(config) => &config.connection_string,
+            DbConfig::NoneConfig => "",
         }
     }
 }
