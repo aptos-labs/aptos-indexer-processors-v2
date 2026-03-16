@@ -46,8 +46,8 @@ hex = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
-lz4_flex = { workspace = true }
 log = { workspace = true }
+lz4_flex = { workspace = true }
 
 # Postgres SSL support
 native-tls = { workspace = true }
