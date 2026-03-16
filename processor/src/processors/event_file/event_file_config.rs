@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 // region: --- Flush trigger defaults ---
 
 const fn default_max_file_size_bytes() -> usize {
-    50 * (1 << 20) // 50 MiB
+    50 * 1024 * 1024 // 50 MiB
 }
 
 const fn default_max_txns_per_folder() -> u64 {

@@ -150,8 +150,7 @@ impl EventFileProcessor {
                     );
                 }
 
-                // Load the current folder's metadata to recover in-progress
-                // state.
+                // Load the current folder's metadata to recover in-progress state.
                 let folder_meta_path: PathBuf = [
                     root.current_folder_index.to_string(),
                     METADATA_FILE_NAME.to_string(),
