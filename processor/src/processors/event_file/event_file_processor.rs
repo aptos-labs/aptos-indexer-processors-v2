@@ -173,15 +173,16 @@ impl EventFileProcessor {
                     None => FolderMetadata::new(root.current_folder_index),
                 };
 
-                // Prefer folder metadata over root metadata for both
-                // latest_version and folder_txn_count, since root metadata may
-                // lag behind due to rate-limited updates.
-                let latest_version = if let Some(last_file) = folder_metadata.files.last() {
-                    last_file.last_version
-                } else {
-                    root.latest_version
-                };
-                let folder_txn_count = folder_metadata.total_transactions;
+                // Prefer folder metadata when available since it tracks
+                // per-file details. When folder metadata is missing (written
+                // less frequently than root metadata), fall back to the root
+                // metadata values which update more often.
+                let (latest_version, folder_txn_count) =
+                    if let Some(last_file) = folder_metadata.files.last() {
+                        (last_file.last_version, folder_metadata.total_transactions)
+                    } else {
+                        (root.latest_version, root.current_folder_txn_count)
+                    };
 
                 Ok((
                     root.chain_id,

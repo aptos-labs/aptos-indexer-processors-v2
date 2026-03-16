@@ -31,6 +31,9 @@ pub struct EventFileWriterStep {
 
     // Buffer state
     buffer: Vec<EventWithContext>,
+    /// Approximate buffer size tracked via `prost::Message::encoded_len()` (protobuf
+    /// wire size). When using JSON output, actual serialized size will be larger
+    /// than this estimate — configure `max_file_size_bytes` accordingly.
     buffer_size_bytes: usize,
     /// Number of distinct transaction versions that contributed events to the
     /// current *folder* (across potentially many files).
@@ -315,6 +318,21 @@ impl Processable for EventFileWriterStep {
                 self.latest_version = version + 1;
             }
         }
+
+        // Always advance latest_version from batch metadata so progress is
+        // tracked even when no events matched our filters.
+        let batch_end_exclusive = batch.metadata.end_version + 1;
+        if batch_end_exclusive > self.latest_version {
+            self.latest_version = batch_end_exclusive;
+        }
+
+        // Periodically persist root metadata so external observers can see
+        // indexing progress even during stretches with no matching events.
+        self.maybe_update_root_metadata(false)
+            .await
+            .map_err(|e| ProcessorError::ProcessError {
+                message: format!("Failed to update root metadata: {e}"),
+            })?;
 
         Ok(Some(TransactionContext {
             data: (),
