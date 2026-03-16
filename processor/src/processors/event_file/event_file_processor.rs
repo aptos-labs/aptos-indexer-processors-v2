@@ -5,18 +5,19 @@ use super::{
     event_file_config::EventFileProcessorConfig,
     event_file_extractor::EventFileExtractorStep,
     event_file_writer::EventFileWriterStep,
-    metadata::{FolderMetadata, RootMetadata, METADATA_FILE_NAME},
+    metadata::{FolderMetadata, METADATA_FILE_NAME, RootMetadata},
     storage::{FileStore, GcsFileStore},
 };
 use crate::config::{
-    indexer_processor_config::IndexerProcessorConfig,
-    processor_config::ProcessorConfig,
+    indexer_processor_config::IndexerProcessorConfig, processor_config::ProcessorConfig,
     processor_mode::ProcessorMode,
 };
 use anyhow::{Context, Result, bail};
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::TransactionStreamConfig,
-    aptos_transaction_filter::{BooleanTransactionFilter, EventFilterBuilder, MoveStructTagFilterBuilder},
+    aptos_transaction_filter::{
+        BooleanTransactionFilter, EventFilterBuilder, MoveStructTagFilterBuilder,
+    },
     builder::ProcessorBuilder,
     common_steps::TransactionStreamStep,
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
@@ -67,7 +68,9 @@ impl EventFileProcessor {
                 if let Some(ref name) = f.event_name {
                     tag_builder.name(name.clone());
                 }
-                let tag = tag_builder.build().expect("MoveStructTagFilter build should not fail");
+                let tag = tag_builder
+                    .build()
+                    .expect("MoveStructTagFilter build should not fail");
                 let event_filter = EventFilterBuilder::default()
                     .struct_type(tag)
                     .build()
@@ -126,8 +129,8 @@ impl EventFileProcessor {
                 Ok((0, starting_version, 0, FolderMetadata::new(0), 0))
             },
             Some(data) => {
-                let root: RootMetadata = serde_json::from_slice(&data)
-                    .context("Failed to parse root metadata.json")?;
+                let root: RootMetadata =
+                    serde_json::from_slice(&data).context("Failed to parse root metadata.json")?;
                 info!(
                     latest_version = root.latest_version,
                     folder = root.current_folder_index,
@@ -157,26 +160,28 @@ impl EventFileProcessor {
                 .collect();
 
                 let folder_metadata = match store.get_file(folder_meta_path).await? {
-                    Some(data) => serde_json::from_slice(&data)
-                        .context("Failed to parse folder metadata")?,
+                    Some(data) => {
+                        serde_json::from_slice(&data).context("Failed to parse folder metadata")?
+                    },
                     None => FolderMetadata::new(root.current_folder_index),
                 };
 
-                // Walk the folder metadata to find the true latest version.
-                // The root metadata's latest_version may lag behind due to
-                // rate-limited updates.
+                // Prefer folder metadata over root metadata for both
+                // latest_version and folder_txn_count, since root metadata may
+                // lag behind due to rate-limited updates.
                 let latest_version = if let Some(last_file) = folder_metadata.files.last() {
                     last_file.last_version
                 } else {
                     root.latest_version
                 };
+                let folder_txn_count = folder_metadata.total_transactions;
 
                 Ok((
                     root.chain_id,
                     latest_version,
                     root.current_folder_index,
                     folder_metadata,
-                    root.current_folder_txn_count,
+                    folder_txn_count,
                 ))
             },
         }
@@ -194,7 +199,9 @@ impl ProcessorTrait for EventFileProcessor {
             GcsFileStore::new(
                 self.event_file_config.bucket_name.clone(),
                 self.event_file_config.bucket_root.clone(),
-                self.event_file_config.google_application_credentials.clone(),
+                self.event_file_config
+                    .google_application_credentials
+                    .clone(),
             )
             .await?,
         );
@@ -217,12 +224,8 @@ impl ProcessorTrait for EventFileProcessor {
         })
         .await?;
 
-        let extractor = EventFileExtractorStep::new(
-            self.event_file_config
-                .event_filter_config
-                .filters
-                .clone(),
-        );
+        let extractor =
+            EventFileExtractorStep::new(self.event_file_config.event_filter_config.filters.clone());
 
         let writer = EventFileWriterStep::new(
             store,

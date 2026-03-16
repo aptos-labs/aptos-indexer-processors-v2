@@ -3,7 +3,6 @@
 
 // TODO: add back all models and configs back as we migrate
 use crate::{
-    processors::event_file::event_file_config::EventFileProcessorConfig,
     parquet_processors::{
         parquet_ans::parquet_ans_processor::ParquetAnsProcessorConfig,
         parquet_events::parquet_events_model::ParquetEvent,
@@ -27,6 +26,7 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
+        event_file::event_file_config::EventFileProcessorConfig,
         fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::ParquetFungibleAssetBalance,

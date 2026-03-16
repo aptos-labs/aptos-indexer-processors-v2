@@ -3,7 +3,7 @@
 
 use super::{
     event_file_config::{CompressionMode, EventFileProcessorConfig, OutputFormat},
-    metadata::{FileMetadata, FolderMetadata, RootMetadata, METADATA_FILE_NAME},
+    metadata::{FileMetadata, FolderMetadata, METADATA_FILE_NAME, RootMetadata},
     models::{EventFile, EventWithContext},
     storage::FileStore,
 };
@@ -136,12 +136,9 @@ impl EventFileWriterStep {
         let size_bytes = compressed.len();
 
         let filename = format!("{first_version}{}", self.file_extension);
-        let file_path: PathBuf = [
-            self.current_folder_index.to_string(),
-            filename.clone(),
-        ]
-        .iter()
-        .collect();
+        let file_path: PathBuf = [self.current_folder_index.to_string(), filename.clone()]
+            .iter()
+            .collect();
 
         info!(
             folder = self.current_folder_index,
@@ -285,18 +282,28 @@ impl Processable for EventFileWriterStep {
             let ts = event.timestamp;
             let size = event.encoded_len();
 
+            // Flush only at transaction boundaries: when we see a new version,
+            // check triggers *before* adding its events. This guarantees every
+            // file contains complete transactions.
+            if self.last_version_in_file != Some(version) {
+                if self.should_flush(ts.as_ref()) {
+                    self.flush()
+                        .await
+                        .map_err(|e| ProcessorError::ProcessError {
+                            message: format!("Failed to flush event file: {e}"),
+                        })?;
+                }
+
+                self.file_txn_count += 1;
+                self.folder_txn_count += 1;
+                self.last_version_in_file = Some(version);
+            }
+
             if self.file_first_version.is_none() {
                 self.file_first_version = Some(version);
             }
             if self.first_timestamp_since_flush.is_none() {
                 self.first_timestamp_since_flush = ts;
-            }
-
-            // Track distinct txn versions for file and folder counts.
-            if self.last_version_in_file != Some(version) {
-                self.file_txn_count += 1;
-                self.folder_txn_count += 1;
-                self.last_version_in_file = Some(version);
             }
 
             self.buffer.push(event);
@@ -306,12 +313,6 @@ impl Processable for EventFileWriterStep {
             // process), so we store version + 1.
             if version >= self.latest_version {
                 self.latest_version = version + 1;
-            }
-
-            if self.should_flush(ts.as_ref()) {
-                self.flush().await.map_err(|e| ProcessorError::ProcessError {
-                    message: format!("Failed to flush event file: {e}"),
-                })?;
             }
         }
 
@@ -328,15 +329,17 @@ impl Processable for EventFileWriterStep {
             buffered_events = self.buffer.len(),
             "Writer cleanup: flushing remaining buffer"
         );
-        self.flush().await.map_err(|e| ProcessorError::ProcessError {
-            message: format!("Failed to flush during cleanup: {e}"),
-        })?;
-        // Force a final metadata write so the store reflects the true state.
-        self.maybe_update_folder_metadata(true)
+        self.flush()
             .await
             .map_err(|e| ProcessorError::ProcessError {
-                message: format!("Failed to update folder metadata during cleanup: {e}"),
+                message: format!("Failed to flush during cleanup: {e}"),
             })?;
+        // Force a final metadata write so the store reflects the true state.
+        self.maybe_update_folder_metadata(true).await.map_err(|e| {
+            ProcessorError::ProcessError {
+                message: format!("Failed to update folder metadata during cleanup: {e}"),
+            }
+        })?;
         self.maybe_update_root_metadata(true)
             .await
             .map_err(|e| ProcessorError::ProcessError {

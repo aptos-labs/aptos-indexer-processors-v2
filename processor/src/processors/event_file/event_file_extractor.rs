@@ -3,7 +3,7 @@
 
 use super::{event_file_config::SingleEventFilter, models::EventWithContext};
 use aptos_indexer_processor_sdk::{
-    aptos_protos::transaction::v1::{transaction::TxnData, Event, Transaction},
+    aptos_protos::transaction::v1::{Event, Transaction, transaction::TxnData},
     traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,

@@ -11,7 +11,11 @@ use google_cloud_storage::{
         upload::{Media, UploadObjectRequest, UploadType},
     },
 };
-use std::{path::{Path, PathBuf}, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
@@ -84,12 +88,18 @@ impl FileStore for GcsFileStore {
         let mut delay = INITIAL_RETRY_DELAY;
         loop {
             let body = hyper::Body::from(data.clone());
-            match self.client.upload_object(&upload_request, body, &upload_type).await {
+            match self
+                .client
+                .upload_object(&upload_request, body, &upload_type)
+                .await
+            {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     retry_count += 1;
                     if retry_count > MAX_RETRIES {
-                        return Err(e).context(format!("Failed to upload {object_name} after {MAX_RETRIES} retries"));
+                        return Err(e).context(format!(
+                            "Failed to upload {object_name} after {MAX_RETRIES} retries"
+                        ));
                     }
                     warn!(
                         object = object_name,
@@ -110,7 +120,11 @@ impl FileStore for GcsFileStore {
             object: object_name.clone(),
             ..Default::default()
         };
-        match self.client.download_object(&request, &Range::default()).await {
+        match self
+            .client
+            .download_object(&request, &Range::default())
+            .await
+        {
             Ok(data) => Ok(Some(data)),
             Err(e) => {
                 let msg = e.to_string();
