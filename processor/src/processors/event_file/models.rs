@@ -11,6 +11,11 @@ use serde::Serialize;
 /// grouping events by transaction. This is intentional — with server-side
 /// filtering there are very few events per transaction so the overhead is
 /// negligible, and it makes the consumer side simpler.
+///
+/// NOTE: The `event` field contains event data serialized as per the node API's
+/// Move data viewer. This means addresses inside the event payload are NOT
+/// AIP-40 compliant (i.e. not zero-padded to 66 chars). Only the top-level
+/// `type_str` on the Event proto uses whatever format the node emitted.
 #[derive(Clone, Serialize, prost::Message)]
 pub struct EventWithContext {
     #[prost(uint64, tag = "1")]

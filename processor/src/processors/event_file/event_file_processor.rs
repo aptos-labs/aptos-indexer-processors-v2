@@ -14,9 +14,10 @@ use crate::config::{
 };
 use anyhow::{Context, Result, bail};
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig,
+    aptos_indexer_transaction_stream::{TransactionStreamConfig, transaction_stream::get_chain_id},
     aptos_transaction_filter::{
         BooleanTransactionFilter, EventFilterBuilder, MoveStructTagFilterBuilder,
+        TransactionRootFilterBuilder,
     },
     builder::ProcessorBuilder,
     common_steps::TransactionStreamStep,
@@ -49,13 +50,22 @@ impl EventFileProcessor {
     }
 
     /// Build a server-side `BooleanTransactionFilter` from the configured event
-    /// filters. This narrows the gRPC stream to only transactions containing
-    /// events from the specified modules, saving bandwidth.
+    /// filters. This narrows the gRPC stream to only successful transactions
+    /// containing events from the specified modules, saving bandwidth.
     fn build_transaction_filter(&self) -> Option<BooleanTransactionFilter> {
         let filters = &self.event_file_config.event_filter_config.filters;
         if filters.is_empty() {
             return None;
         }
+
+        // Only stream successful transactions — failed txns don't produce
+        // meaningful events.
+        let success_filter = BooleanTransactionFilter::from(
+            TransactionRootFilterBuilder::default()
+                .success(true)
+                .build()
+                .expect("TransactionRootFilter build should not fail"),
+        );
 
         let event_filters: Vec<BooleanTransactionFilter> = filters
             .iter()
@@ -79,18 +89,27 @@ impl EventFileProcessor {
             })
             .collect();
 
-        if event_filters.len() == 1 {
-            Some(event_filters.into_iter().next().unwrap())
+        let event_filter = if event_filters.len() == 1 {
+            event_filters.into_iter().next().unwrap()
         } else {
-            Some(BooleanTransactionFilter::new_or(event_filters))
-        }
+            BooleanTransactionFilter::new_or(event_filters)
+        };
+
+        // success AND (event_filter_1 OR event_filter_2 OR ...)
+        Some(BooleanTransactionFilter::new_and(vec![
+            success_filter,
+            event_filter,
+        ]))
     }
 
     /// Recover from GCS metadata to determine the starting version, current
-    /// folder state, and chain_id. If no metadata exists, initializes the store.
+    /// folder state, and chain_id. If no metadata exists yet this is a fresh
+    /// start and we return defaults without writing anything — the root metadata
+    /// is only written once we know the chain_id (from the gRPC stream).
     ///
     /// Returns `(chain_id, starting_version, folder_index, folder_metadata,
-    /// folder_txn_count)`.
+    /// folder_txn_count)`. `chain_id` is 0 on fresh start and will be resolved
+    /// by the caller before the writer begins.
     async fn recover_or_initialize(
         &self,
         store: &Arc<dyn FileStore>,
@@ -102,7 +121,6 @@ impl EventFileProcessor {
 
         match raw {
             None => {
-                // First run — bootstrap and write initial metadata.
                 let starting_version = match &self.config.processor_mode {
                     ProcessorMode::Default(boot) => boot.initial_starting_version,
                     ProcessorMode::Testing(test) => test.override_starting_version,
@@ -113,19 +131,8 @@ impl EventFileProcessor {
                     "No existing metadata found, bootstrapping"
                 );
 
-                let root = RootMetadata {
-                    chain_id: 0, // Will be updated once the stream connects.
-                    latest_version: starting_version,
-                    current_folder_index: 0,
-                    current_folder_txn_count: 0,
-                    config: self.event_file_config.immutable_config(),
-                };
-                let data = serde_json::to_vec(&root)?;
-                store
-                    .save_file(PathBuf::from(METADATA_FILE_NAME), data)
-                    .await
-                    .context("Failed to write initial root metadata")?;
-
+                // Don't write root metadata yet — we don't know the chain_id.
+                // The writer will write it on first flush once chain_id is set.
                 Ok((0, starting_version, 0, FolderMetadata::new(0), 0))
             },
             Some(data) => {
@@ -134,6 +141,7 @@ impl EventFileProcessor {
                 info!(
                     latest_version = root.latest_version,
                     folder = root.current_folder_index,
+                    chain_id = root.chain_id,
                     "Recovered from existing metadata"
                 );
 
@@ -205,8 +213,17 @@ impl ProcessorTrait for EventFileProcessor {
             .await?,
         );
 
-        let (chain_id, starting_version, folder_index, folder_metadata, folder_txn_count) =
+        let (mut chain_id, starting_version, folder_index, folder_metadata, folder_txn_count) =
             self.recover_or_initialize(&store).await?;
+
+        // On a fresh start, chain_id is 0. Resolve it from the gRPC stream
+        // before writing any metadata so we never persist an unknown chain_id.
+        if chain_id == 0 {
+            chain_id = get_chain_id(self.config.transaction_stream_config.clone())
+                .await
+                .context("Failed to get chain_id from transaction stream")?;
+            info!(chain_id, "Resolved chain_id from gRPC stream");
+        }
 
         let transaction_filter = self.build_transaction_filter();
         let ending_version = match &self.config.processor_mode {
