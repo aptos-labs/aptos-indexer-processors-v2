@@ -1,6 +1,7 @@
 #!/bin/bash
-# Copyright (c) Aptos
-# SPDX-License-Identifier: Apache-2.0
+
+# Copyright (c) Aptos Foundation
+# Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 # This script is to build and push aptos indexer processors v2 images.
 # You need to execute this from the repository root as working directory

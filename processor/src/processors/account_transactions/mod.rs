@@ -1,10 +1,10 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 pub mod account_transactions_extractor;
 pub mod account_transactions_model;
 pub mod account_transactions_processor;
 pub mod account_transactions_storer;
-
-// Copyright © Aptos Foundation
-// SPDX-License-Identifier: Apache-2.0
 
 use crate::processors::account_transactions::account_transactions_model::AccountTransaction;
 use aptos_indexer_processor_sdk::{

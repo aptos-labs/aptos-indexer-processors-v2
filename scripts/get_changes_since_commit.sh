@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright (c) Aptos Foundation
+# Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 # Generate a list of markdown formatted changes since the supplied `previous-commit`. 
 # You'd run this script like this:
 # ./scripts/get_changes_since_commit.sh --previous-commit 1d2e083acdd88d0829ad31e3a1725e3898565fda

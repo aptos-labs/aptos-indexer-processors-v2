@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::testing_framework::sdk_test_context::SdkTestContext;
 use processor::{

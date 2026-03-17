@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Copyright (c) Aptos Foundation
+# Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 # This assumes you have already installed cargo-sort:
 # cargo install cargo-sort
 #
@@ -24,6 +27,9 @@ fi
 
 set -e
 set -x
+
+# Ensure all source files have the correct license header.
+python3 scripts/check_license.py $CHECK_ARG
 
 cargo +nightly xclippy
 
