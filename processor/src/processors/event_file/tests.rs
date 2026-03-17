@@ -41,6 +41,7 @@ fn test_config() -> EventFileProcessorConfig {
     }
 }
 
+/// Takes in a list of txn versions.
 fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
     versions
         .iter()
@@ -79,6 +80,12 @@ fn make_multi_events(versions: &[u64], count: usize) -> Vec<EventWithContext> {
         .collect()
 }
 
+/// Build a `TransactionContext` with explicit batch range.
+///
+/// `start_version..=end_version` (both inclusive) represents the range of
+/// transaction versions the processor *scanned*, which is typically wider than
+/// the events (most transactions don't match the filter). The writer uses
+/// `end_version` to advance `processed_version` (`end_version + 1`).
 fn make_batch(
     events: Vec<EventWithContext>,
     start_version: u64,
@@ -103,7 +110,21 @@ async fn do_recovery(
     recover_state(store, config, 0).await.unwrap()
 }
 
+/// Process events with batch range derived from the events themselves.
+/// Suitable for most tests that don't care about the scanned range.
 async fn process_batch(
+    writer: &mut EventFileWriterStep,
+    events: Vec<EventWithContext>,
+) -> anyhow::Result<()> {
+    let start = events.first().map_or(0, |e| e.version);
+    let end = events.last().map_or(0, |e| e.version);
+    process_batch_with_range(writer, events, start, end).await
+}
+
+/// Process events with an explicit scanned range (`start_version..=end_version`,
+/// both inclusive). Use when the test needs the batch to represent a wider scan
+/// than just the matching events (e.g. to test `processed_version` semantics).
+async fn process_batch_with_range(
     writer: &mut EventFileWriterStep,
     events: Vec<EventWithContext>,
     start_version: u64,
@@ -135,11 +156,18 @@ async fn test_recovery_after_buffered_events_not_flushed() {
         0,
     );
 
+    // 3 events with default config: none of the flush triggers fire
+    // (3 txns < max_txns_per_folder=100, tiny size < 50 MiB,
+    // elapsed 2s < max_seconds_between_flushes=600). All events stay buffered.
+    // Use explicit range: the batch scanned versions 0..=100 even though only
+    // 10, 11, 12 matched, so processed_version should be 101.
     let events = make_events(&[10, 11, 12]);
-    process_batch(&mut writer, events, 0, 100).await.unwrap();
+    process_batch_with_range(&mut writer, events, 0, 100)
+        .await
+        .unwrap();
 
-    // Root metadata should have been written with flushed_version=0 (nothing
-    // flushed), not the optimistic processed_version=101.
+    // Root metadata was written by the periodic update at the end of
+    // process(), but since nothing was flushed it should reflect that.
     let root_raw = store
         .get_file(PathBuf::from(METADATA_FILE_NAME))
         .await
@@ -171,7 +199,7 @@ async fn test_recovery_after_buffered_events_not_flushed() {
 }
 
 /// Verify that after a successful flush, recovery starts from the flushed
-/// version rather than losing data.
+/// watermark, not from buffered-but-unflushed events.
 #[tokio::test]
 async fn test_recovery_after_flush_then_more_buffered() {
     let dir = tempfile::tempdir().unwrap();
@@ -189,10 +217,11 @@ async fn test_recovery_after_flush_then_more_buffered() {
         0,
     );
 
-    // Versions 10, 11, 12 fill the folder (limit=3). Version 20 triggers
-    // a flush when it arrives at a new transaction boundary.
+    // Versions 10, 11, 12 reach max_txns_per_folder=3. When version 20
+    // arrives it triggers a flush of [v10, v11, v12] at the transaction
+    // boundary. Version 20 remains buffered (unflushed).
     let events = make_events(&[10, 11, 12, 20]);
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     drop(writer);
 
@@ -200,12 +229,12 @@ async fn test_recovery_after_flush_then_more_buffered() {
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 13,
-        "Recovery should restart from last flushed version"
+        "Recovery should restart from flushed watermark (exclusive upper bound of v10-v12)"
     );
 }
 
 /// Verify that folder_txn_count and folder_metadata.total_transactions stay
-/// consistent across a crash-recovery cycle when folder metadata is missing.
+/// consistent across a clean shutdown and recovery cycle.
 #[tokio::test]
 async fn test_folder_txn_count_consistent_across_recovery() {
     let dir = tempfile::tempdir().unwrap();
@@ -225,7 +254,7 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     );
 
     let events = make_events(&[1, 2, 3, 4, 5]);
-    process_batch(&mut writer, events, 0, 10).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Flush remaining buffer and force-write all metadata before "crash".
     writer.cleanup().await.unwrap();
@@ -296,10 +325,10 @@ async fn test_recovery_advances_past_completed_folder() {
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 13,
-        "starting version should come from sealed folder"
+        "starting version should be max(folder.last_version, root.latest_committed_version)"
     );
-    assert_eq!(folder_index, 1, "should advance to folder 1");
-    assert_eq!(folder_txn_count, 0, "new folder should have 0 txn count");
+    assert_eq!(folder_index, 1, "should advance past sealed folder 0");
+    assert_eq!(folder_txn_count, 0, "new folder should start with 0 txns");
     assert!(
         recovered_folder_metadata.files.is_empty(),
         "new folder metadata should be empty"
@@ -372,10 +401,10 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         folder_txn_count,
     );
 
-    // Process new events. 3 txns (20, 21, 22) fill the new folder, then 30
-    // triggers a flush at the transaction boundary.
+    // Versions 20, 21, 22 reach max_txns_per_folder=3 in folder 1. Version
+    // 30 triggers a flush of [v20, v21, v22] and seals folder 1.
     let events = make_events(&[20, 21, 22, 30]);
-    process_batch(&mut writer, events, 13, 50).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Folder 0 metadata must be unchanged (still sealed with only the
     // original file).
@@ -471,8 +500,10 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     let config = test_config();
 
     // Simulate a crash where root metadata is ahead of folder metadata.
-    // Root was written after a flush (flushed_version=200), but folder
-    // metadata was rate-limited and only reflects an earlier file.
+    // Root was written after the latest flush (latest_committed_version=200,
+    // current_folder_txn_count=20), but the folder metadata write was
+    // rate-limited and still reflects an older state (last_version=100,
+    // total_transactions=10).
     let mut folder_metadata = FolderMetadata::new(0);
     folder_metadata.total_transactions = 10;
     folder_metadata.first_version = 50;
@@ -547,11 +578,11 @@ async fn test_complete_transactions_multi_event_txn_not_split() {
         0,
     );
 
-    // 3 events each for versions 10 and 11 (2 txns, 6 events total), then
-    // version 12 triggers the flush at the folder boundary.
+    // 3 events each for versions 10 and 11 (2 txns, 6 events total) reach
+    // max_txns_per_folder=2. Version 12 triggers a flush of [v10×3, v11×3].
     let mut events = make_multi_events(&[10, 11], 3);
     events.extend(make_events(&[12]));
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Read back the flushed data file and decode it.
     let folder_raw = store
@@ -672,9 +703,10 @@ async fn test_version_semantics_and_filename_encoding() {
         0,
     );
 
-    // Versions 10, 11, 12 fill the folder. Version 50 triggers the flush.
+    // Versions 10, 11, 12 reach max_txns_per_folder=3. Version 50 triggers
+    // a flush of [v10, v11, v12]. Version 50 remains buffered.
     let events = make_events(&[10, 11, 12, 50]);
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     let folder_raw = store
         .get_file(PathBuf::from("0/metadata.json"))
@@ -686,11 +718,10 @@ async fn test_version_semantics_and_filename_encoding() {
     assert_eq!(folder_metadata.files.len(), 1);
     let file = &folder_metadata.files[0];
 
-    // first_version should be the earliest event version.
     assert_eq!(file.first_version, 10, "file.first_version should be 10");
 
-    // last_version should be exclusive: the file contains versions 10, 11, 12
-    // so last_version should be 13 (the next version to process after 12).
+    // last_version is exclusive: the file contains versions 10, 11, 12
+    // so last_version = max(version) + 1 = 13.
     assert_eq!(
         file.last_version, 13,
         "file.last_version should be exclusive upper bound (13)"
@@ -745,9 +776,10 @@ async fn test_data_file_content_matches_after_flush() {
         0,
     );
 
-    // Versions 10, 11 fill the folder. Version 20 triggers flush.
+    // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
+    // a flush of [v10, v11].
     let events = make_events(&[10, 11, 20]);
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Read back the data file from disk.
     let data = store
@@ -796,9 +828,10 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
         0,
     );
 
-    // Versions 10, 11 fill folder 0. Version 20 triggers flush + seal.
+    // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
+    // a flush of [v10, v11] and seals folder 0. Version 20 goes into folder 1.
     let events = make_events(&[10, 11, 20]);
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Snapshot folder 0 metadata after it is sealed.
     let folder_0_snapshot = store
@@ -809,10 +842,10 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
     let folder_0_before: FolderMetadata = serde_json::from_slice(&folder_0_snapshot).unwrap();
     assert!(folder_0_before.is_complete, "folder 0 should be sealed");
 
-    // Process more events that go into folder 1. Version 21 fills it,
-    // version 30 triggers flush.
+    // Folder 1 already has v20 (buffered). v21 is the 2nd txn in folder 1,
+    // reaching max_txns_per_folder=2. v30 triggers the flush + seal.
     let events = make_events(&[21, 30]);
-    process_batch(&mut writer, events, 200, 400).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Re-read folder 0 metadata — it must be byte-identical.
     let folder_0_after_raw = store
@@ -880,7 +913,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
     //   - v12: flush [v11], then buffer v12
     // After batch: flushed versions 10 and 11 (2 txns). v12 is buffered.
     let events = make_events(&[10, 11, 12]);
-    process_batch(&mut writer, events, 0, 100).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
     // Root metadata should report only the flushed count (2), not 3.
     let root_raw = store
@@ -923,7 +956,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
 
     // Re-process v12 (was buffered, lost in crash) plus new events v13, v14.
     let events = make_events(&[12, 13, 14]);
-    process_batch(&mut writer, events, 12, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
     writer.cleanup().await.unwrap();
 
     // Final root metadata should show 5 total txns (2 from before + 3 new),

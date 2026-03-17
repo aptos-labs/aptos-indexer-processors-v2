@@ -3,10 +3,9 @@
 
 //! Crash-recovery integration tests for the event file writer.
 //!
-//! These tests use the `failpoints` crate to inject failures at key locations
-//! inside the writer's flush path, simulating crashes at different stages.
-//! Recovery is then run against the same `LocalFileStore` to verify data
-//! integrity.
+//! These tests use the `failpoints` crate to inject failures at key locations inside
+//! the writer's flush path, simulating crashes at different stages. Recovery is then
+//! run against the same `LocalFileStore` to verify data integrity.
 //!
 //! Run with:
 //!
@@ -14,8 +13,11 @@
 //! cargo test -p integration-tests --features failpoints -- event_file
 //! ```
 //!
-//! Failpoints are global singletons, so every test acquires the `FailScenario`
-//! lock to avoid interference.
+//! Failpoints are global singletons, so every test acquires the `FailScenario` lock to
+//! avoid interference.
+//!
+//! Tests that don't require failpoints are in
+//! `processor/src/processors/event_file/tests.rs`.
 
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Event,
@@ -78,6 +80,12 @@ fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
         .collect()
 }
 
+/// Build a `TransactionContext` with explicit batch range.
+///
+/// `start_version..=end_version` (both inclusive) represents the range of
+/// transaction versions the processor *scanned*, which is typically wider than
+/// the events (most transactions don't match the filter). The writer uses
+/// `end_version` to advance `processed_version` (`end_version + 1`).
 fn make_batch(
     events: Vec<EventWithContext>,
     start_version: u64,
@@ -95,14 +103,17 @@ fn make_batch(
     }
 }
 
+/// Process events with batch range derived from the events themselves.
+/// Suitable for most tests that don't care about the scanned range.
 async fn process_batch(
     writer: &mut EventFileWriterStep,
     events: Vec<EventWithContext>,
-    start_version: u64,
-    end_version: u64,
 ) -> anyhow::Result<()> {
+    let start = events.first().map_or(0, |e| e.version);
+    let end = events.last().map_or(0, |e| e.version);
+    let batch = make_batch(events, start, end);
     writer
-        .process(make_batch(events, start_version, end_version))
+        .process(batch)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
@@ -160,17 +171,19 @@ async fn crash_after_file_write_before_metadata() {
 
     failpoints::cfg("after-file-write", "return").unwrap();
 
-    // Events [10, 11]: flush triggers on version 11 (time trigger, elapsed >= 0).
-    // The flush writes the data file for version 10 then hits the failpoint.
+    // With max_seconds_between_flushes=0: v10 is buffered, then v11 triggers a
+    // time-based flush (elapsed >= 0). The flush writes the data file for [v10],
+    // then the failpoint fires before any metadata is written.
     let events = make_events(&[10, 11]);
-    let result = process_batch(&mut writer, events, 0, 50).await;
+    let result = process_batch(&mut writer, events).await;
     assert!(result.is_err(), "failpoint should cause an error");
 
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // No metadata was written -> recovery falls back to default starting
-    // version (0). The orphaned data file is harmless; it will be overwritten.
+    // No metadata was written, so recovery falls back to default starting
+    // version (0). The orphaned data file (0/10.pb) is harmless — it will be
+    // overwritten on the next successful flush.
     let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
         do_recovery(&store, &config).await;
     assert_eq!(
@@ -221,24 +234,24 @@ async fn crash_after_folder_metadata_before_root() {
 
     failpoints::cfg("after-folder-metadata", "return").unwrap();
 
-    // Events [10, 11]: flush triggers on version 11. File written for [10],
-    // folder metadata updated, then failpoint fires before root metadata.
+    // With max_seconds_between_flushes=0: v10 is buffered, then v11 triggers a
+    // time-based flush of [v10]. File and folder metadata are written
+    // successfully, then the failpoint fires before root metadata is updated.
     let events = make_events(&[10, 11]);
-    let result = process_batch(&mut writer, events, 0, 50).await;
+    let result = process_batch(&mut writer, events).await;
     assert!(result.is_err(), "failpoint should cause an error");
 
     drop(writer);
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
-    // Root metadata is stale (v=0) but folder metadata has the file.
-    // With max_seconds_between_flushes=0 and events [10, 11]:
-    //   - Version 10 is added to buffer (first event, no flush yet).
-    //   - Version 11 triggers flush of buffer [10], file.last_version = 11.
+    // Root metadata is stale (latest_committed_version=0) but folder metadata
+    // has the file with last_version=11 (exclusive upper bound of [v10]).
+    // Recovery: max(file.last_version=11, root.latest_committed_version=0) = 11.
     let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 11,
-        "Should recover from folder metadata's last file version"
+        "Should recover from folder metadata's file last_version (ahead of stale root)"
     );
     assert_eq!(
         folder_txn_count, folder_metadata.total_transactions,
@@ -267,35 +280,46 @@ async fn crash_with_flushed_and_buffered_events() {
         0,
     );
 
-    // Batch 1: versions [10, 11, 12, 20]. After 3 txns the folder limit
-    // triggers a flush when version 20 arrives.
+    // Batch 1: versions [10, 11, 12, 20]. Versions 10-12 reach
+    // max_txns_per_folder=3, then version 20 triggers a flush of [v10,v11,v12]
+    // and seals folder 0. Version 20 goes into folder 1's buffer (unflushed).
     let events = make_events(&[10, 11, 12, 20]);
-    process_batch(&mut writer, events, 0, 200).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
-    // Arm failpoint so the next flush fails.
+    // Arm failpoint defensively — in practice, no flush fires for batch 2
+    // because folder 1 reaches capacity (3 txns: v20, v21, v22) but no next
+    // version arrives to trigger it. The "crash" is the writer drop.
     failpoints::cfg("after-file-write", "return").unwrap();
 
     let events = make_events(&[21, 22]);
-    let _ = process_batch(&mut writer, events, 200, 300).await;
+    let _ = process_batch(&mut writer, events).await;
 
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // The first flush (versions 10-12) succeeded with metadata. Starting
-    // version must come from that last successful metadata write.
+    // Folder 0 was sealed with last_version=13 (exclusive upper bound of
+    // v10-v12). Folder 1 has only buffered events, no metadata on disk.
+    // Recovery picks up from root.latest_committed_version = 13.
     let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
         do_recovery(&store, &config).await;
-    assert!(
-        starting_version <= 13,
-        "Recovery version {starting_version} should be at most 13 (flush of versions 10-12)"
+    assert_eq!(
+        starting_version, 13,
+        "Recovery should restart from root.latest_committed_version (flushed watermark)"
     );
     assert_eq!(folder_txn_count, folder_metadata.total_transactions);
 
     scenario.teardown();
 }
 
-/// Repeated crash-recovery cycles should not compound folder_txn_count
-/// drift. Each cycle should produce consistent state.
+/// Two back-to-back crash-recovery cycles must not cause
+/// `folder_txn_count` and `folder_metadata.total_transactions` to diverge.
+///
+/// The scenario that would cause drift: folder metadata is written to disk
+/// less frequently than root metadata (rate-limited). If root's
+/// `current_folder_txn_count` gets ahead of folder metadata's
+/// `total_transactions`, recovery must reconcile them so the writer starts
+/// with consistent state. Without the reconciliation fix in `recover_state`,
+/// the gap compounds with every cycle.
 #[tokio::test]
 async fn repeated_crash_recovery_no_drift() {
     let scenario = FailScenario::setup();
@@ -303,9 +327,14 @@ async fn repeated_crash_recovery_no_drift() {
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 1000;
+    // Time-trigger after every txn so each new version flushes the previous
+    // buffer. This means folder metadata is rate-limited (only written once
+    // per MIN_METADATA_UPDATE_INTERVAL) even though multiple flushes happen,
+    // creating the stale-folder-metadata scenario.
     config.max_seconds_between_flushes = 0;
 
-    // Cycle 1: process, flush, clean shutdown.
+    // ---- Cycle 1: clean run, graceful shutdown ----
+    // Process [v1, v2, v3] then call cleanup() so all metadata is persisted.
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
@@ -315,7 +344,7 @@ async fn repeated_crash_recovery_no_drift() {
         0,
     );
     let events = make_events(&[1, 2, 3]);
-    process_batch(&mut writer, events, 0, 10).await.unwrap();
+    process_batch(&mut writer, events).await.unwrap();
     writer.cleanup().await.unwrap();
     drop(writer);
 
@@ -323,10 +352,15 @@ async fn repeated_crash_recovery_no_drift() {
         do_recovery(&store, &config).await;
     assert_eq!(
         folder_txn_count_1, folder_metadata_1.total_transactions,
-        "Cycle 1: txn counts must match"
+        "Cycle 1: txn counts must match after clean shutdown"
     );
 
-    // Cycle 2: recover, process more, crash mid-way.
+    // ---- Cycle 2: recover, process more, then crash mid-flush ----
+    // Resume from cycle 1's state. Process [v10, v11, v12] successfully —
+    // with max_seconds_between_flushes=0 each new version triggers a flush
+    // of the previous, but folder metadata is only written on the first
+    // flush (subsequent ones are rate-limited). This makes folder metadata
+    // on disk stale relative to root metadata.
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
@@ -336,16 +370,20 @@ async fn repeated_crash_recovery_no_drift() {
         folder_txn_count_1,
     );
     let events = make_events(&[10, 11, 12]);
-    process_batch(&mut writer, events, starting_version_1, 100)
-        .await
-        .unwrap();
+    process_batch(&mut writer, events).await.unwrap();
 
+    // Arm failpoint: the next flush will write the data file and folder
+    // metadata, then crash before root metadata is updated.
     failpoints::cfg("after-folder-metadata", "return").unwrap();
     let events = make_events(&[20, 21]);
-    let _ = process_batch(&mut writer, events, 100, 200).await;
+    let _ = process_batch(&mut writer, events).await;
     drop(writer);
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
+    // The key assertion: after two cycles (one clean, one crashed), the
+    // recovered folder_txn_count must still equal
+    // folder_metadata.total_transactions. If they diverge, the writer
+    // would miscount transactions and seal folders at the wrong time.
     let (_, _starting_version_2, _folder_index_2, folder_metadata_2, folder_txn_count_2) =
         do_recovery(&store, &config).await;
     assert_eq!(
