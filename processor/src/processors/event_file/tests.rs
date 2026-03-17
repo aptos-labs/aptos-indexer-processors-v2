@@ -9,7 +9,7 @@ use super::{
     event_file_processor::recover_state,
     event_file_writer::EventFileWriterStep,
     metadata::{FolderMetadata, METADATA_FILE_NAME, RootMetadata},
-    models::EventWithContext,
+    models::{EventFile, EventWithContext},
     storage::{FileStore, LocalFileStore},
 };
 use aptos_indexer_processor_sdk::{
@@ -17,6 +17,7 @@ use aptos_indexer_processor_sdk::{
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
 };
+use prost::Message;
 use std::{path::PathBuf, sync::Arc};
 
 fn test_config() -> EventFileProcessorConfig {
@@ -53,6 +54,27 @@ fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
                 type_str: "0x1::test::TestEvent".to_string(),
                 ..Default::default()
             }),
+        })
+        .collect()
+}
+
+/// Like `make_events` but creates `count` events per version, simulating
+/// transactions that emit multiple matching events.
+fn make_multi_events(versions: &[u64], count: usize) -> Vec<EventWithContext> {
+    versions
+        .iter()
+        .flat_map(|&v| {
+            (0..count).map(move |i| EventWithContext {
+                version: v,
+                timestamp: Some(prost_types::Timestamp {
+                    seconds: v as i64,
+                    nanos: 0,
+                }),
+                event: Some(Event {
+                    type_str: format!("0x1::test::TestEvent{i}"),
+                    ..Default::default()
+                }),
+            })
         })
         .collect()
 }
@@ -132,11 +154,16 @@ async fn test_recovery_after_buffered_events_not_flushed() {
             root.latest_processed_version, 101,
             "latest_processed_version should reflect scanned range"
         );
+        assert_eq!(
+            root.current_folder_txn_count, 0,
+            "current_folder_txn_count should be 0 (nothing flushed), not 3 (buffered)"
+        );
     }
 
     drop(writer);
 
-    let (_chain_id, starting_version, _folder, _fm, _ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 0,
         "Recovery must restart from flushed watermark, not processed version"
@@ -169,7 +196,8 @@ async fn test_recovery_after_flush_then_more_buffered() {
 
     drop(writer);
 
-    let (_chain_id, starting_version, _folder, _fm, _ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 13,
         "Recovery should restart from last flushed version"
@@ -203,7 +231,7 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     writer.cleanup().await.unwrap();
     drop(writer);
 
-    let (_chain_id, _sv, _fi, folder_metadata, folder_txn_count) =
+    let (_chain_id, _starting_version, _folder_index, folder_metadata, folder_txn_count) =
         do_recovery(&store, &config).await;
     assert_eq!(
         folder_txn_count, folder_metadata.total_transactions,
@@ -225,12 +253,12 @@ async fn test_recovery_advances_past_completed_folder() {
 
     // Simulate the state after a crash: root says folder 0 with 3 txns
     // (at capacity), and folder metadata is sealed.
-    let mut fm = FolderMetadata::new(0);
-    fm.is_complete = true;
-    fm.total_transactions = 3;
-    fm.first_version = 10;
-    fm.last_version = 13;
-    fm.files.push(super::metadata::FileMetadata {
+    let mut folder_metadata = FolderMetadata::new(0);
+    folder_metadata.is_complete = true;
+    folder_metadata.total_transactions = 3;
+    folder_metadata.first_version = 10;
+    folder_metadata.last_version = 13;
+    folder_metadata.files.push(super::metadata::FileMetadata {
         filename: "10.pb".to_string(),
         first_version: 10,
         last_version: 13,
@@ -258,21 +286,28 @@ async fn test_recovery_advances_past_completed_folder() {
     store
         .save_file(
             PathBuf::from("0/metadata.json"),
-            serde_json::to_vec(&fm).unwrap(),
+            serde_json::to_vec(&folder_metadata).unwrap(),
             None,
         )
         .await
         .unwrap();
 
-    let (_chain_id, sv, fi, recovered_fm, ftc) = do_recovery(&store, &config).await;
-    assert_eq!(sv, 13, "starting version should come from sealed folder");
-    assert_eq!(fi, 1, "should advance to folder 1");
-    assert_eq!(ftc, 0, "new folder should have 0 txn count");
+    let (_chain_id, starting_version, folder_index, recovered_folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
+    assert_eq!(
+        starting_version, 13,
+        "starting version should come from sealed folder"
+    );
+    assert_eq!(folder_index, 1, "should advance to folder 1");
+    assert_eq!(folder_txn_count, 0, "new folder should have 0 txn count");
     assert!(
-        recovered_fm.files.is_empty(),
+        recovered_folder_metadata.files.is_empty(),
         "new folder metadata should be empty"
     );
-    assert!(!recovered_fm.is_complete, "new folder should not be sealed");
+    assert!(
+        !recovered_folder_metadata.is_complete,
+        "new folder should not be sealed"
+    );
 }
 
 /// End-to-end: recover from a completed-folder crash, process new events,
@@ -285,12 +320,12 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     config.max_txns_per_folder = 3;
 
     // Simulate the post-crash state: folder 0 sealed, root still at folder 0.
-    let mut fm0 = FolderMetadata::new(0);
-    fm0.is_complete = true;
-    fm0.total_transactions = 3;
-    fm0.first_version = 10;
-    fm0.last_version = 13;
-    fm0.files.push(super::metadata::FileMetadata {
+    let mut folder_0_metadata = FolderMetadata::new(0);
+    folder_0_metadata.is_complete = true;
+    folder_0_metadata.total_transactions = 3;
+    folder_0_metadata.first_version = 10;
+    folder_0_metadata.last_version = 13;
+    folder_0_metadata.files.push(super::metadata::FileMetadata {
         filename: "10.pb".to_string(),
         first_version: 10,
         last_version: 13,
@@ -318,22 +353,23 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     store
         .save_file(
             PathBuf::from("0/metadata.json"),
-            serde_json::to_vec(&fm0).unwrap(),
+            serde_json::to_vec(&folder_0_metadata).unwrap(),
             None,
         )
         .await
         .unwrap();
 
     // Recover and create a new writer from the recovered state.
-    let (chain_id, sv, fi, recovered_fm, ftc) = do_recovery(&store, &config).await;
+    let (chain_id, starting_version, folder_index, recovered_folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
     let mut writer = EventFileWriterStep::new(
         store.clone(),
         config.clone(),
         chain_id,
-        sv,
-        fi,
-        recovered_fm,
-        ftc,
+        starting_version,
+        folder_index,
+        recovered_folder_metadata,
+        folder_txn_count,
     );
 
     // Process new events. 3 txns (20, 21, 22) fill the new folder, then 30
@@ -343,32 +379,39 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
 
     // Folder 0 metadata must be unchanged (still sealed with only the
     // original file).
-    let fm0_data = store
+    let folder_0_raw = store
         .get_file(PathBuf::from("0/metadata.json"))
         .await
         .unwrap()
         .expect("folder 0 metadata should exist");
-    let fm0_after: FolderMetadata = serde_json::from_slice(&fm0_data).unwrap();
-    assert!(fm0_after.is_complete, "folder 0 should still be sealed");
+    let folder_0_after: FolderMetadata = serde_json::from_slice(&folder_0_raw).unwrap();
+    assert!(
+        folder_0_after.is_complete,
+        "folder 0 should still be sealed"
+    );
     assert_eq!(
-        fm0_after.files.len(),
+        folder_0_after.files.len(),
         1,
         "folder 0 should still have exactly 1 file"
     );
 
     // Folder 1 should have the new data file.
-    let fm1_data = store
+    let folder_1_raw = store
         .get_file(PathBuf::from("1/metadata.json"))
         .await
         .unwrap()
         .expect("folder 1 metadata should exist");
-    let fm1: FolderMetadata = serde_json::from_slice(&fm1_data).unwrap();
-    assert_eq!(fm1.folder_index, 1);
-    assert_eq!(fm1.files.len(), 1, "folder 1 should have 1 file");
-    assert_eq!(fm1.files[0].first_version, 20);
-    assert_eq!(fm1.total_transactions, 3);
+    let folder_1_metadata: FolderMetadata = serde_json::from_slice(&folder_1_raw).unwrap();
+    assert_eq!(folder_1_metadata.folder_index, 1);
+    assert_eq!(
+        folder_1_metadata.files.len(),
+        1,
+        "folder 1 should have 1 file"
+    );
+    assert_eq!(folder_1_metadata.files[0].first_version, 20);
+    assert_eq!(folder_1_metadata.total_transactions, 3);
     assert!(
-        fm1.is_complete,
+        folder_1_metadata.is_complete,
         "folder 1 should be complete (3 txns = max)"
     );
 
@@ -402,11 +445,18 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
         .await
         .unwrap();
 
-    let (_chain_id, sv, _fi, fm, ftc) = do_recovery(&store, &config).await;
-    assert_eq!(sv, 50, "should recover latest_committed_version from root");
-    assert_eq!(ftc, 42, "folder_txn_count should come from root");
+    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        fm.total_transactions, 42,
+        starting_version, 50,
+        "should recover latest_committed_version from root"
+    );
+    assert_eq!(
+        folder_txn_count, 42,
+        "folder_txn_count should come from root"
+    );
+    assert_eq!(
+        folder_metadata.total_transactions, 42,
         "folder_metadata.total_transactions should match root's count"
     );
 }
@@ -423,11 +473,11 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     // Simulate a crash where root metadata is ahead of folder metadata.
     // Root was written after a flush (flushed_version=200), but folder
     // metadata was rate-limited and only reflects an earlier file.
-    let mut fm = FolderMetadata::new(0);
-    fm.total_transactions = 10;
-    fm.first_version = 50;
-    fm.last_version = 100;
-    fm.files.push(super::metadata::FileMetadata {
+    let mut folder_metadata = FolderMetadata::new(0);
+    folder_metadata.total_transactions = 10;
+    folder_metadata.first_version = 50;
+    folder_metadata.last_version = 100;
+    folder_metadata.files.push(super::metadata::FileMetadata {
         filename: "50.pb".to_string(),
         first_version: 50,
         last_version: 100,
@@ -455,19 +505,437 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     store
         .save_file(
             PathBuf::from("0/metadata.json"),
-            serde_json::to_vec(&fm).unwrap(),
+            serde_json::to_vec(&folder_metadata).unwrap(),
             None,
         )
         .await
         .unwrap();
 
-    let (_chain_id, sv, _fi, _fm, ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, _folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        sv, 200,
+        starting_version, 200,
         "starting version must be clamped to root.latest_committed_version, not stale folder value of 100"
     );
     assert_eq!(
-        ftc, 20,
+        folder_txn_count, 20,
         "folder_txn_count must be clamped to root.current_folder_txn_count, not stale folder value of 10"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Complete transactions invariant
+// ---------------------------------------------------------------------------
+
+/// Verify that when a transaction emits multiple events, all events from that
+/// transaction land in the same data file. Flushes only happen at transaction
+/// boundaries so a multi-event txn is never split across files.
+#[tokio::test]
+async fn test_complete_transactions_multi_event_txn_not_split() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 2;
+
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        0,
+        0,
+        FolderMetadata::new(0),
+        0,
+    );
+
+    // 3 events each for versions 10 and 11 (2 txns, 6 events total), then
+    // version 12 triggers the flush at the folder boundary.
+    let mut events = make_multi_events(&[10, 11], 3);
+    events.extend(make_events(&[12]));
+    process_batch(&mut writer, events, 0, 200).await.unwrap();
+
+    // Read back the flushed data file and decode it.
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder metadata should exist");
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+    assert!(
+        !folder_metadata.files.is_empty(),
+        "should have flushed a file"
+    );
+
+    let file_meta = &folder_metadata.files[0];
+    let data = store
+        .get_file(PathBuf::from(format!("0/{}", file_meta.filename)))
+        .await
+        .unwrap()
+        .expect("data file should exist");
+    let event_file = EventFile::decode(data.as_slice()).unwrap();
+
+    // The file should contain all 6 events from versions 10 and 11.
+    assert_eq!(
+        event_file.events.len(),
+        6,
+        "file must contain all events from both transactions"
+    );
+
+    // Every event in the file should be from version 10 or 11 (no partial txn).
+    let versions_in_file: Vec<u64> = event_file.events.iter().map(|e| e.version).collect();
+    assert!(
+        versions_in_file.iter().all(|&v| v == 10 || v == 11),
+        "file should only contain events from complete transactions 10 and 11, got {:?}",
+        versions_in_file,
+    );
+
+    // Version 12 should NOT be in this file (it's in the buffer, not yet flushed).
+    assert!(
+        !versions_in_file.contains(&12),
+        "version 12 should not be in the flushed file"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Config immutability
+// ---------------------------------------------------------------------------
+
+/// Verify that `recover_state` rejects startup when the running config
+/// differs from the config stored in root metadata.
+#[tokio::test]
+async fn test_config_mismatch_rejected_on_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let config = test_config();
+
+    // Write root metadata with the original config.
+    let root = RootMetadata {
+        chain_id: 1,
+        latest_committed_version: 0,
+        latest_processed_version: 0,
+        current_folder_index: 0,
+        current_folder_txn_count: 0,
+        config: config.immutable_config(),
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Try to recover with a different max_txns_per_folder.
+    let mut different_config = test_config();
+    different_config.max_txns_per_folder = 999;
+    let result = recover_state(&store, &different_config, 0).await;
+    assert!(
+        result.is_err(),
+        "recovery must fail when config differs from stored metadata"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Immutable config mismatch"),
+        "error should mention config mismatch, got: {err_msg}"
+    );
+
+    // Recovering with the original config should succeed.
+    let result = recover_state(&store, &config, 0).await;
+    assert!(
+        result.is_ok(),
+        "recovery with matching config should succeed"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Version semantics and filename encoding
+// ---------------------------------------------------------------------------
+
+/// Verify that after a flush:
+/// - `file.last_version` is an exclusive upper bound (version + 1).
+/// - `file.first_version` matches the filename prefix.
+/// - `folder_metadata.last_version` equals the file's `last_version`.
+#[tokio::test]
+async fn test_version_semantics_and_filename_encoding() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 3;
+
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        0,
+        0,
+        FolderMetadata::new(0),
+        0,
+    );
+
+    // Versions 10, 11, 12 fill the folder. Version 50 triggers the flush.
+    let events = make_events(&[10, 11, 12, 50]);
+    process_batch(&mut writer, events, 0, 200).await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder metadata should exist after flush");
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+
+    assert_eq!(folder_metadata.files.len(), 1);
+    let file = &folder_metadata.files[0];
+
+    // first_version should be the earliest event version.
+    assert_eq!(file.first_version, 10, "file.first_version should be 10");
+
+    // last_version should be exclusive: the file contains versions 10, 11, 12
+    // so last_version should be 13 (the next version to process after 12).
+    assert_eq!(
+        file.last_version, 13,
+        "file.last_version should be exclusive upper bound (13)"
+    );
+
+    // Filename should encode first_version + extension.
+    let expected_filename = format!("10{}", config.file_extension());
+    assert_eq!(
+        file.filename, expected_filename,
+        "filename should be {{first_version}}{{ext}}"
+    );
+
+    // Folder-level last_version should match the file's last_version.
+    assert_eq!(
+        folder_metadata.last_version, file.last_version,
+        "folder last_version should equal file last_version"
+    );
+
+    // Folder-level first_version should match the file's first_version.
+    assert_eq!(
+        folder_metadata.first_version, file.first_version,
+        "folder first_version should equal file first_version"
+    );
+
+    // num_transactions should count distinct versions (3), not total events.
+    assert_eq!(
+        file.num_transactions, 3,
+        "num_transactions should be distinct version count"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Data file content verification
+// ---------------------------------------------------------------------------
+
+/// Verify that a flushed data file can be read back and decoded, and that its
+/// content matches the events that were written.
+#[tokio::test]
+async fn test_data_file_content_matches_after_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 2;
+
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        0,
+        0,
+        FolderMetadata::new(0),
+        0,
+    );
+
+    // Versions 10, 11 fill the folder. Version 20 triggers flush.
+    let events = make_events(&[10, 11, 20]);
+    process_batch(&mut writer, events, 0, 200).await.unwrap();
+
+    // Read back the data file from disk.
+    let data = store
+        .get_file(PathBuf::from("0/10.pb"))
+        .await
+        .unwrap()
+        .expect("data file 0/10.pb should exist");
+    let event_file = EventFile::decode(data.as_slice()).unwrap();
+
+    assert_eq!(event_file.events.len(), 2);
+    assert_eq!(event_file.events[0].version, 10);
+    assert_eq!(event_file.events[1].version, 11);
+
+    // Each event should carry its timestamp.
+    assert!(event_file.events[0].timestamp.is_some());
+    assert_eq!(event_file.events[0].timestamp.as_ref().unwrap().seconds, 10);
+
+    // Each event should carry its Event proto.
+    assert!(event_file.events[0].event.is_some());
+    assert_eq!(
+        event_file.events[0].event.as_ref().unwrap().type_str,
+        "0x1::test::TestEvent"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sealed folder immutability
+// ---------------------------------------------------------------------------
+
+/// After a folder is sealed (`is_complete: true`) and new events flow into the
+/// next folder, the sealed folder's metadata must remain unchanged.
+#[tokio::test]
+async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 2;
+
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        0,
+        0,
+        FolderMetadata::new(0),
+        0,
+    );
+
+    // Versions 10, 11 fill folder 0. Version 20 triggers flush + seal.
+    let events = make_events(&[10, 11, 20]);
+    process_batch(&mut writer, events, 0, 200).await.unwrap();
+
+    // Snapshot folder 0 metadata after it is sealed.
+    let folder_0_snapshot = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder 0 metadata should exist");
+    let folder_0_before: FolderMetadata = serde_json::from_slice(&folder_0_snapshot).unwrap();
+    assert!(folder_0_before.is_complete, "folder 0 should be sealed");
+
+    // Process more events that go into folder 1. Version 21 fills it,
+    // version 30 triggers flush.
+    let events = make_events(&[21, 30]);
+    process_batch(&mut writer, events, 200, 400).await.unwrap();
+
+    // Re-read folder 0 metadata — it must be byte-identical.
+    let folder_0_after_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder 0 metadata should still exist");
+    let folder_0_after: FolderMetadata = serde_json::from_slice(&folder_0_after_raw).unwrap();
+
+    assert_eq!(
+        folder_0_before.files.len(),
+        folder_0_after.files.len(),
+        "sealed folder should not gain new files"
+    );
+    assert_eq!(
+        folder_0_before.last_version, folder_0_after.last_version,
+        "sealed folder last_version should not change"
+    );
+    assert_eq!(
+        folder_0_before.total_transactions, folder_0_after.total_transactions,
+        "sealed folder total_transactions should not change"
+    );
+    assert!(
+        folder_0_after.is_complete,
+        "sealed folder should remain complete"
+    );
+    assert_eq!(
+        folder_0_snapshot, folder_0_after_raw,
+        "sealed folder metadata bytes should be identical"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Root metadata must not inflate folder_txn_count with buffered events
+// ---------------------------------------------------------------------------
+
+/// After a partial flush + crash, re-processing must not double-count buffered
+/// transactions. This exercises the scenario where root metadata is written
+/// (via the periodic update in `process()`) with buffered events still in
+/// flight. Without the fix, `current_folder_txn_count` would include buffered
+/// events, and recovery would count them again, progressively inflating the
+/// count and causing premature folder sealing.
+#[tokio::test]
+async fn test_no_double_counting_after_partial_flush_and_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 10;
+    config.max_seconds_between_flushes = 0;
+
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        0,
+        0,
+        FolderMetadata::new(0),
+        0,
+    );
+
+    // With max_seconds_between_flushes=0, each new version after the first
+    // triggers a flush of the previous buffer. So events [10, 11, 12]:
+    //   - v10: buffered (first event, no flush yet)
+    //   - v11: flush [v10], then buffer v11
+    //   - v12: flush [v11], then buffer v12
+    // After batch: flushed versions 10 and 11 (2 txns). v12 is buffered.
+    let events = make_events(&[10, 11, 12]);
+    process_batch(&mut writer, events, 0, 100).await.unwrap();
+
+    // Root metadata should report only the flushed count (2), not 3.
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.current_folder_txn_count, 2,
+        "root should only count flushed txns (2), not include buffered v12"
+    );
+    assert_eq!(
+        root.latest_committed_version, 12,
+        "flushed through v11, so exclusive upper bound is 12"
+    );
+
+    // Simulate crash: drop writer without cleanup.
+    drop(writer);
+
+    // Recovery should start from the flushed watermark with the flushed count.
+    let (_chain_id, starting_version, folder_index, folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
+    assert_eq!(starting_version, 12, "should resume from flushed watermark");
+    assert_eq!(
+        folder_txn_count, 2,
+        "recovered folder_txn_count should be 2 (flushed only)"
+    );
+
+    // Create a new writer from recovered state and re-process v12 + new events.
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        1,
+        starting_version,
+        folder_index,
+        folder_metadata,
+        folder_txn_count,
+    );
+
+    // Re-process v12 (was buffered, lost in crash) plus new events v13, v14.
+    let events = make_events(&[12, 13, 14]);
+    process_batch(&mut writer, events, 12, 200).await.unwrap();
+    writer.cleanup().await.unwrap();
+
+    // Final root metadata should show 5 total txns (2 from before + 3 new),
+    // not 6 (which would happen if v12 were double-counted).
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.current_folder_txn_count, 5,
+        "total should be 5 (2 pre-crash + 3 post-recovery), not 6 (double-counted)"
     );
 }

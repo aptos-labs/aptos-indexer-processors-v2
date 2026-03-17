@@ -171,9 +171,10 @@ async fn crash_after_file_write_before_metadata() {
 
     // No metadata was written -> recovery falls back to default starting
     // version (0). The orphaned data file is harmless; it will be overwritten.
-    let (_chain_id, sv, _fi, _fm, _ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        sv, 0,
+        starting_version, 0,
         "Recovery should restart from 0 since no metadata was written"
     );
 
@@ -204,6 +205,7 @@ async fn crash_after_folder_metadata_before_root() {
         .save_file(
             PathBuf::from(METADATA_FILE_NAME),
             serde_json::to_vec(&root).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -232,13 +234,14 @@ async fn crash_after_folder_metadata_before_root() {
     // With max_seconds_between_flushes=0 and events [10, 11]:
     //   - Version 10 is added to buffer (first event, no flush yet).
     //   - Version 11 triggers flush of buffer [10], file.last_version = 11.
-    let (_chain_id, sv, _fi, fm, ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        sv, 11,
+        starting_version, 11,
         "Should recover from folder metadata's last file version"
     );
     assert_eq!(
-        ftc, fm.total_transactions,
+        folder_txn_count, folder_metadata.total_transactions,
         "folder txn count must be consistent"
     );
 
@@ -280,12 +283,13 @@ async fn crash_with_flushed_and_buffered_events() {
 
     // The first flush (versions 10-12) succeeded with metadata. Starting
     // version must come from that last successful metadata write.
-    let (_chain_id, sv, _fi, fm, ftc) = do_recovery(&store, &config).await;
+    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
+        do_recovery(&store, &config).await;
     assert!(
-        sv <= 13,
-        "Recovery version {sv} should be at most 13 (flush of versions 10-12)"
+        starting_version <= 13,
+        "Recovery version {starting_version} should be at most 13 (flush of versions 10-12)"
     );
-    assert_eq!(ftc, fm.total_transactions);
+    assert_eq!(folder_txn_count, folder_metadata.total_transactions);
 
     scenario.teardown();
 }
@@ -315,16 +319,26 @@ async fn repeated_crash_recovery_no_drift() {
     writer.cleanup().await.unwrap();
     drop(writer);
 
-    let (_, sv1, fi1, fm1, ftc1) = do_recovery(&store, &config).await;
+    let (_, starting_version_1, folder_index_1, folder_metadata_1, folder_txn_count_1) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        ftc1, fm1.total_transactions,
+        folder_txn_count_1, folder_metadata_1.total_transactions,
         "Cycle 1: txn counts must match"
     );
 
     // Cycle 2: recover, process more, crash mid-way.
-    let mut writer = new_writer(store.clone(), config.clone(), sv1, fi1, fm1.clone(), ftc1);
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        starting_version_1,
+        folder_index_1,
+        folder_metadata_1.clone(),
+        folder_txn_count_1,
+    );
     let events = make_events(&[10, 11, 12]);
-    process_batch(&mut writer, events, sv1, 100).await.unwrap();
+    process_batch(&mut writer, events, starting_version_1, 100)
+        .await
+        .unwrap();
 
     failpoints::cfg("after-folder-metadata", "return").unwrap();
     let events = make_events(&[20, 21]);
@@ -332,11 +346,12 @@ async fn repeated_crash_recovery_no_drift() {
     drop(writer);
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
-    let (_, _sv2, _fi2, fm2, ftc2) = do_recovery(&store, &config).await;
+    let (_, _starting_version_2, _folder_index_2, folder_metadata_2, folder_txn_count_2) =
+        do_recovery(&store, &config).await;
     assert_eq!(
-        ftc2, fm2.total_transactions,
-        "Cycle 2: txn counts must match after crash (got ftc={ftc2}, fm.total={})",
-        fm2.total_transactions
+        folder_txn_count_2, folder_metadata_2.total_transactions,
+        "Cycle 2: txn counts must match after crash (got ftc={folder_txn_count_2}, fm.total={})",
+        folder_metadata_2.total_transactions
     );
 
     scenario.teardown();

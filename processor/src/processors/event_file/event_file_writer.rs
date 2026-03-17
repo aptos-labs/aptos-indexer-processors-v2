@@ -270,7 +270,12 @@ impl EventFileWriterStep {
             latest_committed_version: self.flushed_version,
             latest_processed_version: self.processed_version,
             current_folder_index: self.current_folder_index,
-            current_folder_txn_count: self.folder_txn_count,
+            // Use folder_metadata.total_transactions (only incremented during
+            // flush) rather than folder_txn_count (includes buffered events).
+            // This keeps current_folder_txn_count consistent with
+            // latest_committed_version so recovery doesn't double-count
+            // buffered transactions that get re-processed after a crash.
+            current_folder_txn_count: self.folder_metadata.total_transactions,
             config: self.config.immutable_config(),
         };
         let data = serde_json::to_vec(&root)?;

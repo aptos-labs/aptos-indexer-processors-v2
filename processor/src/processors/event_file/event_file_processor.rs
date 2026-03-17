@@ -112,6 +112,14 @@ pub async fn recover_state(
                     (root.latest_committed_version, root.current_folder_txn_count)
                 };
 
+            // Keep folder_metadata.total_transactions consistent with the
+            // clamped folder_txn_count. When folder metadata is stale (due to
+            // rate-limited writes), its total_transactions can lag behind
+            // root's count. Without this sync the writer would start with a
+            // permanent gap between the two counters.
+            let mut folder_metadata = folder_metadata;
+            folder_metadata.total_transactions = folder_txn_count;
+
             // If the folder was already completed before the crash (e.g. root
             // metadata was written after sealing the folder but before
             // start_new_folder advanced the index), move to the next folder so

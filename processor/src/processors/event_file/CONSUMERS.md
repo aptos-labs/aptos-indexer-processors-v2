@@ -49,7 +49,7 @@ Once a data file is written it is **never modified or rewritten** under normal o
 
 ### Metadata files are mutable
 
-Both `metadata.json` (root and folder) are **overwritten in place** as new data arrives. Always re-read them to get the latest state. Folder metadata may lag behind root metadata because it is rate-limited to avoid excessive GCS writes.
+Both `metadata.json` (root and folder) are **overwritten in place** as new data arrives. Always re-read them to get the latest state. Once a folder is sealed (`is_complete: true`), it is **never modified** again.
 
 ### Caching
 
