@@ -23,6 +23,12 @@ use tracing::info;
 /// hammering GCS metadata objects).
 const MIN_METADATA_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 
+/// Cache-Control header for metadata objects. GCS defaults publicly-readable
+/// objects to `public, max-age=3600` which causes CDN edge nodes to serve stale
+/// metadata for up to an hour. Metadata files are mutable and must always be
+/// read fresh.
+const METADATA_CACHE_CONTROL: &str = "no-store";
+
 pub struct EventFileWriterStep {
     store: Arc<dyn FileStore>,
     config: EventFileProcessorConfig,
@@ -161,7 +167,7 @@ impl EventFileWriterStep {
             "Flushing event file"
         );
 
-        self.store.save_file(file_path, compressed).await?;
+        self.store.save_file(file_path, compressed, None).await?;
 
         // Advance the flushed watermark now that the file is persisted.
         self.flushed_version = self.latest_version;
@@ -241,7 +247,9 @@ impl EventFileWriterStep {
         .iter()
         .collect();
         let data = serde_json::to_vec(&self.folder_metadata)?;
-        self.store.save_file(folder_meta_path, data).await?;
+        self.store
+            .save_file(folder_meta_path, data, Some(METADATA_CACHE_CONTROL))
+            .await?;
 
         if force {
             self.last_folder_metadata_update = None;
@@ -267,7 +275,11 @@ impl EventFileWriterStep {
         };
         let data = serde_json::to_vec(&root)?;
         self.store
-            .save_file(PathBuf::from(METADATA_FILE_NAME), data)
+            .save_file(
+                PathBuf::from(METADATA_FILE_NAME),
+                data,
+                Some(METADATA_CACHE_CONTROL),
+            )
             .await?;
         self.last_root_metadata_update = Instant::now();
         Ok(())

@@ -3,9 +3,11 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use bytes::Bytes;
 use google_cloud_storage::{
     client::{Client as GCSClient, ClientConfig as GcsClientConfig},
     http::objects::{
+        Object,
         download::Range,
         get::GetObjectRequest,
         upload::{Media, UploadObjectRequest, UploadType},
@@ -26,7 +28,15 @@ const INITIAL_RETRY_DELAY: Duration = Duration::from_millis(500);
 /// Abstraction over GCS / local filesystem for writing and reading files.
 #[async_trait]
 pub trait FileStore: Send + Sync {
-    async fn save_file(&self, path: PathBuf, data: Vec<u8>) -> Result<()>;
+    /// Write `data` to `path`, optionally setting Cache-Control metadata on the
+    /// object. When `cache_control` is `None` the store's default applies (for
+    /// GCS public buckets that means `public, max-age=3600`).
+    async fn save_file(
+        &self,
+        path: PathBuf,
+        data: Vec<u8>,
+        cache_control: Option<&str>,
+    ) -> Result<()>;
     async fn get_file(&self, path: PathBuf) -> Result<Option<Vec<u8>>>;
     /// Maximum frequency for updating a single object (to respect GCS rate
     /// limits of ~1 write/sec per object).
@@ -76,13 +86,33 @@ impl GcsFileStore {
 
 #[async_trait]
 impl FileStore for GcsFileStore {
-    async fn save_file(&self, path: PathBuf, data: Vec<u8>) -> Result<()> {
+    async fn save_file(
+        &self,
+        path: PathBuf,
+        data: Vec<u8>,
+        cache_control: Option<&str>,
+    ) -> Result<()> {
         let object_name = self.full_path(&path);
-        let upload_type = UploadType::Simple(Media::new(object_name.clone()));
+
+        // Use a Multipart upload when we need to set object metadata (like
+        // Cache-Control). Otherwise a Simple upload is sufficient.
+        let upload_type = match cache_control {
+            Some(cc) => UploadType::Multipart(Box::new(Object {
+                name: object_name.clone(),
+                content_type: Some("application/json".to_string()),
+                cache_control: Some(cc.to_string()),
+                ..Default::default()
+            })),
+            None => UploadType::Simple(Media::new(object_name.clone())),
+        };
         let upload_request = UploadObjectRequest {
             bucket: self.bucket_name.clone(),
             ..Default::default()
         };
+
+        // Wrap in Bytes so retries are O(1) clones (refcount bump) instead of
+        // copying the full buffer (potentially tens of MiBs).
+        let data = Bytes::from(data);
 
         let mut retry_count = 0;
         let mut delay = INITIAL_RETRY_DELAY;
@@ -160,7 +190,12 @@ impl LocalFileStore {
 
 #[async_trait]
 impl FileStore for LocalFileStore {
-    async fn save_file(&self, path: PathBuf, data: Vec<u8>) -> Result<()> {
+    async fn save_file(
+        &self,
+        path: PathBuf,
+        data: Vec<u8>,
+        _cache_control: Option<&str>,
+    ) -> Result<()> {
         let full = self.root.join(&path);
         if let Some(parent) = full.parent() {
             tokio::fs::create_dir_all(parent).await?;

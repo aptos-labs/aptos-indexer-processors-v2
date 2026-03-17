@@ -51,6 +51,10 @@ Once a data file is written it is **never modified or rewritten** under normal o
 
 Both `metadata.json` (root and folder) are **overwritten in place** as new data arrives. Always re-read them to get the latest state. Folder metadata may lag behind root metadata because it is rate-limited to avoid excessive GCS writes.
 
+### Caching
+
+Metadata objects are written with `Cache-Control: no-store` so GCS does not serve stale copies. Data files (immutable) use the GCS default (`public, max-age=3600`).
+
 ### Complete transactions
 
 Every data file contains **complete transactions** — if any event from a transaction appears in a file, all matching events from that transaction are in the same file. Flushes only happen at transaction boundaries.
@@ -116,15 +120,6 @@ Example:
   download_events.sh \
     -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet' \
     -d './shelbynet'
-
-What it does:
-  1. Downloads the entire bucket/prefix with rclone
-  2. Deletes the highest-numbered top-level folder (it may be incomplete)
-  3. Shows size on disk before decompression
-  4. Decompresses all remaining .pb.lz4 and .json.lz4 files
-  5. Removes the original .lz4 files after successful decompression
-  6. Shows size on disk after decompression
-  7. Prints timing summary for download and decompression
 EOF
 }
 
@@ -136,12 +131,13 @@ bytes_size() {
   du -sb "$1" | awk '{print $1}'
 }
 
-format_duration() {
-  local total="$1"
-  local h=$((total / 3600))
-  local m=$(((total % 3600) / 60))
-  local s=$((total % 60))
-  printf '%02dh:%02dm:%02ds' "$h" "$m" "$s"
+format_duration_ms() {
+  local total_ms="$1"
+  awk -v ms="$total_ms" 'BEGIN {
+    minutes = int(ms / 60000)
+    seconds = (ms % 60000) / 1000
+    printf "%dm %.3fs", minutes, seconds
+  }'
 }
 
 SRC=""
@@ -179,13 +175,18 @@ command -v lz4 >/dev/null 2>&1 || { echo "lz4 not found"; exit 1; }
 command -v find >/dev/null 2>&1 || { echo "find not found"; exit 1; }
 command -v du >/dev/null 2>&1 || { echo "du not found"; exit 1; }
 command -v date >/dev/null 2>&1 || { echo "date not found"; exit 1; }
+command -v awk >/dev/null 2>&1 || { echo "awk not found"; exit 1; }
 
 mkdir -p "$DEST"
 
 echo "Downloading from: $SRC"
 echo "Destination: $DEST"
 
-download_start=$(date +%s)
+download_start_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
 
 rclone copy \
   --gcs-anonymous \
@@ -195,8 +196,12 @@ rclone copy \
   --no-traverse \
   "$SRC" "$DEST"
 
-download_end=$(date +%s)
-download_secs=$((download_end - download_start))
+download_end_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
+download_ms=$((download_end_ms - download_start_ms))
 
 echo "Looking for highest-numbered folder under $DEST ..."
 highest_dir=""
@@ -224,9 +229,12 @@ before_bytes="$(bytes_size "$DEST")"
 
 echo "Size on disk before decompressing: $before_human ($before_bytes bytes)"
 
-decompress_start=$(date +%s)
+decompress_start_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
 
-decompressed_count=0
 find "$DEST" -type f \( -name '*.pb.lz4' -o -name '*.json.lz4' \) -print0 |
 while IFS= read -r -d '' file; do
   out="${file%.lz4}"
@@ -234,8 +242,12 @@ while IFS= read -r -d '' file; do
   lz4 -d --rm "$file" "$out"
 done
 
-decompress_end=$(date +%s)
-decompress_secs=$((decompress_end - decompress_start))
+decompress_end_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
+decompress_ms=$((decompress_end_ms - decompress_start_ms))
 
 after_human="$(human_size "$DEST")"
 after_bytes="$(bytes_size "$DEST")"
@@ -252,12 +264,7 @@ else
 fi
 echo "Size before decompressing:    $before_human ($before_bytes bytes)"
 echo "Size after decompressing:     $after_human ($after_bytes bytes)"
-echo "Download time:                $(format_duration "$download_secs") (${download_secs}s)"
-echo "Decompression time:           $(format_duration "$decompress_secs") (${decompress_secs}s)"
+echo "Download time:                $(format_duration_ms "$download_ms") (${download_ms} ms)"
+echo "Decompression time:           $(format_duration_ms "$decompress_ms") (${decompress_ms} ms)"
 echo "Done."
-```
-
-Example usage:
-```
-./download_events.sh -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet' -d './out'
 ```

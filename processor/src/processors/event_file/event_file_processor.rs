@@ -95,12 +95,18 @@ pub async fn recover_state(
                 },
             };
 
-            // Prefer folder metadata when available since it tracks per-file
-            // details. When folder metadata is missing, the values above
-            // already fall back to root metadata.
+            // Use folder metadata when available (it tracks per-file details),
+            // but always clamp to at least root's committed version. Folder
+            // metadata updates are rate-limited and may lag behind root
+            // metadata after a crash.
             let (latest_version, folder_txn_count) =
                 if let Some(last_file) = folder_metadata.files.last() {
-                    (last_file.last_version, folder_metadata.total_transactions)
+                    (
+                        last_file.last_version.max(root.latest_committed_version),
+                        folder_metadata
+                            .total_transactions
+                            .max(root.current_folder_txn_count),
+                    )
                 } else {
                     (root.latest_committed_version, root.current_folder_txn_count)
                 };

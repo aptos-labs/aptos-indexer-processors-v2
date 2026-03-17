@@ -251,6 +251,7 @@ async fn test_recovery_advances_past_completed_folder() {
         .save_file(
             PathBuf::from(METADATA_FILE_NAME),
             serde_json::to_vec(&root).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -258,6 +259,7 @@ async fn test_recovery_advances_past_completed_folder() {
         .save_file(
             PathBuf::from("0/metadata.json"),
             serde_json::to_vec(&fm).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -309,6 +311,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         .save_file(
             PathBuf::from(METADATA_FILE_NAME),
             serde_json::to_vec(&root).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -316,6 +319,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         .save_file(
             PathBuf::from("0/metadata.json"),
             serde_json::to_vec(&fm0).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -393,6 +397,7 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
         .save_file(
             PathBuf::from(METADATA_FILE_NAME),
             serde_json::to_vec(&root).unwrap(),
+            None,
         )
         .await
         .unwrap();
@@ -403,5 +408,66 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
     assert_eq!(
         fm.total_transactions, 42,
         "folder_metadata.total_transactions should match root's count"
+    );
+}
+
+/// Verify that recovery uses `max(folder_version, root_version)` when folder
+/// metadata is stale (e.g. rate-limited folder metadata write was skipped
+/// before a crash, but root metadata was written).
+#[tokio::test]
+async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let config = test_config();
+
+    // Simulate a crash where root metadata is ahead of folder metadata.
+    // Root was written after a flush (flushed_version=200), but folder
+    // metadata was rate-limited and only reflects an earlier file.
+    let mut fm = FolderMetadata::new(0);
+    fm.total_transactions = 10;
+    fm.first_version = 50;
+    fm.last_version = 100;
+    fm.files.push(super::metadata::FileMetadata {
+        filename: "50.pb".to_string(),
+        first_version: 50,
+        last_version: 100,
+        num_events: 10,
+        num_transactions: 10,
+        size_bytes: 500,
+    });
+
+    let root = RootMetadata {
+        chain_id: 1,
+        latest_committed_version: 200,
+        latest_processed_version: 250,
+        current_folder_index: 0,
+        current_folder_txn_count: 20,
+        config: config.immutable_config(),
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    store
+        .save_file(
+            PathBuf::from("0/metadata.json"),
+            serde_json::to_vec(&fm).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let (_chain_id, sv, _fi, _fm, ftc) = do_recovery(&store, &config).await;
+    assert_eq!(
+        sv, 200,
+        "starting version must be clamped to root.latest_committed_version, not stale folder value of 100"
+    );
+    assert_eq!(
+        ftc, 20,
+        "folder_txn_count must be clamped to root.current_folder_txn_count, not stale folder value of 10"
     );
 }

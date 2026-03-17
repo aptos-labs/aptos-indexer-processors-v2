@@ -29,6 +29,7 @@ async-trait = { workspace = true }
 bcs = { workspace = true }
 bigdecimal = { workspace = true }
 bitflags = { workspace = true }
+bytes = "1"
 canonical_json = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
