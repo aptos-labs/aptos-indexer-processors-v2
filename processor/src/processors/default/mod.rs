@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 pub mod default_extractor;
 pub mod default_processor;
 pub mod default_storer;

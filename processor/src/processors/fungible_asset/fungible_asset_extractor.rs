@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::processors::fungible_asset::{
     fungible_asset_models::{
         v2_fungible_asset_activities::PostgresFungibleAssetActivity,

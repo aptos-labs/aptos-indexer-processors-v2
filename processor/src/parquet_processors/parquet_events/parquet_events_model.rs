@@ -1,5 +1,8 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::{
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,

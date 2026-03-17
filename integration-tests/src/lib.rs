@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 mod diff_test_helper;
 mod models;
 // mod sanity_test; // TODO: uncomment this once we have processors migrated to enable sanity tests

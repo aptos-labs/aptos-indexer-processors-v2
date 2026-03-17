@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::processors::gas_fees::models::GasFee;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{

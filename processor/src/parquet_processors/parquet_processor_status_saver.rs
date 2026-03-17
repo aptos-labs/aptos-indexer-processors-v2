@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use super::parquet_utils::{
     parquet_version_tracker_step::ParquetProcessorStatusSaverTrait, util::format_table_name,
 };

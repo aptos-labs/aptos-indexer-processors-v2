@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::models::default_models::{BlockMetadataTransaction, CurrentTableItem, TableItem};
 use anyhow::Result;
 use diesel::{ExpressionMethods, RunQueryDsl, pg::PgConnection, query_dsl::methods::ThenOrderDsl};

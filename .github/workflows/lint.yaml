@@ -15,6 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  License-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check license headers
+        run: python3 scripts/check_license.py --check
+
   Rust:
     runs-on: ubuntu-latest
     steps:
