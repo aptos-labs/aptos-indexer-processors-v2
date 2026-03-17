@@ -22,6 +22,7 @@ use aptos_indexer_processor_sdk::{
     builder::ProcessorBuilder,
     common_steps::TransactionStreamStep,
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
+    utils::convert::standardize_address,
 };
 use std::{path::PathBuf, sync::Arc};
 use tracing::info;
@@ -187,7 +188,7 @@ impl EventFileProcessor {
             .iter()
             .map(|f| {
                 let mut tag_builder = MoveStructTagFilterBuilder::default();
-                tag_builder.address(f.module_address.clone());
+                tag_builder.address(standardize_address(&f.module_address));
                 if let Some(ref module) = f.module_name {
                     tag_builder.module(module.clone());
                 }
