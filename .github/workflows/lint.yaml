@@ -30,7 +30,7 @@ jobs:
       - uses: dsherret/rust-toolchain-file@v1
       - name: Install deps and run linter
         run: |
-          sudo apt update && sudo apt install libdw-dev
+          sudo apt update && sudo apt install libdw-dev protobuf-compiler
           cargo install cargo-sort
           rustup update
           rustup toolchain install nightly
