@@ -62,6 +62,8 @@ impl EventFileProcessorConfig {
             output_format: self.output_format,
             compression: self.compression,
             max_txns_per_folder: self.max_txns_per_folder,
+            max_file_size_bytes: self.max_file_size_bytes,
+            max_seconds_between_flushes: self.max_seconds_between_flushes,
         }
     }
 
@@ -85,6 +87,10 @@ pub struct ImmutableConfig {
     pub output_format: OutputFormat,
     pub compression: CompressionMode,
     pub max_txns_per_folder: u64,
+    #[serde(default = "default_max_file_size_bytes")]
+    pub max_file_size_bytes: usize,
+    #[serde(default = "default_max_seconds_between_flushes")]
+    pub max_seconds_between_flushes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

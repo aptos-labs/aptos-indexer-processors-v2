@@ -18,7 +18,7 @@ Folders are numbered sequentially starting from 0. Each folder holds up to `max_
 
 ## Data files
 
-Each data file is a serialized `EventFile` proto (see `event_file.proto`) containing a flat list of `EventWithContext` messages. The proto definition for `Event` is from [aptos-core](https://github.com/aptos-labs/aptos-core/tree/main/protos/proto/aptos/transaction/v1).
+Each data file is a serialized `EventFile` proto (see `processor/proto/indexer/v1/event_file.proto`) containing a flat list of `EventWithContext` messages. The proto definition for `Event` is from [aptos-core](https://github.com/aptos-labs/aptos-core/tree/main/protos/proto/aptos/transaction/v1).
 
 **Format & compression** are declared in root `metadata.json` under `config.output_format` and `config.compression`. Current options:
 
@@ -99,13 +99,15 @@ The fields under `root.config` (`event_filter_config`, `output_format`, `compres
 This assumes that you want to download all the data, rather than some kind of polling approach. This describes the simplest approach.
 
 1. Clone the entire bucket.
-2. Delete the folder with the highest index (it may be incomplete).
+2. Delete the folder with the highest index since it may be incomplete.
 
 The rest of the data will be a complete, consistent set of events. You can look at `metadata.json` in the highest index folder to see what the latest txn is.
 
-If you want to be less wasteful, you could keep the latest folder and parse the `metadata.json` file in that folder based on the above rules, though this is more complex.
+If you want to be less wasteful, you could keep the latest folder and parse the `metadata.json` file in that folder based on the above rules.
 
 ### Example script
+
+This implements the above dumb approach.
 
 ```bash
 #!/usr/bin/env bash
