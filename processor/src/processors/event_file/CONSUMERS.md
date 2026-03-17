@@ -14,7 +14,7 @@
     ...
 ```
 
-Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions (configurable, stored in root metadata). Once full, `is_complete` is set and a new folder begins. The folder prefix does not correspond to txn ledger version or anything like that (unlike the filestore worker in indexer-grpc-v2). Doing so would make folders too sparse.
+Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions. Once full, `is_complete` is set and a new folder begins. The folder prefix does not correspond to txn ledger version or anything like that (unlike the filestore worker in indexer-grpc-v2). Doing so would make folders too sparse.
 
 ## Data files
 
@@ -95,9 +95,116 @@ The fields under `root.config` (`event_filter_config`, `output_format`, `compres
 This assumes that you want to download all the data, rather than some kind of polling approach. This describes the simplest approach.
 
 1. Clone the entire bucket.
-2. Look at `{bucket_root}/metadata.json` to get the `latest_committed_version` and `current_folder_index`.
-3. Delete the folder at `current_folder_index`.
+2. Delete the folder with the highest index (it may be incomplete).
 
 The rest of the data will be a complete, consistent set of events. You can look at `metadata.json` in the highest index folder to see what the latest txn is.
 
 If you want to be less wasteful, you could keep the latest folder and parse the `metadata.json` file in that folder based on the above rules, though this is more complex.
+
+### Example script
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  download_events.sh -s <rclone_source> -d <destination_dir>
+
+Example:
+  download_events.sh \
+    -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet' \
+    -d './shelbynet'
+
+What it does:
+  1. Downloads the entire bucket/prefix with rclone
+  2. Deletes the highest-numbered top-level folder (it may be incomplete)
+  3. Decompresses all remaining .pb.lz4 and .json.lz4 files
+  4. Removes the original .lz4 files after successful decompression
+EOF
+}
+
+SRC=""
+DEST=""
+
+while getopts ":s:d:h" opt; do
+  case "$opt" in
+    s) SRC="$OPTARG" ;;
+    d) DEST="$OPTARG" ;;
+    h)
+      usage
+      exit 0
+      ;;
+    \?)
+      echo "Error: invalid option -$OPTARG" >&2
+      usage >&2
+      exit 1
+      ;;
+    :)
+      echo "Error: option -$OPTARG requires an argument" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$SRC" || -z "$DEST" ]]; then
+  echo "Error: both -s and -d are required" >&2
+  usage >&2
+  exit 1
+fi
+
+command -v rclone >/dev/null 2>&1 || { echo "rclone not found"; exit 1; }
+command -v lz4 >/dev/null 2>&1 || { echo "lz4 not found"; exit 1; }
+command -v find >/dev/null 2>&1 || { echo "find not found"; exit 1; }
+
+mkdir -p "$DEST"
+
+echo "Downloading from: $SRC"
+echo "Destination: $DEST"
+
+rclone copy \
+  --gcs-anonymous \
+  --transfers 64 \
+  --checkers 64 \
+  --fast-list \
+  --no-traverse \
+  "$SRC" "$DEST"
+
+echo "Looking for highest-numbered folder under $DEST ..."
+highest_dir=""
+highest_idx=""
+
+while IFS= read -r -d '' dir; do
+  base="$(basename "$dir")"
+  if [[ "$base" =~ ^[0-9]+$ ]]; then
+    if [[ -z "$highest_idx" || "$base" -gt "$highest_idx" ]]; then
+      highest_idx="$base"
+      highest_dir="$dir"
+    fi
+  fi
+done < <(find "$DEST" -mindepth 1 -maxdepth 1 -type d -print0)
+
+if [[ -n "$highest_dir" ]]; then
+  echo "Removing highest-numbered folder (may be incomplete): $highest_dir"
+  rm -rf -- "$highest_dir"
+else
+  echo "No numbered top-level folders found under $DEST"
+fi
+
+echo "Decompressing remaining .lz4 files..."
+find "$DEST" -type f \( -name '*.pb.lz4' -o -name '*.json.lz4' \) -print0 |
+while IFS= read -r -d '' file; do
+  out="${file%.lz4}"
+  echo "Decompressing: $file -> $out"
+  lz4 -d --rm "$file" "$out"
+done
+
+echo "Done."
+```
+
+Example usage:
+```
+./download_events.sh -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet' -d './out'
+```
