@@ -50,12 +50,17 @@ def get_license(ext):
     return None
 
 
+def is_shebang(line):
+    """Return True for real shebangs (e.g. #!/bin/bash), False for Rust inner attributes (#![...])."""
+    return line.startswith("#!") and not line.startswith("#![")
+
+
 def has_correct_license(lines, license_text):
     """Check if the file already starts with the correct license (after optional shebang)."""
     license_lines = license_text.split("\n")
     start = 0
 
-    if lines and lines[0].startswith("#!"):
+    if lines and is_shebang(lines[0]):
         start = 1
         while start < len(lines) and lines[start].strip() == "":
             start += 1
@@ -85,7 +90,7 @@ def fix_license(lines, license_text):
     start = 0
     shebang = None
 
-    if lines and lines[0].startswith("#!"):
+    if lines and is_shebang(lines[0]):
         shebang = lines[0]
         start = 1
 
