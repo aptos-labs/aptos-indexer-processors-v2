@@ -105,10 +105,30 @@ pub async fn recover_state(
                     (root.latest_committed_version, root.current_folder_txn_count)
                 };
 
+            // If the folder was already completed before the crash (e.g. root
+            // metadata was written after sealing the folder but before
+            // start_new_folder advanced the index), move to the next folder so
+            // we don't append files to a sealed folder.
+            let (folder_index, folder_metadata, folder_txn_count) =
+                if folder_txn_count >= config.max_txns_per_folder {
+                    info!(
+                        old_folder = root.current_folder_index,
+                        new_folder = root.current_folder_index + 1,
+                        "Recovered folder already complete, advancing to next folder"
+                    );
+                    (
+                        root.current_folder_index + 1,
+                        FolderMetadata::new(root.current_folder_index + 1),
+                        0,
+                    )
+                } else {
+                    (root.current_folder_index, folder_metadata, folder_txn_count)
+                };
+
             Ok((
                 root.chain_id,
                 latest_version,
-                root.current_folder_index,
+                folder_index,
                 folder_metadata,
                 folder_txn_count,
             ))

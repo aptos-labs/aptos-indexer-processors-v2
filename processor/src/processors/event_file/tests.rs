@@ -213,6 +213,166 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     );
 }
 
+/// Verify that recovery advances to the next folder when the current folder is
+/// already at capacity (crash between root metadata write and
+/// start_new_folder).
+#[tokio::test]
+async fn test_recovery_advances_past_completed_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 3;
+
+    // Simulate the state after a crash: root says folder 0 with 3 txns
+    // (at capacity), and folder metadata is sealed.
+    let mut fm = FolderMetadata::new(0);
+    fm.is_complete = true;
+    fm.total_transactions = 3;
+    fm.first_version = 10;
+    fm.last_version = 13;
+    fm.files.push(super::metadata::FileMetadata {
+        filename: "10.pb".to_string(),
+        first_version: 10,
+        last_version: 13,
+        num_events: 3,
+        num_transactions: 3,
+        size_bytes: 100,
+    });
+
+    let root = RootMetadata {
+        chain_id: 1,
+        latest_committed_version: 13,
+        latest_processed_version: 13,
+        current_folder_index: 0,
+        current_folder_txn_count: 3,
+        config: config.immutable_config(),
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+        )
+        .await
+        .unwrap();
+    store
+        .save_file(
+            PathBuf::from("0/metadata.json"),
+            serde_json::to_vec(&fm).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let (_chain_id, sv, fi, recovered_fm, ftc) = do_recovery(&store, &config).await;
+    assert_eq!(sv, 13, "starting version should come from sealed folder");
+    assert_eq!(fi, 1, "should advance to folder 1");
+    assert_eq!(ftc, 0, "new folder should have 0 txn count");
+    assert!(
+        recovered_fm.files.is_empty(),
+        "new folder metadata should be empty"
+    );
+    assert!(!recovered_fm.is_complete, "new folder should not be sealed");
+}
+
+/// End-to-end: recover from a completed-folder crash, process new events,
+/// and verify they land in folder 1 while folder 0 is untouched.
+#[tokio::test]
+async fn test_completed_folder_crash_new_events_go_to_next_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 3;
+
+    // Simulate the post-crash state: folder 0 sealed, root still at folder 0.
+    let mut fm0 = FolderMetadata::new(0);
+    fm0.is_complete = true;
+    fm0.total_transactions = 3;
+    fm0.first_version = 10;
+    fm0.last_version = 13;
+    fm0.files.push(super::metadata::FileMetadata {
+        filename: "10.pb".to_string(),
+        first_version: 10,
+        last_version: 13,
+        num_events: 3,
+        num_transactions: 3,
+        size_bytes: 100,
+    });
+
+    let root = RootMetadata {
+        chain_id: 1,
+        latest_committed_version: 13,
+        latest_processed_version: 13,
+        current_folder_index: 0,
+        current_folder_txn_count: 3,
+        config: config.immutable_config(),
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+        )
+        .await
+        .unwrap();
+    store
+        .save_file(
+            PathBuf::from("0/metadata.json"),
+            serde_json::to_vec(&fm0).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Recover and create a new writer from the recovered state.
+    let (chain_id, sv, fi, recovered_fm, ftc) = do_recovery(&store, &config).await;
+    let mut writer = EventFileWriterStep::new(
+        store.clone(),
+        config.clone(),
+        chain_id,
+        sv,
+        fi,
+        recovered_fm,
+        ftc,
+    );
+
+    // Process new events. 3 txns (20, 21, 22) fill the new folder, then 30
+    // triggers a flush at the transaction boundary.
+    let events = make_events(&[20, 21, 22, 30]);
+    process_batch(&mut writer, events, 13, 50).await.unwrap();
+
+    // Folder 0 metadata must be unchanged (still sealed with only the
+    // original file).
+    let fm0_data = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder 0 metadata should exist");
+    let fm0_after: FolderMetadata = serde_json::from_slice(&fm0_data).unwrap();
+    assert!(fm0_after.is_complete, "folder 0 should still be sealed");
+    assert_eq!(
+        fm0_after.files.len(),
+        1,
+        "folder 0 should still have exactly 1 file"
+    );
+
+    // Folder 1 should have the new data file.
+    let fm1_data = store
+        .get_file(PathBuf::from("1/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder 1 metadata should exist");
+    let fm1: FolderMetadata = serde_json::from_slice(&fm1_data).unwrap();
+    assert_eq!(fm1.folder_index, 1);
+    assert_eq!(fm1.files.len(), 1, "folder 1 should have 1 file");
+    assert_eq!(fm1.files[0].first_version, 20);
+    assert_eq!(fm1.total_transactions, 3);
+    assert!(
+        fm1.is_complete,
+        "folder 1 should be complete (3 txns = max)"
+    );
+
+    // The new data file should exist in folder 1.
+    let data_file = store.get_file(PathBuf::from("1/20.pb")).await.unwrap();
+    assert!(data_file.is_some(), "data file 1/20.pb should exist");
+}
+
 /// Verify consistency when folder metadata is absent but root has a non-zero
 /// folder_txn_count.
 #[tokio::test]

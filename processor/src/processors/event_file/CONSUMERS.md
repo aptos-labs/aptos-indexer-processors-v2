@@ -120,9 +120,28 @@ Example:
 What it does:
   1. Downloads the entire bucket/prefix with rclone
   2. Deletes the highest-numbered top-level folder (it may be incomplete)
-  3. Decompresses all remaining .pb.lz4 and .json.lz4 files
-  4. Removes the original .lz4 files after successful decompression
+  3. Shows size on disk before decompression
+  4. Decompresses all remaining .pb.lz4 and .json.lz4 files
+  5. Removes the original .lz4 files after successful decompression
+  6. Shows size on disk after decompression
+  7. Prints timing summary for download and decompression
 EOF
+}
+
+human_size() {
+  du -sh "$1" | awk '{print $1}'
+}
+
+bytes_size() {
+  du -sb "$1" | awk '{print $1}'
+}
+
+format_duration() {
+  local total="$1"
+  local h=$((total / 3600))
+  local m=$(((total % 3600) / 60))
+  local s=$((total % 60))
+  printf '%02dh:%02dm:%02ds' "$h" "$m" "$s"
 }
 
 SRC=""
@@ -158,11 +177,15 @@ fi
 command -v rclone >/dev/null 2>&1 || { echo "rclone not found"; exit 1; }
 command -v lz4 >/dev/null 2>&1 || { echo "lz4 not found"; exit 1; }
 command -v find >/dev/null 2>&1 || { echo "find not found"; exit 1; }
+command -v du >/dev/null 2>&1 || { echo "du not found"; exit 1; }
+command -v date >/dev/null 2>&1 || { echo "date not found"; exit 1; }
 
 mkdir -p "$DEST"
 
 echo "Downloading from: $SRC"
 echo "Destination: $DEST"
+
+download_start=$(date +%s)
 
 rclone copy \
   --gcs-anonymous \
@@ -171,6 +194,9 @@ rclone copy \
   --fast-list \
   --no-traverse \
   "$SRC" "$DEST"
+
+download_end=$(date +%s)
+download_secs=$((download_end - download_start))
 
 echo "Looking for highest-numbered folder under $DEST ..."
 highest_dir=""
@@ -193,7 +219,14 @@ else
   echo "No numbered top-level folders found under $DEST"
 fi
 
-echo "Decompressing remaining .lz4 files..."
+before_human="$(human_size "$DEST")"
+before_bytes="$(bytes_size "$DEST")"
+
+echo "Size on disk before decompressing: $before_human ($before_bytes bytes)"
+
+decompress_start=$(date +%s)
+
+decompressed_count=0
 find "$DEST" -type f \( -name '*.pb.lz4' -o -name '*.json.lz4' \) -print0 |
 while IFS= read -r -d '' file; do
   out="${file%.lz4}"
@@ -201,6 +234,26 @@ while IFS= read -r -d '' file; do
   lz4 -d --rm "$file" "$out"
 done
 
+decompress_end=$(date +%s)
+decompress_secs=$((decompress_end - decompress_start))
+
+after_human="$(human_size "$DEST")"
+after_bytes="$(bytes_size "$DEST")"
+
+echo
+echo "Summary"
+echo "-------"
+echo "Source:                       $SRC"
+echo "Destination:                  $DEST"
+if [[ -n "$highest_dir" ]]; then
+  echo "Removed highest folder:       $highest_dir"
+else
+  echo "Removed highest folder:       none"
+fi
+echo "Size before decompressing:    $before_human ($before_bytes bytes)"
+echo "Size after decompressing:     $after_human ($after_bytes bytes)"
+echo "Download time:                $(format_duration "$download_secs") (${download_secs}s)"
+echo "Decompression time:           $(format_duration "$decompress_secs") (${decompress_secs}s)"
 echo "Done."
 ```
 
