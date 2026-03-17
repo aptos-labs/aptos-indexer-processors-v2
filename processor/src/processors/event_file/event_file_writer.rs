@@ -47,8 +47,15 @@ pub struct EventFileWriterStep {
     // Version tracking
     /// Earliest version in the current file buffer.
     file_first_version: Option<u64>,
-    /// Latest version seen (across all files).
+    /// Exclusive upper bound of event versions added to the buffer. Advanced
+    /// per-event; may be ahead of `flushed_version` when events are buffered.
     latest_version: u64,
+    /// Exclusive upper bound of versions that have been flushed to files. Only
+    /// updated after a successful flush. This is the recovery-safe watermark.
+    flushed_version: u64,
+    /// Exclusive upper bound of all versions the processor has scanned through
+    /// (from batch metadata). Used only for progress reporting.
+    processed_version: u64,
     /// Timestamp of the first event written after the last flush. Used for the
     /// deterministic time-based flush trigger.
     first_timestamp_since_flush: Option<prost_types::Timestamp>,
@@ -85,6 +92,8 @@ impl EventFileWriterStep {
             last_version_in_file: None,
             file_first_version: None,
             latest_version: starting_version,
+            flushed_version: starting_version,
+            processed_version: starting_version,
             first_timestamp_since_flush: None,
             folder_metadata,
             current_folder_index: folder_index,
@@ -135,7 +144,7 @@ impl EventFileWriterStep {
 
         let event_file = EventFile { events };
         let serialized = self.serialize(&event_file)?;
-        let compressed = self.compress(&serialized);
+        let compressed = self.compress(&serialized)?;
         let size_bytes = compressed.len();
 
         let filename = format!("{first_version}{}", self.file_extension);
@@ -153,6 +162,14 @@ impl EventFileWriterStep {
         );
 
         self.store.save_file(file_path, compressed).await?;
+
+        // Advance the flushed watermark now that the file is persisted.
+        self.flushed_version = self.latest_version;
+
+        #[cfg(feature = "failpoints")]
+        failpoints::failpoint!("after-file-write", |_| Err(anyhow::anyhow!(
+            "failpoint: after-file-write"
+        )));
 
         // Update folder metadata.
         let file_meta = FileMetadata {
@@ -184,6 +201,12 @@ impl EventFileWriterStep {
         }
 
         self.maybe_update_folder_metadata(end_folder).await?;
+
+        #[cfg(feature = "failpoints")]
+        failpoints::failpoint!("after-folder-metadata", |_| Err(anyhow::anyhow!(
+            "failpoint: after-folder-metadata"
+        )));
+
         self.maybe_update_root_metadata(end_folder).await?;
 
         if end_folder {
@@ -236,7 +259,8 @@ impl EventFileWriterStep {
 
         let root = RootMetadata {
             chain_id: self.chain_id,
-            latest_version: self.latest_version,
+            latest_committed_version: self.flushed_version,
+            latest_processed_version: self.processed_version,
             current_folder_index: self.current_folder_index,
             current_folder_txn_count: self.folder_txn_count,
             config: self.config.immutable_config(),
@@ -262,10 +286,16 @@ impl EventFileWriterStep {
         }
     }
 
-    fn compress(&self, data: &[u8]) -> Vec<u8> {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>> {
         match self.config.compression {
-            CompressionMode::Lz4 => lz4_flex::compress_prepend_size(data),
-            CompressionMode::None => data.to_vec(),
+            CompressionMode::Lz4 => {
+                let mut buf = Vec::new();
+                let mut encoder = lz4_flex::frame::FrameEncoder::new(&mut buf);
+                std::io::Write::write_all(&mut encoder, data)?;
+                encoder.finish()?;
+                Ok(buf)
+            },
+            CompressionMode::None => Ok(data.to_vec()),
         }
     }
 }
@@ -319,11 +349,13 @@ impl Processable for EventFileWriterStep {
             }
         }
 
-        // Always advance latest_version from batch metadata so progress is
-        // tracked even when no events matched our filters.
+        // Advance processed_version from batch metadata so progress is tracked
+        // even when no events matched our filters. This is separate from
+        // latest_version (which only tracks event versions) and flushed_version
+        // (which only advances after a flush).
         let batch_end_exclusive = batch.metadata.end_version + 1;
-        if batch_end_exclusive > self.latest_version {
-            self.latest_version = batch_end_exclusive;
+        if batch_end_exclusive > self.processed_version {
+            self.processed_version = batch_end_exclusive;
         }
 
         // Periodically persist root metadata so external observers can see

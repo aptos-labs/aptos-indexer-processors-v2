@@ -8,3 +8,6 @@ pub mod event_file_writer;
 pub mod metadata;
 pub mod models;
 pub mod storage;
+
+#[cfg(test)]
+mod tests;

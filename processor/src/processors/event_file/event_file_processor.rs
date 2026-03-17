@@ -26,6 +26,96 @@ use aptos_indexer_processor_sdk::{
 use std::{path::PathBuf, sync::Arc};
 use tracing::info;
 
+/// Recover writer state from the file store. Returns
+/// `(chain_id, starting_version, folder_index, folder_metadata,
+/// folder_txn_count)`.
+///
+/// Exposed as a free function so crash-recovery tests can call it directly
+/// without constructing a full `EventFileProcessor`.
+pub async fn recover_state(
+    store: &Arc<dyn FileStore>,
+    config: &EventFileProcessorConfig,
+    default_starting_version: u64,
+) -> Result<(u64, u64, u64, FolderMetadata, u64)> {
+    let raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .context("Failed to read root metadata")?;
+
+    match raw {
+        None => {
+            info!(
+                starting_version = default_starting_version,
+                "No existing metadata found, bootstrapping"
+            );
+            Ok((0, default_starting_version, 0, FolderMetadata::new(0), 0))
+        },
+        Some(data) => {
+            let root: RootMetadata =
+                serde_json::from_slice(&data).context("Failed to parse root metadata.json")?;
+            info!(
+                latest_committed_version = root.latest_committed_version,
+                latest_processed_version = root.latest_processed_version,
+                folder = root.current_folder_index,
+                chain_id = root.chain_id,
+                "Recovered from existing metadata"
+            );
+
+            // Validate immutable config.
+            let expected = config.immutable_config();
+            if root.config != expected {
+                bail!(
+                    "Immutable config mismatch between running config and stored metadata.\n\
+                     Stored:  {stored}\n\
+                     Current: {current}\n\
+                     If you intentionally changed these fields you must use a fresh GCS prefix.",
+                    stored = serde_json::to_string_pretty(&root.config)?,
+                    current = serde_json::to_string_pretty(&expected)?,
+                );
+            }
+
+            let folder_meta_path: PathBuf = [
+                root.current_folder_index.to_string(),
+                METADATA_FILE_NAME.to_string(),
+            ]
+            .iter()
+            .collect();
+
+            let folder_metadata = match store.get_file(folder_meta_path).await? {
+                Some(data) => {
+                    serde_json::from_slice(&data).context("Failed to parse folder metadata")?
+                },
+                None => {
+                    // Folder metadata not yet written. Initialize it with the
+                    // folder_txn_count from root metadata to keep the two in
+                    // sync across crash-recovery cycles.
+                    let mut fm = FolderMetadata::new(root.current_folder_index);
+                    fm.total_transactions = root.current_folder_txn_count;
+                    fm
+                },
+            };
+
+            // Prefer folder metadata when available since it tracks per-file
+            // details. When folder metadata is missing, the values above
+            // already fall back to root metadata.
+            let (latest_version, folder_txn_count) =
+                if let Some(last_file) = folder_metadata.files.last() {
+                    (last_file.last_version, folder_metadata.total_transactions)
+                } else {
+                    (root.latest_committed_version, root.current_folder_txn_count)
+                };
+
+            Ok((
+                root.chain_id,
+                latest_version,
+                root.current_folder_index,
+                folder_metadata,
+                folder_txn_count,
+            ))
+        },
+    }
+}
+
 pub struct EventFileProcessor {
     config: IndexerProcessorConfig,
     event_file_config: EventFileProcessorConfig,
@@ -114,85 +204,12 @@ impl EventFileProcessor {
         &self,
         store: &Arc<dyn FileStore>,
     ) -> Result<(u64, u64, u64, FolderMetadata, u64)> {
-        let raw = store
-            .get_file(PathBuf::from(METADATA_FILE_NAME))
-            .await
-            .context("Failed to read root metadata")?;
-
-        match raw {
-            None => {
-                let starting_version = match &self.config.processor_mode {
-                    ProcessorMode::Default(boot) => boot.initial_starting_version,
-                    ProcessorMode::Testing(test) => test.override_starting_version,
-                    ProcessorMode::Backfill(bf) => bf.initial_starting_version,
-                };
-                info!(
-                    starting_version,
-                    "No existing metadata found, bootstrapping"
-                );
-
-                // Don't write root metadata yet — we don't know the chain_id.
-                // The writer will write it on first flush once chain_id is set.
-                Ok((0, starting_version, 0, FolderMetadata::new(0), 0))
-            },
-            Some(data) => {
-                let root: RootMetadata =
-                    serde_json::from_slice(&data).context("Failed to parse root metadata.json")?;
-                info!(
-                    latest_version = root.latest_version,
-                    folder = root.current_folder_index,
-                    chain_id = root.chain_id,
-                    "Recovered from existing metadata"
-                );
-
-                // Validate immutable config.
-                let expected = self.event_file_config.immutable_config();
-                if root.config != expected {
-                    bail!(
-                        "Immutable config mismatch between running config and stored metadata.\n\
-                         Stored:  {stored}\n\
-                         Current: {current}\n\
-                         If you intentionally changed these fields you must use a fresh GCS prefix.",
-                        stored = serde_json::to_string_pretty(&root.config)?,
-                        current = serde_json::to_string_pretty(&expected)?,
-                    );
-                }
-
-                // Load the current folder's metadata to recover in-progress state.
-                let folder_meta_path: PathBuf = [
-                    root.current_folder_index.to_string(),
-                    METADATA_FILE_NAME.to_string(),
-                ]
-                .iter()
-                .collect();
-
-                let folder_metadata = match store.get_file(folder_meta_path).await? {
-                    Some(data) => {
-                        serde_json::from_slice(&data).context("Failed to parse folder metadata")?
-                    },
-                    None => FolderMetadata::new(root.current_folder_index),
-                };
-
-                // Prefer folder metadata when available since it tracks
-                // per-file details. When folder metadata is missing (written
-                // less frequently than root metadata), fall back to the root
-                // metadata values which update more often.
-                let (latest_version, folder_txn_count) =
-                    if let Some(last_file) = folder_metadata.files.last() {
-                        (last_file.last_version, folder_metadata.total_transactions)
-                    } else {
-                        (root.latest_version, root.current_folder_txn_count)
-                    };
-
-                Ok((
-                    root.chain_id,
-                    latest_version,
-                    root.current_folder_index,
-                    folder_metadata,
-                    folder_txn_count,
-                ))
-            },
-        }
+        let starting_version = match &self.config.processor_mode {
+            ProcessorMode::Default(boot) => boot.initial_starting_version,
+            ProcessorMode::Testing(test) => test.override_starting_version,
+            ProcessorMode::Backfill(bf) => bf.initial_starting_version,
+        };
+        recover_state(store, &self.event_file_config, starting_version).await
     }
 }
 

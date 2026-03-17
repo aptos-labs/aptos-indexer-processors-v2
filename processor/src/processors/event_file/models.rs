@@ -1,38 +1,10 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::Event;
 use prost::Message;
-use serde::Serialize;
 
-/// A single event with its transaction context inlined.
-///
-/// Flat structure: version and timestamp are repeated per-event rather than
-/// grouping events by transaction. This is intentional — with server-side
-/// filtering there are very few events per transaction so the overhead is
-/// negligible, and it makes the consumer side simpler.
-///
-/// NOTE: The `event` field contains event data serialized as per the node API's
-/// Move data viewer. This means addresses inside the event payload are NOT
-/// AIP-40 compliant (i.e. not zero-padded to 66 chars). Only the top-level
-/// `type_str` on the Event proto uses whatever format the node emitted.
-#[derive(Clone, Serialize, prost::Message)]
-pub struct EventWithContext {
-    #[prost(uint64, tag = "1")]
-    pub version: u64,
-    #[prost(message, optional, tag = "2")]
-    #[serde(serialize_with = "serialize_timestamp")]
-    pub timestamp: Option<prost_types::Timestamp>,
-    #[prost(message, optional, tag = "3")]
-    pub event: Option<Event>,
-}
-
-/// Container for a file full of events.
-#[derive(Clone, Serialize, prost::Message)]
-pub struct EventFile {
-    #[prost(message, repeated, tag = "1")]
-    pub events: Vec<EventWithContext>,
-}
+// Generated from proto/aptos/indexer/event_file/v1/event_file.proto.
+include!(concat!(env!("OUT_DIR"), "/aptos.indexer.event_file.v1.rs"));
 
 impl EventFile {
     pub fn encode_proto(&self) -> Vec<u8> {
@@ -47,7 +19,7 @@ impl EventFile {
     }
 }
 
-fn serialize_timestamp<S: serde::Serializer>(
+pub fn serialize_timestamp<S: serde::Serializer>(
     ts: &Option<prost_types::Timestamp>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {

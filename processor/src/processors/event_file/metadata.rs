@@ -12,8 +12,15 @@ pub const METADATA_FILE_NAME: &str = "metadata.json";
 pub struct RootMetadata {
     pub chain_id: u64,
     /// The next transaction version to process (exclusive upper bound of what
-    /// has been written).
-    pub latest_version: u64,
+    /// has been *flushed* to files). Safe for recovery — the stream can restart
+    /// from here without losing data.
+    pub latest_committed_version: u64,
+    /// The next transaction version the processor has scanned through. This may
+    /// be ahead of `latest_version` when there are buffered-but-unflushed events
+    /// or stretches with no matching events. Informational only — not used for
+    /// recovery.
+    #[serde(default)]
+    pub latest_processed_version: u64,
     /// Index of the folder currently being written to.
     pub current_folder_index: u64,
     /// Number of filtered transactions accumulated in the current (possibly

@@ -61,6 +61,7 @@ diesel_migrations = { version = "2.3.1", features = ["postgres"] }
 dirs = "5.0.1"
 downcast-rs = "1.2.1"
 enum_dispatch = "0.3.13"
+failpoints = "0.2.0"
 field_count = "0.1.1"
 futures = "0.3.30"
 futures-util = "0.3.30"
@@ -76,7 +77,7 @@ itertools = "0.12.1"
 json-structural-diff = "0.1.0"
 lazy_static = "1.5.0"
 log = "0.4.29"
-lz4_flex = "0.11.3"
+lz4_flex = { version = "0.11.3", features = ["frame"] }
 mockall = "0.12.1"
 
 # Postgres SSL support
@@ -96,6 +97,7 @@ postgres-native-tls = "0.5.2"
 processor = { path = "processor" }
 prometheus = { version = "0.13.3", default-features = false }
 prost = { version = "0.13.4", features = ["no-recursion-limit"] }
+prost-build = "0.13.4"
 prost-types = "0.13.4"
 # Keep it compatible with the aptos-core version.
 rayon = "1.11.0"
