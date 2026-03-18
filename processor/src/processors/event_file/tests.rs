@@ -6,9 +6,11 @@ use super::{
         CompressionMode, EventFileFilterConfig, EventFileProcessorConfig, OutputFormat,
         SingleEventFilter,
     },
-    event_file_processor::recover_state,
+    event_file_processor::{RecoveredState, recover_state},
     event_file_writer::EventFileWriterStep,
-    metadata::{FolderMetadata, METADATA_FILE_NAME, RootMetadata},
+    metadata::{
+        FileMetadata, FolderMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata,
+    },
     models::{EventFile, EventWithContext},
     storage::{FileStore, LocalFileStore},
 };
@@ -84,8 +86,7 @@ fn make_multi_events(versions: &[u64], count: usize) -> Vec<EventWithContext> {
 ///
 /// `start_version..=end_version` (both inclusive) represents the range of
 /// transaction versions the processor *scanned*, which is typically wider than
-/// the events (most transactions don't match the filter). The writer uses
-/// `end_version` to advance `processed_version` (`end_version + 1`).
+/// the events (most transactions don't match the filter).
 fn make_batch(
     events: Vec<EventWithContext>,
     start_version: u64,
@@ -106,7 +107,7 @@ fn make_batch(
 async fn do_recovery(
     store: &Arc<dyn FileStore>,
     config: &EventFileProcessorConfig,
-) -> (u64, u64, u64, FolderMetadata, u64) {
+) -> RecoveredState {
     recover_state(store, config, 0).await.unwrap()
 }
 
@@ -138,68 +139,79 @@ async fn process_batch_with_range(
     Ok(())
 }
 
-/// Verify that `latest_committed_version` in root metadata only reflects flushed
-/// data, not buffered-but-unflushed events.
+/// Helper to create a fresh writer for tests.
+fn new_writer(
+    store: Arc<dyn FileStore>,
+    config: EventFileProcessorConfig,
+    starting_version: u64,
+    folder_index: u64,
+    folder_state: InternalFolderState,
+    folder_txn_count: u64,
+    flushed_version: Option<u64>,
+) -> EventFileWriterStep {
+    EventFileWriterStep::new(
+        store,
+        config,
+        1, // chain_id
+        starting_version,
+        folder_index,
+        folder_state,
+        folder_txn_count,
+        flushed_version,
+    )
+}
+
+/// Verify that root metadata is NOT written when nothing has been flushed.
+/// `latest_committed_version` in root metadata only reflects flushed data.
 #[tokio::test]
 async fn test_recovery_after_buffered_events_not_flushed() {
     let dir = tempfile::tempdir().unwrap();
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // 3 events with default config: none of the flush triggers fire
     // (3 txns < max_txns_per_folder=100, tiny size < 50 MiB,
     // elapsed 2s < max_seconds_between_flushes=600). All events stay buffered.
-    // Use explicit range: the batch scanned versions 0..=100 even though only
-    // 10, 11, 12 matched, so processed_version should be 101.
     let events = make_events(&[10, 11, 12]);
     process_batch_with_range(&mut writer, events, 0, 100)
         .await
         .unwrap();
 
-    // Root metadata was written by the periodic update at the end of
-    // process(), but since nothing was flushed it should reflect that.
+    // Root metadata should NOT be written because nothing has been flushed.
     let root_raw = store
         .get_file(PathBuf::from(METADATA_FILE_NAME))
         .await
         .unwrap();
-    if let Some(data) = root_raw {
-        let root: RootMetadata = serde_json::from_slice(&data).unwrap();
-        assert_eq!(
-            root.latest_committed_version, 0,
-            "latest_committed_version should be 0 (nothing flushed)"
-        );
-        assert_eq!(
-            root.latest_processed_version, 101,
-            "latest_processed_version should reflect scanned range"
-        );
-        assert_eq!(
-            root.current_folder_txn_count, 0,
-            "current_folder_txn_count should be 0 (nothing flushed), not 3 (buffered)"
-        );
-    }
+    assert!(
+        root_raw.is_none(),
+        "root metadata should not exist before any flush"
+    );
 
     drop(writer);
 
-    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 0,
-        "Recovery must restart from flushed watermark, not processed version"
+        recovered.starting_version, 0,
+        "Recovery must restart from default (nothing flushed)"
+    );
+    assert!(
+        recovered.flushed_version.is_none(),
+        "No data was flushed, so flushed_version should be None"
     );
 }
 
-/// Verify that after a successful flush, recovery starts from the flushed
-/// watermark, not from buffered-but-unflushed events.
+/// Verify that after a successful flush, recovery starts from one past the
+/// flushed watermark, not from buffered-but-unflushed events.
 #[tokio::test]
 async fn test_recovery_after_flush_then_more_buffered() {
     let dir = tempfile::tempdir().unwrap();
@@ -207,14 +219,14 @@ async fn test_recovery_after_flush_then_more_buffered() {
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // Versions 10, 11, 12 reach max_txns_per_folder=3. When version 20
@@ -225,15 +237,19 @@ async fn test_recovery_after_flush_then_more_buffered() {
 
     drop(writer);
 
-    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 13,
-        "Recovery should restart from flushed watermark (one past last flushed version 12)"
+        recovered.starting_version, 13,
+        "Recovery should restart from one past last flushed version (12 + 1)"
+    );
+    assert_eq!(
+        recovered.flushed_version,
+        Some(12),
+        "Last flushed version should be 12 (inclusive)"
     );
 }
 
-/// Verify that folder_txn_count and folder_metadata.total_transactions stay
+/// Verify that folder_txn_count and folder_state.total_transactions stay
 /// consistent across a clean shutdown and recovery cycle.
 #[tokio::test]
 async fn test_folder_txn_count_consistent_across_recovery() {
@@ -243,14 +259,14 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     config.max_txns_per_folder = 1000;
     config.max_seconds_between_flushes = 0;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     let events = make_events(&[1, 2, 3, 4, 5]);
@@ -260,13 +276,12 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     writer.cleanup().await.unwrap();
     drop(writer);
 
-    let (_chain_id, _starting_version, _folder_index, folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        folder_txn_count, folder_metadata.total_transactions,
-        "folder_txn_count must equal folder_metadata.total_transactions \
-         after recovery (got {folder_txn_count} vs {})",
-        folder_metadata.total_transactions
+        recovered.folder_txn_count, recovered.folder_state.total_transactions,
+        "folder_txn_count must equal folder_state.total_transactions \
+         after recovery (got {} vs {})",
+        recovered.folder_txn_count, recovered.folder_state.total_transactions
     );
 }
 
@@ -282,24 +297,27 @@ async fn test_recovery_advances_past_completed_folder() {
 
     // Simulate the state after a crash: root says folder 0 with 3 txns
     // (at capacity), and folder metadata is sealed.
-    let mut folder_metadata = FolderMetadata::new(0);
-    folder_metadata.is_complete = true;
-    folder_metadata.total_transactions = 3;
-    folder_metadata.first_version = 10;
-    folder_metadata.last_version = 12;
-    folder_metadata.files.push(super::metadata::FileMetadata {
-        filename: "10.pb".to_string(),
+    let folder_metadata = FolderMetadata {
+        folder_index: 0,
+        files: vec![FileMetadata {
+            filename: "10.pb".to_string(),
+            first_version: 10,
+            last_version: 12,
+            num_events: 3,
+            num_transactions: 3,
+            size_bytes: 100,
+        }],
         first_version: 10,
         last_version: 12,
-        num_events: 3,
-        num_transactions: 3,
-        size_bytes: 100,
-    });
+        total_transactions: 3,
+        is_complete: true,
+    };
 
+    // latest_committed_version is inclusive (12 = last committed version).
     let root = RootMetadata {
         chain_id: 1,
-        latest_committed_version: 13,
-        latest_processed_version: 13,
+        latest_committed_version: 12,
+        latest_processed_version: 12,
         current_folder_index: 0,
         current_folder_txn_count: 3,
         config: config.immutable_config(),
@@ -321,20 +339,25 @@ async fn test_recovery_advances_past_completed_folder() {
         .await
         .unwrap();
 
-    let (_chain_id, starting_version, folder_index, recovered_folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 13,
-        "starting version should be max(file.last_version + 1, root.latest_committed_version)"
+        recovered.starting_version, 13,
+        "starting version should be last_committed_version + 1"
     );
-    assert_eq!(folder_index, 1, "should advance past sealed folder 0");
-    assert_eq!(folder_txn_count, 0, "new folder should start with 0 txns");
-    assert!(
-        recovered_folder_metadata.files.is_empty(),
-        "new folder metadata should be empty"
+    assert_eq!(
+        recovered.folder_index, 1,
+        "should advance past sealed folder 0"
+    );
+    assert_eq!(
+        recovered.folder_txn_count, 0,
+        "new folder should start with 0 txns"
     );
     assert!(
-        !recovered_folder_metadata.is_complete,
+        recovered.folder_state.files.is_empty(),
+        "new folder state should have no files"
+    );
+    assert!(
+        !recovered.folder_state.is_complete,
         "new folder should not be sealed"
     );
 }
@@ -349,24 +372,26 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     config.max_txns_per_folder = 3;
 
     // Simulate the post-crash state: folder 0 sealed, root still at folder 0.
-    let mut folder_0_metadata = FolderMetadata::new(0);
-    folder_0_metadata.is_complete = true;
-    folder_0_metadata.total_transactions = 3;
-    folder_0_metadata.first_version = 10;
-    folder_0_metadata.last_version = 12;
-    folder_0_metadata.files.push(super::metadata::FileMetadata {
-        filename: "10.pb".to_string(),
+    let folder_0_metadata = FolderMetadata {
+        folder_index: 0,
+        files: vec![FileMetadata {
+            filename: "10.pb".to_string(),
+            first_version: 10,
+            last_version: 12,
+            num_events: 3,
+            num_transactions: 3,
+            size_bytes: 100,
+        }],
         first_version: 10,
         last_version: 12,
-        num_events: 3,
-        num_transactions: 3,
-        size_bytes: 100,
-    });
+        total_transactions: 3,
+        is_complete: true,
+    };
 
     let root = RootMetadata {
         chain_id: 1,
-        latest_committed_version: 13,
-        latest_processed_version: 13,
+        latest_committed_version: 12,
+        latest_processed_version: 12,
         current_folder_index: 0,
         current_folder_txn_count: 3,
         config: config.immutable_config(),
@@ -389,16 +414,16 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         .unwrap();
 
     // Recover and create a new writer from the recovered state.
-    let (chain_id, starting_version, folder_index, recovered_folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     let mut writer = EventFileWriterStep::new(
         store.clone(),
         config.clone(),
-        chain_id,
-        starting_version,
-        folder_index,
-        recovered_folder_metadata,
-        folder_txn_count,
+        recovered.chain_id,
+        recovered.starting_version,
+        recovered.folder_index,
+        recovered.folder_state,
+        recovered.folder_txn_count,
+        recovered.flushed_version,
     );
 
     // Versions 20, 21, 22 reach max_txns_per_folder=3 in folder 1. Version
@@ -457,10 +482,11 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
+    // latest_committed_version is inclusive (49 = last committed version).
     let root = RootMetadata {
         chain_id: 1,
-        latest_committed_version: 50,
-        latest_processed_version: 100,
+        latest_committed_version: 49,
+        latest_processed_version: 99,
         current_folder_index: 0,
         current_folder_txn_count: 42,
         config: config.immutable_config(),
@@ -474,19 +500,18 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
         .await
         .unwrap();
 
-    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 50,
-        "should recover latest_committed_version from root"
+        recovered.starting_version, 50,
+        "should recover from latest_committed_version + 1"
     );
     assert_eq!(
-        folder_txn_count, 42,
+        recovered.folder_txn_count, 42,
         "folder_txn_count should come from root"
     );
     assert_eq!(
-        folder_metadata.total_transactions, 42,
-        "folder_metadata.total_transactions should match root's count"
+        recovered.folder_state.total_transactions, 42,
+        "folder_state.total_transactions should match root's count"
     );
 }
 
@@ -500,27 +525,31 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     let config = test_config();
 
     // Simulate a crash where root metadata is ahead of folder metadata.
-    // Root was written after the latest flush (latest_committed_version=200,
+    // Root was written after the latest flush (latest_committed_version=199,
     // current_folder_txn_count=20), but the folder metadata write was
     // rate-limited and still reflects an older state (last_version=99,
     // total_transactions=10).
-    let mut folder_metadata = FolderMetadata::new(0);
-    folder_metadata.total_transactions = 10;
-    folder_metadata.first_version = 50;
-    folder_metadata.last_version = 99;
-    folder_metadata.files.push(super::metadata::FileMetadata {
-        filename: "50.pb".to_string(),
+    let folder_metadata = FolderMetadata {
+        folder_index: 0,
+        files: vec![FileMetadata {
+            filename: "50.pb".to_string(),
+            first_version: 50,
+            last_version: 99,
+            num_events: 10,
+            num_transactions: 10,
+            size_bytes: 500,
+        }],
         first_version: 50,
         last_version: 99,
-        num_events: 10,
-        num_transactions: 10,
-        size_bytes: 500,
-    });
+        total_transactions: 10,
+        is_complete: false,
+    };
 
+    // latest_committed_version=199 (inclusive).
     let root = RootMetadata {
         chain_id: 1,
-        latest_committed_version: 200,
-        latest_processed_version: 250,
+        latest_committed_version: 199,
+        latest_processed_version: 249,
         current_folder_index: 0,
         current_folder_txn_count: 20,
         config: config.immutable_config(),
@@ -542,14 +571,13 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
         .await
         .unwrap();
 
-    let (_chain_id, starting_version, _folder_index, _folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 200,
-        "starting version must be clamped to root.latest_committed_version, not stale folder value of 99+1"
+        recovered.starting_version, 200,
+        "starting version must be max(99, 199) + 1 = 200, not stale folder value of 99+1"
     );
     assert_eq!(
-        folder_txn_count, 20,
+        recovered.folder_txn_count, 20,
         "folder_txn_count must be clamped to root.current_folder_txn_count, not stale folder value of 10"
     );
 }
@@ -568,14 +596,14 @@ async fn test_complete_transactions_multi_event_txn_not_split() {
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // 3 events each for versions 10 and 11 (2 txns, 6 events total) reach
@@ -686,6 +714,7 @@ async fn test_config_mismatch_rejected_on_recovery() {
 /// - `file.last_version` is the actual last event version (inclusive).
 /// - `file.first_version` matches the filename prefix.
 /// - `folder_metadata.last_version` equals the file's `last_version`.
+/// - `root.latest_committed_version` is inclusive (matches file.last_version).
 #[tokio::test]
 async fn test_version_semantics_and_filename_encoding() {
     let dir = tempfile::tempdir().unwrap();
@@ -693,14 +722,14 @@ async fn test_version_semantics_and_filename_encoding() {
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // Versions 10, 11, 12 reach max_txns_per_folder=3. Version 50 triggers
@@ -751,6 +780,18 @@ async fn test_version_semantics_and_filename_encoding() {
         file.num_transactions, 3,
         "num_transactions should be distinct version count"
     );
+
+    // Root metadata latest_committed_version should be inclusive (12, not 13).
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist after flush");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.latest_committed_version, 12,
+        "root.latest_committed_version should be inclusive (same as file.last_version)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -766,14 +807,14 @@ async fn test_data_file_content_matches_after_flush() {
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
@@ -818,14 +859,14 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
@@ -884,10 +925,7 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
 
 /// After a partial flush + crash, re-processing must not double-count buffered
 /// transactions. This exercises the scenario where root metadata is written
-/// (via the periodic update in `process()`) with buffered events still in
-/// flight. Without the fix, `current_folder_txn_count` would include buffered
-/// events, and recovery would count them again, progressively inflating the
-/// count and causing premature folder sealing.
+/// (during flush) with buffered events still in flight.
 #[tokio::test]
 async fn test_no_double_counting_after_partial_flush_and_recovery() {
     let dir = tempfile::tempdir().unwrap();
@@ -896,14 +934,14 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
     config.max_txns_per_folder = 10;
     config.max_seconds_between_flushes = 0;
 
-    let mut writer = EventFileWriterStep::new(
+    let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1,
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // With max_seconds_between_flushes=0, each new version after the first
@@ -927,19 +965,21 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         "root should only count flushed txns (2), not include buffered v12"
     );
     assert_eq!(
-        root.latest_committed_version, 12,
-        "flushed through v11, so latest_committed_version is one past = 12"
+        root.latest_committed_version, 11,
+        "flushed through v11 (inclusive), so latest_committed_version = 11"
     );
 
     // Simulate crash: drop writer without cleanup.
     drop(writer);
 
-    // Recovery should start from the flushed watermark with the flushed count.
-    let (_chain_id, starting_version, folder_index, folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
-    assert_eq!(starting_version, 12, "should resume from flushed watermark");
+    // Recovery should start from one past the flushed watermark.
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        folder_txn_count, 2,
+        recovered.starting_version, 12,
+        "should resume from flushed watermark + 1"
+    );
+    assert_eq!(
+        recovered.folder_txn_count, 2,
         "recovered folder_txn_count should be 2 (flushed only)"
     );
 
@@ -948,10 +988,11 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         store.clone(),
         config.clone(),
         1,
-        starting_version,
-        folder_index,
-        folder_metadata,
-        folder_txn_count,
+        recovered.starting_version,
+        recovered.folder_index,
+        recovered.folder_state,
+        recovered.folder_txn_count,
+        recovered.flushed_version,
     );
 
     // Re-process v12 (was buffered, lost in crash) plus new events v13, v14.

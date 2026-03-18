@@ -32,7 +32,7 @@ use processor::processors::event_file::{
     },
     event_file_processor::recover_state,
     event_file_writer::EventFileWriterStep,
-    metadata::{FolderMetadata, METADATA_FILE_NAME, RootMetadata},
+    metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata},
     models::EventWithContext,
     storage::{FileStore, LocalFileStore},
 };
@@ -84,8 +84,7 @@ fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
 ///
 /// `start_version..=end_version` (both inclusive) represents the range of
 /// transaction versions the processor *scanned*, which is typically wider than
-/// the events (most transactions don't match the filter). The writer uses
-/// `end_version` to advance `processed_version` (`end_version + 1`).
+/// the events (most transactions don't match the filter).
 fn make_batch(
     events: Vec<EventWithContext>,
     start_version: u64,
@@ -122,7 +121,7 @@ async fn process_batch(
 async fn do_recovery(
     store: &Arc<dyn FileStore>,
     config: &EventFileProcessorConfig,
-) -> (u64, u64, u64, FolderMetadata, u64) {
+) -> processor::processors::event_file::event_file_processor::RecoveredState {
     recover_state(store, config, 0).await.unwrap()
 }
 
@@ -131,17 +130,19 @@ fn new_writer(
     config: EventFileProcessorConfig,
     starting_version: u64,
     folder_index: u64,
-    folder_metadata: FolderMetadata,
+    folder_state: InternalFolderState,
     folder_txn_count: u64,
+    flushed_version: Option<u64>,
 ) -> EventFileWriterStep {
     EventFileWriterStep::new(
         store,
         config,
-        1,
+        1, // chain_id
         starting_version,
         folder_index,
-        folder_metadata,
+        folder_state,
         folder_txn_count,
+        flushed_version,
     )
 }
 
@@ -165,8 +166,9 @@ async fn crash_after_file_write_before_metadata() {
         config.clone(),
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     failpoints::cfg("after-file-write", "return").unwrap();
@@ -184,10 +186,9 @@ async fn crash_after_file_write_before_metadata() {
     // No metadata was written, so recovery falls back to default starting
     // version (0). The orphaned data file (0/10.pb) is harmless — it will be
     // overwritten on the next successful flush.
-    let (_chain_id, starting_version, _folder_index, _folder_metadata, _folder_txn_count) =
-        do_recovery(&store, &config).await;
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 0,
+        recovered.starting_version, 0,
         "Recovery should restart from 0 since no metadata was written"
     );
 
@@ -206,6 +207,7 @@ async fn crash_after_folder_metadata_before_root() {
     config.max_seconds_between_flushes = 0;
 
     // Write initial root metadata so recovery has something to find.
+    // latest_committed_version=0 means "committed through version 0" (inclusive).
     let root = RootMetadata {
         chain_id: 1,
         latest_committed_version: 0,
@@ -226,10 +228,11 @@ async fn crash_after_folder_metadata_before_root() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
+        1, // resume from version 0 + 1 = 1
         0,
+        InternalFolderState::new(0),
         0,
-        FolderMetadata::new(0),
-        0,
+        Some(0), // flushed through version 0
     );
 
     failpoints::cfg("after-folder-metadata", "return").unwrap();
@@ -245,16 +248,15 @@ async fn crash_after_folder_metadata_before_root() {
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
     // Root metadata is stale (latest_committed_version=0) but folder metadata
-    // has the file with last_version=10 (the actual last event version).
-    // Recovery: max(file.last_version + 1 = 11, root.latest_committed_version=0) = 11.
-    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    // has the file with last_version=10 (inclusive).
+    // Recovery: max(10, 0) = 10, starting_version = 11.
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 11,
-        "Should recover from folder metadata's file last_version (ahead of stale root)"
+        recovered.starting_version, 11,
+        "Should recover from folder metadata's file last_version + 1 (ahead of stale root)"
     );
     assert_eq!(
-        folder_txn_count, folder_metadata.total_transactions,
+        recovered.folder_txn_count, recovered.folder_state.total_transactions,
         "folder txn count must be consistent"
     );
 
@@ -276,8 +278,9 @@ async fn crash_with_flushed_and_buffered_events() {
         config.clone(),
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
 
     // Batch 1: versions [10, 11, 12, 20]. Versions 10-12 reach
@@ -297,22 +300,23 @@ async fn crash_with_flushed_and_buffered_events() {
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // Folder 0 was sealed with last_version=12 (the last event version,
-    // inclusive). Folder 1 has only buffered events, no metadata on disk.
-    // Recovery picks up from root.latest_committed_version = 13.
-    let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
-        do_recovery(&store, &config).await;
+    // Folder 0 was sealed with last_version=12 (inclusive).
+    // Folder 1 has only buffered events, no metadata on disk.
+    // Recovery: root.latest_committed_version = 12, starting_version = 13.
+    let recovered = do_recovery(&store, &config).await;
     assert_eq!(
-        starting_version, 13,
-        "Recovery should restart from root.latest_committed_version (flushed watermark)"
+        recovered.starting_version, 13,
+        "Recovery should restart from root.latest_committed_version + 1 (flushed watermark)"
     );
-    assert_eq!(folder_txn_count, folder_metadata.total_transactions);
+    assert_eq!(
+        recovered.folder_txn_count, recovered.folder_state.total_transactions
+    );
 
     scenario.teardown();
 }
 
 /// Two back-to-back crash-recovery cycles must not cause
-/// `folder_txn_count` and `folder_metadata.total_transactions` to diverge.
+/// `folder_txn_count` and `folder_state.total_transactions` to diverge.
 ///
 /// The scenario that would cause drift: folder metadata is written to disk
 /// less frequently than root metadata (rate-limited). If root's
@@ -340,18 +344,18 @@ async fn repeated_crash_recovery_no_drift() {
         config.clone(),
         0,
         0,
-        FolderMetadata::new(0),
+        InternalFolderState::new(0),
         0,
+        None,
     );
     let events = make_events(&[1, 2, 3]);
     process_batch(&mut writer, events).await.unwrap();
     writer.cleanup().await.unwrap();
     drop(writer);
 
-    let (_, starting_version_1, folder_index_1, folder_metadata_1, folder_txn_count_1) =
-        do_recovery(&store, &config).await;
+    let recovered_1 = do_recovery(&store, &config).await;
     assert_eq!(
-        folder_txn_count_1, folder_metadata_1.total_transactions,
+        recovered_1.folder_txn_count, recovered_1.folder_state.total_transactions,
         "Cycle 1: txn counts must match after clean shutdown"
     );
 
@@ -364,10 +368,11 @@ async fn repeated_crash_recovery_no_drift() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        starting_version_1,
-        folder_index_1,
-        folder_metadata_1.clone(),
-        folder_txn_count_1,
+        recovered_1.starting_version,
+        recovered_1.folder_index,
+        recovered_1.folder_state.clone(),
+        recovered_1.folder_txn_count,
+        recovered_1.flushed_version,
     );
     let events = make_events(&[10, 11, 12]);
     process_batch(&mut writer, events).await.unwrap();
@@ -382,14 +387,13 @@ async fn repeated_crash_recovery_no_drift() {
 
     // The key assertion: after two cycles (one clean, one crashed), the
     // recovered folder_txn_count must still equal
-    // folder_metadata.total_transactions. If they diverge, the writer
+    // folder_state.total_transactions. If they diverge, the writer
     // would miscount transactions and seal folders at the wrong time.
-    let (_, _starting_version_2, _folder_index_2, folder_metadata_2, folder_txn_count_2) =
-        do_recovery(&store, &config).await;
+    let recovered_2 = do_recovery(&store, &config).await;
     assert_eq!(
-        folder_txn_count_2, folder_metadata_2.total_transactions,
-        "Cycle 2: txn counts must match after crash (got ftc={folder_txn_count_2}, fm.total={})",
-        folder_metadata_2.total_transactions
+        recovered_2.folder_txn_count, recovered_2.folder_state.total_transactions,
+        "Cycle 2: txn counts must match after crash (got ftc={}, fm.total={})",
+        recovered_2.folder_txn_count, recovered_2.folder_state.total_transactions
     );
 
     scenario.teardown();
