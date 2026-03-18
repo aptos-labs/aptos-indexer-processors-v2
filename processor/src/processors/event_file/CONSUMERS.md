@@ -18,7 +18,7 @@ Folders are numbered sequentially starting from 0. Each folder holds up to `max_
 
 ## Data files
 
-Each data file is a serialized `EventFile` proto (see `processor/proto/indexer/v1/event_file.proto`) containing a flat list of `EventWithContext` messages. The proto definition for `Event` is from [aptos-core](https://github.com/aptos-labs/aptos-core/tree/main/protos/proto/aptos/transaction/v1).
+Each data file is a serialized `EventFile` proto (see `processor/proto/aptos/indexer/event_file/v1/event_file.proto`) containing a flat list of `EventWithContext` messages. The proto definition for `Event` is from [aptos-core](https://github.com/aptos-labs/aptos-core/tree/main/protos/proto/aptos/transaction/v1).
 
 **Format & compression** are declared in root `metadata.json` under `config.output_format` and `config.compression`. Current options:
 

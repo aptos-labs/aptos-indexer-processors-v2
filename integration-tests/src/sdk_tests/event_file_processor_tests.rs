@@ -248,6 +248,16 @@ async fn repeated_crash_recovery_no_drift() {
         recovered_2.starting_version,
         recovered_1.starting_version
     );
+    // Cycle 2 must have advanced past all cycle 1 data (flushed through v3).
+    assert!(
+        recovered_2.starting_version >= 4,
+        "Cycle 2 starting_version must be at least 4 (past cycle 1's v3), got {}",
+        recovered_2.starting_version
+    );
+    assert_eq!(
+        recovered_2.folder_state.folder_index, 0,
+        "all data should still be in folder 0 (total txns < 1000)"
+    );
 
     scenario.teardown();
 }

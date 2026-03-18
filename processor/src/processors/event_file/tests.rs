@@ -66,6 +66,22 @@ async fn test_recovery_after_buffered_events_not_flushed() {
         recovered.flushed_version.is_none(),
         "No data was flushed, so flushed_version should be None"
     );
+    assert!(
+        recovered.chain_id.is_none(),
+        "chain_id should be None when no root metadata exists"
+    );
+    assert_eq!(
+        recovered.folder_state.folder_index, 0,
+        "should start at folder 0"
+    );
+    assert_eq!(
+        recovered.folder_state.total_transactions, 0,
+        "no transactions flushed"
+    );
+    assert!(
+        recovered.folder_state.files.is_empty(),
+        "no files should exist"
+    );
 }
 
 /// Verify that after a successful flush, recovery starts from one past the
@@ -104,6 +120,15 @@ async fn test_recovery_after_flush_then_more_buffered() {
         Some(12),
         "Last flushed version should be 12 (inclusive)"
     );
+    // Folder 0 was sealed (3 txns = max), recovery should advance to folder 1.
+    assert_eq!(
+        recovered.folder_state.folder_index, 1,
+        "should advance past sealed folder 0 to folder 1"
+    );
+    assert_eq!(
+        recovered.folder_state.total_transactions, 0,
+        "new folder 1 should start with 0 transactions"
+    );
 }
 
 /// Verify that the recovered folder state is internally consistent after a
@@ -130,12 +155,24 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     writer.cleanup().await.unwrap();
     drop(writer);
 
-    // After clean shutdown + recovery, verify the folder state is consistent
-    // by checking that we can create a writer and it doesn't error.
+    // After clean shutdown + recovery, verify the folder state is consistent.
     let recovered = do_recovery(&store, &config).await;
-    assert!(
-        recovered.folder_state.total_transactions > 0,
-        "should have recovered non-zero transaction count"
+    assert_eq!(
+        recovered.folder_state.total_transactions, 5,
+        "should have recovered exact transaction count (5 versions flushed)"
+    );
+    assert_eq!(
+        recovered.starting_version, 6,
+        "starting_version should be last flushed version + 1"
+    );
+    assert_eq!(
+        recovered.flushed_version,
+        Some(5),
+        "flushed_version should be the last flushed version (inclusive)"
+    );
+    assert_eq!(
+        recovered.folder_state.folder_index, 0,
+        "should still be in folder 0 (5 < max_txns_per_folder=1000)"
     );
 }
 
@@ -697,6 +734,73 @@ async fn test_data_file_content_matches_after_flush() {
         event_file.events[0].event.as_ref().unwrap().type_str,
         "0x1::test::TestEvent"
     );
+}
+
+/// Verify that `file_meta.size_bytes` matches the actual file size on disk,
+/// `file_meta.num_events` matches the decoded event count, and
+/// `file_meta.num_transactions` matches the distinct version count.
+#[tokio::test]
+async fn test_file_metadata_size_and_counts_match_actual_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 3;
+
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        InternalFolderState::new(0),
+        None,
+    );
+
+    // 3 events each for versions 10, 11 plus 1 event for version 12 (to hit
+    // the folder boundary). Version 20 triggers the flush.
+    let mut events = make_multi_events(&[10, 11, 12], 3);
+    events.extend(make_events(&[20]));
+    process_batch(&mut writer, events).await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder metadata should exist");
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+    assert_eq!(folder_metadata.files.len(), 1, "should have 1 flushed file");
+
+    let file_meta = &folder_metadata.files[0];
+
+    // Read the actual file and check size_bytes matches.
+    let data = store
+        .get_file(PathBuf::from(format!("0/{}", file_meta.filename)))
+        .await
+        .unwrap()
+        .expect("data file should exist");
+    assert_eq!(
+        file_meta.size_bytes,
+        data.len(),
+        "file_meta.size_bytes must match the actual file size on disk"
+    );
+
+    // Decode and check event count.
+    let event_file = EventFile::decode(data.as_slice()).unwrap();
+    assert_eq!(
+        file_meta.num_events,
+        event_file.events.len() as u64,
+        "file_meta.num_events must match decoded event count"
+    );
+
+    // Check distinct version count.
+    let mut distinct_versions: Vec<u64> = event_file.events.iter().map(|e| e.version).collect();
+    distinct_versions.dedup();
+    assert_eq!(
+        file_meta.num_transactions,
+        distinct_versions.len() as u64,
+        "file_meta.num_transactions must match distinct version count in file"
+    );
+
+    // Verify expected values: 3 versions * 3 events each = 9 events, 3 txns.
+    assert_eq!(file_meta.num_events, 9);
+    assert_eq!(file_meta.num_transactions, 3);
 }
 
 // ---------------------------------------------------------------------------
