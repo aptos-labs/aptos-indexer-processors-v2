@@ -96,6 +96,12 @@ impl FileStore for GcsFileStore {
 
         // Use a Multipart upload when we need to set object metadata (like
         // Cache-Control). Otherwise a Simple upload is sufficient.
+        //
+        // NOTE: content_type is hardcoded to JSON because today only metadata
+        // files (which are JSON) pass cache_control. If a future caller passes
+        // cache_control for a non-JSON file (e.g. protobuf data), this will set
+        // the wrong content type. Fix by deriving from the file extension or
+        // accepting content_type as a parameter.
         let upload_type = match cache_control {
             Some(cc) => UploadType::Multipart(Box::new(Object {
                 name: object_name.clone(),

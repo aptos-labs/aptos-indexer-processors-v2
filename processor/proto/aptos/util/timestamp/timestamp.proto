@@ -1,0 +1,18 @@
+// Copyright © Aptos Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+// Minimal stub so protoc can resolve `aptos.util.timestamp.Timestamp` when
+// compiling event_file.proto. The real Rust type comes from the aptos-protos
+// crate via prost-build's `extern_path`; no code is generated from this file.
+//
+// Third-party consumers compiling event_file.proto outside this repo should
+// use the full proto from https://github.com/aptos-labs/aptos-core/tree/main/protos/proto
+
+syntax = "proto3";
+
+package aptos.util.timestamp;
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}

@@ -14,6 +14,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".aptos.transaction.v1",
             "::aptos_indexer_processor_sdk::aptos_protos::transaction::v1",
         )
+        .extern_path(
+            ".aptos.util.timestamp",
+            "::aptos_indexer_processor_sdk::aptos_protos::util::timestamp",
+        )
         // Add serde derives so the types can still be JSON-serialized.
         .type_attribute(
             ".aptos.indexer.event_file.v1",

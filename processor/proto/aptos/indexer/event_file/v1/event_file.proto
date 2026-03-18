@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package aptos.indexer.event_file.v1;
 
-import "google/protobuf/timestamp.proto";
+import "aptos/util/timestamp/timestamp.proto";
 import "aptos/transaction/v1/transaction.proto";
 
 // A single event with its transaction context inlined.
@@ -21,7 +21,7 @@ import "aptos/transaction/v1/transaction.proto";
 // `type_str` on the Event proto uses whatever format the node emitted.
 message EventWithContext {
   uint64 version = 1;
-  google.protobuf.Timestamp timestamp = 2;
+  aptos.util.timestamp.Timestamp timestamp = 2;
   aptos.transaction.v1.Event event = 3;
 }
 

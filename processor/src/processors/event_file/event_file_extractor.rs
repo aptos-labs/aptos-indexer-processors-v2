@@ -125,11 +125,8 @@ impl Processable for EventFileExtractorStep {
 
             // Skip transactions without a timestamp — we require it for every
             // output event.
-            let timestamp = match txn.timestamp.as_ref() {
-                Some(t) => prost_types::Timestamp {
-                    seconds: t.seconds,
-                    nanos: t.nanos,
-                },
+            let timestamp = match txn.timestamp.clone() {
+                Some(t) => t,
                 None => {
                     warn!(version, "Skipping transaction without timestamp");
                     continue;
@@ -151,7 +148,7 @@ impl Processable for EventFileExtractorStep {
                 if self.matches(event) {
                     out.push(EventWithContext {
                         version,
-                        timestamp: Some(timestamp),
+                        timestamp: Some(timestamp.clone()),
                         event: Some(event.clone()),
                     });
                 }

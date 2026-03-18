@@ -15,7 +15,7 @@ use super::{
     storage::FileStore,
 };
 use aptos_indexer_processor_sdk::{
-    aptos_protos::transaction::v1::Event,
+    aptos_protos::{transaction::v1::Event, util::timestamp::Timestamp as AptosTimestamp},
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
 };
@@ -48,7 +48,7 @@ pub fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
         .iter()
         .map(|&v| EventWithContext {
             version: v,
-            timestamp: Some(prost_types::Timestamp {
+            timestamp: Some(AptosTimestamp {
                 seconds: v as i64,
                 nanos: 0,
             }),
@@ -68,7 +68,7 @@ pub fn make_multi_events(versions: &[u64], count: usize) -> Vec<EventWithContext
         .flat_map(|&v| {
             (0..count).map(move |i| EventWithContext {
                 version: v,
-                timestamp: Some(prost_types::Timestamp {
+                timestamp: Some(AptosTimestamp {
                     seconds: v as i64,
                     nanos: 0,
                 }),

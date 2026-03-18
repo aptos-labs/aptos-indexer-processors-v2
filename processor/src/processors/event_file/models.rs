@@ -20,7 +20,7 @@ impl EventFile {
 }
 
 pub fn serialize_timestamp<S: serde::Serializer>(
-    ts: &Option<prost_types::Timestamp>,
+    ts: &Option<aptos_indexer_processor_sdk::aptos_protos::util::timestamp::Timestamp>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     match ts {

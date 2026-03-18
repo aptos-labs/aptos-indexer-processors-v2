@@ -11,6 +11,7 @@ use super::{
 };
 use anyhow::{Context, Result};
 use aptos_indexer_processor_sdk::{
+    aptos_protos::util::timestamp::Timestamp as AptosTimestamp,
     traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
@@ -64,7 +65,7 @@ pub struct EventFileWriterStep {
     processed_version: Option<u64>,
     /// Timestamp of the first event written after the last flush. Used for the
     /// deterministic time-based flush trigger.
-    first_timestamp_since_flush: Option<prost_types::Timestamp>,
+    first_timestamp_since_flush: Option<AptosTimestamp>,
 
     // Folder state
     folder_state: InternalFolderState,
@@ -110,7 +111,7 @@ impl EventFileWriterStep {
     }
 
     /// Check whether a flush is needed based on the three triggers.
-    fn should_flush(&self, current_timestamp: Option<&prost_types::Timestamp>) -> bool {
+    fn should_flush(&self, current_timestamp: Option<&AptosTimestamp>) -> bool {
         if self.buffer.is_empty() {
             return false;
         }
