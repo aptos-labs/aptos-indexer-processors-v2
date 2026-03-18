@@ -299,6 +299,8 @@ fn any_public_key_to_serialized_string(key: &AnyPublicKey) -> String {
         },
         AnyPublicKeyEnum::Keyless => {},
         AnyPublicKeyEnum::FederatedKeyless => {},
+        // TODO: Add the correct BCS length prefix once the public key size is confirmed.
+        AnyPublicKeyEnum::SlhDsaSha2128s => {},
         AnyPublicKeyEnum::Unspecified => {
             tracing::warn!("Unspecified public key type not supported");
         },
