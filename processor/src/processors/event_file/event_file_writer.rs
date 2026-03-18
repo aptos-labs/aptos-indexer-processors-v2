@@ -239,7 +239,7 @@ impl EventFileWriterStep {
         ]
         .iter()
         .collect();
-        let disk_metadata = self.folder_state.to_folder_metadata();
+        let disk_metadata = self.folder_state.to_folder_metadata()?;
         let data = serde_json::to_vec(&disk_metadata)?;
         self.store
             .save_file(folder_meta_path, data, Some(METADATA_CACHE_CONTROL))

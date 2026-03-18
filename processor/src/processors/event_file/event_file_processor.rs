@@ -97,11 +97,11 @@ pub async fn recover_state(
             .iter()
             .collect();
 
-            let folder_state = match store.get_file(folder_meta_path).await? {
+            let mut folder_state = match store.get_file(folder_meta_path).await? {
                 Some(data) => {
-                    let fm = serde_json::from_slice(&data)
-                        .context("Failed to parse folder metadata")?;
-                    InternalFolderState::from_folder_metadata(&fm)
+                    let fm =
+                        serde_json::from_slice(&data).context("Failed to parse folder metadata")?;
+                    InternalFolderState::from_folder_metadata(fm)
                 },
                 None => {
                     let mut fs = InternalFolderState::new(root.current_folder_index);
@@ -112,9 +112,9 @@ pub async fn recover_state(
 
             // Both root.latest_committed_version and file.last_version are
             // inclusive, so we can compare them directly. Take the max to
-            // handle the case where root metadata was written after a flush
-            // but the corresponding folder metadata write hadn't happened yet
-            // before the crash.
+            // handle any inconsistency between root and folder metadata after
+            // a crash (e.g. folder metadata ahead of a stale root, or vice
+            // versa).
             let (last_committed_version, folder_txn_count) =
                 if let Some(last_file) = folder_state.files.last() {
                     (
@@ -128,8 +128,6 @@ pub async fn recover_state(
                 };
 
             let starting_version = last_committed_version + 1;
-
-            let mut folder_state = folder_state;
             folder_state.total_transactions = folder_txn_count;
 
             // If the folder was already completed before the crash (e.g. root
@@ -237,10 +235,7 @@ impl EventFileProcessor {
     /// folder state, and chain_id. If no metadata exists yet this is a fresh
     /// start and we return defaults without writing anything — the root metadata
     /// is only written once we know the chain_id (from the gRPC stream).
-    async fn recover_or_initialize(
-        &self,
-        store: &Arc<dyn FileStore>,
-    ) -> Result<RecoveredState> {
+    async fn recover_or_initialize(&self, store: &Arc<dyn FileStore>) -> Result<RecoveredState> {
         let starting_version = match &self.config.processor_mode {
             ProcessorMode::Default(boot) => boot.initial_starting_version,
             ProcessorMode::Testing(test) => test.override_starting_version,

@@ -2,6 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::event_file_config::ImmutableConfig;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub const METADATA_FILE_NAME: &str = "metadata.json";
@@ -100,30 +101,31 @@ impl InternalFolderState {
     }
 
     /// Convert to the on-disk `FolderMetadata` format for serialization.
-    /// Only valid when at least one file has been committed (panics otherwise).
-    pub fn to_folder_metadata(&self) -> FolderMetadata {
-        FolderMetadata {
+    /// Only valid when at least one file has been committed.
+    pub fn to_folder_metadata(&self) -> Result<FolderMetadata> {
+        Ok(FolderMetadata {
             folder_index: self.folder_index,
             files: self.files.clone(),
             first_version: self
                 .first_version
-                .expect("first_version must be set before writing to disk"),
+                .context("first_version must be set before writing folder metadata to disk")?,
             last_version: self
                 .last_version
-                .expect("last_version must be set before writing to disk"),
+                .context("last_version must be set before writing folder metadata to disk")?,
             total_transactions: self.total_transactions,
             is_complete: self.is_complete,
-        }
+        })
     }
 
     /// Load internal state from the on-disk `FolderMetadata` format.
-    pub fn from_folder_metadata(fm: &FolderMetadata) -> Self {
-        let has_files = !fm.files.is_empty();
+    /// Folder metadata is only written after at least one file is committed,
+    /// so version fields are always valid.
+    pub fn from_folder_metadata(fm: FolderMetadata) -> Self {
         Self {
             folder_index: fm.folder_index,
-            files: fm.files.clone(),
-            first_version: if has_files { Some(fm.first_version) } else { None },
-            last_version: if has_files { Some(fm.last_version) } else { None },
+            files: fm.files,
+            first_version: Some(fm.first_version),
+            last_version: Some(fm.last_version),
             total_transactions: fm.total_transactions,
             is_complete: fm.is_complete,
         }
