@@ -14,6 +14,7 @@
     "epoch": 6429,
     "entry_function_contract_address": "0x190d44266241744264b964a37b8f09863167a12d3e70cda39376cfb4e3561e12",
     "entry_function_module_name": "scripts_v2",
-    "entry_function_function_name": "swap"
+    "entry_function_function_name": "swap",
+    "encrypted_state": null
   }
 ]

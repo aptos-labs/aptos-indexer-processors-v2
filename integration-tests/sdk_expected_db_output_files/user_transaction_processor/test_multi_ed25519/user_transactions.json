@@ -14,6 +14,7 @@
     "epoch": 75,
     "entry_function_contract_address": "0xa3f6a53c57395401ce64f09a188e2259dc9b156387e76c88a7a80a8fe5254476",
     "entry_function_module_name": "momentum_safe",
-    "entry_function_function_name": "register"
+    "entry_function_function_name": "register",
+    "encrypted_state": null
   }
 ]
