@@ -32,7 +32,7 @@ use processor::processors::event_file::{
     },
     event_file_processor::recover_state,
     event_file_writer::EventFileWriterStep,
-    metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata},
+    metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata, VersionTracking},
     models::EventWithContext,
     storage::{FileStore, LocalFileStore},
 };
@@ -136,6 +136,7 @@ fn new_writer(
         store,
         config,
         1, // chain_id
+        0, // initial_starting_version
         starting_version,
         folder_state,
         flushed_version,
@@ -203,12 +204,13 @@ async fn crash_after_folder_metadata_before_root() {
     // Write initial root metadata so recovery has something to find.
     // latest_committed_version=0 means "committed through version 0" (inclusive).
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 0,
-        latest_processed_version: 0,
-        current_folder_index: 0,
-        current_folder_txn_count: 0,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 0,
+            latest_processed_version: 0,
+            current_folder_index: 0,
+            current_folder_txn_count: 0,
+        },
     };
     store
         .save_file(

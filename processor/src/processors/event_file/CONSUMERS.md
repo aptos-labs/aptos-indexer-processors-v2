@@ -31,6 +31,38 @@ Each data file is a serialized `EventFile` proto (see `processor/proto/indexer/v
 
 LZ4 compression uses the standard **LZ4 frame format** (magic bytes `\x04\x22\x4D\x18`). Files can be decompressed with the `lz4` CLI (`lz4 -d file.pb.lz4 file.pb`) or any LZ4 frame-compatible library (e.g. `lz4_flex::frame` in Rust, `lz4.frame` in Python).
 
+## Root metadata structure
+
+Root `metadata.json` has two top-level keys:
+
+- **`config`** — immutable identity, set once when the data store is created. Consumers can hash this block to detect whether the data store has changed.
+- **`tracking`** — mutable version-tracking state, updated on every flush.
+
+```json
+{
+  "config": {
+    "chain_id": 2,
+    "initial_starting_version": 0,
+    "event_filter_config": {
+      "filters": [
+        { "module_address": "0xbcdef...", "module_name": "emojicoin_dot_fun", "event_name": null }
+      ]
+    },
+    "output_format": "protobuf",
+    "compression": "lz4",
+    "max_txns_per_folder": 100000,
+    "max_file_size_bytes": 52428800,
+    "max_seconds_between_flushes": 600
+  },
+  "tracking": {
+    "latest_committed_version": 123456,
+    "latest_processed_version": 130000,
+    "current_folder_index": 3,
+    "current_folder_txn_count": 4200
+  }
+}
+```
+
 ## Key invariants
 
 ### Write ordering
@@ -63,14 +95,34 @@ Every data file contains **complete transactions** — if any event from a trans
 
 All `version` fields use the Aptos transaction ledger version (a globally unique, monotonically increasing u64).
 
+**Root tracking fields** (under `root.tracking`):
+
 | Field | Meaning |
 |-------|---------|
-| `root.latest_committed_version` | All matching events with `version <= latest_committed_version` have been written to files. If this is 12, versions 0–12 are fully covered (though only versions matching the filter will have events). Root metadata is only written after the first successful flush, so this field is always meaningful. |
-| `root.latest_processed_version` | The processor has scanned all transactions with `version <= latest_processed_version`. May be ahead of `latest_committed_version` during stretches with no matching events. Tells you how far the indexer has progressed regardless of event density. |
-| `folder_metadata.first_version` | Version of the first event in this folder (inclusive). |
-| `folder_metadata.last_version` | Version of the last event in this folder (inclusive). |
-| `file.first_version` | Version of the first event in this file (inclusive). Also encoded in the filename. |
-| `file.last_version` | Version of the last event in this file (inclusive). |
+| `latest_committed_version` | All matching events with `version <= latest_committed_version` have been written to files. If this is 12, versions 0–12 are fully covered (though only versions matching the filter will have events). |
+| `latest_processed_version` | The processor has scanned all transactions with `version <= latest_processed_version`. May be ahead of `latest_committed_version` during stretches with no matching events. Tells you how far the indexer has progressed regardless of event density. |
+| `current_folder_index` | Index of the folder currently being written to. |
+| `current_folder_txn_count` | Number of filtered transactions accumulated in the current (possibly incomplete) folder. |
+
+**Folder metadata fields** (per-folder `metadata.json`):
+
+| Field | Meaning |
+|-------|---------|
+| `first_version` | Version of the first event in this folder (inclusive). |
+| `last_version` | Version of the last event in this folder (inclusive). |
+| `total_transactions` | Total number of filtered transactions across all files in the folder. |
+| `is_complete` | Whether the folder is sealed (see folder lifecycle below). |
+
+**File metadata fields** (entries in `folder_metadata.files[]`):
+
+| Field | Meaning |
+|-------|---------|
+| `filename` | Name of the data file, e.g. `10.pb.lz4`. Encodes `{first_version}{ext}`. |
+| `first_version` | Version of the first event in this file (inclusive). Also encoded in the filename. |
+| `last_version` | Version of the last event in this file (inclusive). |
+| `num_events` | Total number of events in this file. |
+| `num_transactions` | Number of distinct filtered transactions that contributed events. |
+| `size_bytes` | Size of the serialized (and possibly compressed) file in bytes. |
 
 All version fields are **inclusive** — they are the actual transaction versions of the first and last events. For example, if `first_version` is 10 and `last_version` is 12, the file contains events from versions 10, 11, and 12 (though there may be gaps — not every version in the range necessarily has an event).
 
@@ -84,15 +136,25 @@ count reaches `max_txns_per_folder`.
 
 ### Gaps in versions
 
-There may be **large gaps** between consecutive `version` values within and across files. The processor only writes events matching its configured filters (specific module addresses, module names, event names). Transactions without matching events are skipped entirely. Use `latest_processed_version` on root metadata to see how far the indexer has scanned regardless of event density.
+There may be **large gaps** between consecutive `version` values within and across files. The processor only writes events matching its configured filters (specific module addresses, module names, event names). Transactions without matching events are skipped entirely. Use `tracking.latest_processed_version` in root metadata to see how far the indexer has scanned regardless of event density.
 
 ### Event filtering
 
 The filters applied are stored in `root.config.event_filter_config`. Only events from **successful** transactions matching these filters are included. Events from failed transactions are always excluded.
 
-### Config immutability
+### Config identity and immutability
 
-The fields under `root.config` (`event_filter_config`, `output_format`, `compression`, `max_txns_per_folder`) are **immutable** for the lifetime of a bucket. The processor refuses to start if they differ from what's stored. If you see these values in root metadata, they apply to every file in the bucket.
+The `root.config` block is **immutable** for the lifetime of a data store. It contains:
+
+- `chain_id` — the Aptos chain this data was indexed from.
+- `initial_starting_version` — the ledger version the processor was configured to start from.
+- `event_filter_config` — the event filters determining which events are included.
+- `output_format`, `compression` — serialization format and compression of data files.
+- `max_txns_per_folder`, `max_file_size_bytes`, `max_seconds_between_flushes` — flush/folder tuning.
+
+The processor refuses to start if the processor config fields differ from what is stored. All fields in `root.config` apply to every file in the bucket.
+
+**Consumer identity check**: you can hash or fingerprint the entire `config` JSON block to detect whether you are reading from the same data store as before. If the hash changes, the data store's identity has changed (different chain, different filters, different starting version, etc.).
 
 ## Fetching strategy
 

@@ -16,9 +16,22 @@ pub const METADATA_FILE_NAME: &str = "metadata.json";
 ///
 /// This file is only written after the first successful flush, so all version
 /// fields are always meaningful (never sentinels).
+///
+/// Two top-level keys:
+/// - `config` — immutable identity. Set once when the data store is created.
+///   Consumers can hash it to detect whether the data store has changed.
+/// - `tracking` — mutable version-tracking state updated on every flush.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RootMetadata {
-    pub chain_id: u64,
+    /// Immutable identity and config. Set once when the first root metadata is written.
+    pub config: ImmutableConfig,
+    /// Mutable progress and version-tracking state.
+    pub tracking: VersionTracking,
+}
+
+/// Mutable version-tracking state within root metadata, updated on every flush.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct VersionTracking {
     /// Last version flushed to files (inclusive). All matching events with
     /// `version <= latest_committed_version` are persisted. The processor
     /// restarts from `latest_committed_version + 1` after a crash.
@@ -26,7 +39,7 @@ pub struct RootMetadata {
     /// Last transaction version the processor has scanned through (inclusive).
     /// This may be ahead of `latest_committed_version` when there are
     /// buffered-but-unflushed events or stretches with no matching events.
-    /// Informational only — not used for recovery.
+    /// Informational only -- not used for recovery.
     #[serde(default)]
     pub latest_processed_version: u64,
     /// Index of the folder currently being written to.
@@ -34,8 +47,6 @@ pub struct RootMetadata {
     /// Number of filtered transactions accumulated in the current (possibly
     /// incomplete) folder. Used to know when to close it.
     pub current_folder_txn_count: u64,
-    /// Immutable config fields that must match across runs.
-    pub config: ImmutableConfig,
 }
 
 /// Per-folder `metadata.json` stored at `{bucket_root}/{folder_index}/metadata.json`.

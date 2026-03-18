@@ -54,16 +54,32 @@ pub struct EventFileProcessorConfig {
 }
 
 impl EventFileProcessorConfig {
-    /// Extract the subset of config fields that are immutable for a given data
+    /// Extract processor config fields that are immutable for a given data
     /// store. Changing any of these between runs would invalidate existing data.
-    pub fn immutable_config(&self) -> ImmutableConfig {
-        ImmutableConfig {
+    pub fn immutable_processor_config(&self) -> ImmutableProcessorConfig {
+        ImmutableProcessorConfig {
             event_filter_config: self.event_filter_config.clone(),
             output_format: self.output_format,
             compression: self.compression,
             max_txns_per_folder: self.max_txns_per_folder,
             max_file_size_bytes: self.max_file_size_bytes,
             max_seconds_between_flushes: self.max_seconds_between_flushes,
+        }
+    }
+
+    /// Build the full immutable config for root metadata, including runtime
+    /// identity fields (`chain_id`, `initial_starting_version`) alongside the
+    /// processor config. Consumers can hash this block to detect whether the
+    /// data store's identity has changed.
+    pub fn immutable_config(
+        &self,
+        chain_id: u64,
+        initial_starting_version: u64,
+    ) -> ImmutableConfig {
+        ImmutableConfig {
+            chain_id,
+            initial_starting_version,
+            processor: self.immutable_processor_config(),
         }
     }
 
@@ -78,11 +94,24 @@ impl EventFileProcessorConfig {
     }
 }
 
-/// The subset of config that is stored in root metadata and validated on
-/// startup. If any field differs from what is already written to the store the
-/// processor refuses to start.
+/// Full immutable config stored in root metadata under the `config` key.
+/// All fields are set once when the data store is created and never change.
+/// Consumers can hash this block to detect whether they are reading from the
+/// same data store as before.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ImmutableConfig {
+    pub chain_id: u64,
+    #[serde(default)]
+    pub initial_starting_version: u64,
+    #[serde(flatten)]
+    pub processor: ImmutableProcessorConfig,
+}
+
+/// The subset of processor config that is validated on startup. If any field
+/// differs from what is already written to the store the processor refuses to
+/// start.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ImmutableProcessorConfig {
     pub event_filter_config: EventFileFilterConfig,
     pub output_format: OutputFormat,
     pub compression: CompressionMode,

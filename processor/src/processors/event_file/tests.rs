@@ -10,6 +10,7 @@ use super::{
     event_file_writer::EventFileWriterStep,
     metadata::{
         FileMetadata, FolderMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata,
+        VersionTracking,
     },
     models::{EventFile, EventWithContext},
     storage::{FileStore, LocalFileStore},
@@ -151,6 +152,7 @@ fn new_writer(
         store,
         config,
         1, // chain_id
+        0, // initial_starting_version
         starting_version,
         folder_state,
         flushed_version,
@@ -305,12 +307,13 @@ async fn test_recovery_advances_past_completed_folder() {
 
     // latest_committed_version is inclusive (12 = last committed version).
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 12,
-        latest_processed_version: 12,
-        current_folder_index: 0,
-        current_folder_txn_count: 3,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 12,
+            latest_processed_version: 12,
+            current_folder_index: 0,
+            current_folder_txn_count: 3,
+        },
     };
     store
         .save_file(
@@ -379,12 +382,13 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     };
 
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 12,
-        latest_processed_version: 12,
-        current_folder_index: 0,
-        current_folder_txn_count: 3,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 12,
+            latest_processed_version: 12,
+            current_folder_index: 0,
+            current_folder_txn_count: 3,
+        },
     };
     store
         .save_file(
@@ -409,6 +413,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         store.clone(),
         config.clone(),
         recovered.chain_id,
+        0, // initial_starting_version
         recovered.starting_version,
         recovered.folder_state,
         recovered.flushed_version,
@@ -472,12 +477,13 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
 
     // latest_committed_version is inclusive (49 = last committed version).
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 49,
-        latest_processed_version: 99,
-        current_folder_index: 0,
-        current_folder_txn_count: 42,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 49,
+            latest_processed_version: 99,
+            current_folder_index: 0,
+            current_folder_txn_count: 42,
+        },
     };
     store
         .save_file(
@@ -531,12 +537,13 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
 
     // latest_committed_version=199 (inclusive).
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 199,
-        latest_processed_version: 249,
-        current_folder_index: 0,
-        current_folder_txn_count: 20,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 199,
+            latest_processed_version: 249,
+            current_folder_index: 0,
+            current_folder_txn_count: 20,
+        },
     };
     store
         .save_file(
@@ -653,12 +660,13 @@ async fn test_config_mismatch_rejected_on_recovery() {
     // (root metadata is normally only written after the first flush), but
     // this test only validates config mismatch detection.
     let root = RootMetadata {
-        chain_id: 1,
-        latest_committed_version: 0,
-        latest_processed_version: 0,
-        current_folder_index: 0,
-        current_folder_txn_count: 0,
-        config: config.immutable_config(),
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 0,
+            latest_processed_version: 0,
+            current_folder_index: 0,
+            current_folder_txn_count: 0,
+        },
     };
     store
         .save_file(
@@ -772,8 +780,8 @@ async fn test_version_semantics_and_filename_encoding() {
         .expect("root metadata should exist after flush");
     let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
     assert_eq!(
-        root.latest_committed_version, 12,
-        "root.latest_committed_version should be inclusive (same as file.last_version)"
+        root.tracking.latest_committed_version, 12,
+        "root.tracking.latest_committed_version should be inclusive (same as file.last_version)"
     );
 }
 
@@ -938,11 +946,11 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         .expect("root metadata should exist");
     let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
     assert_eq!(
-        root.current_folder_txn_count, 2,
+        root.tracking.current_folder_txn_count, 2,
         "root should only count flushed txns (2), not include buffered v12"
     );
     assert_eq!(
-        root.latest_committed_version, 11,
+        root.tracking.latest_committed_version, 11,
         "flushed through v11 (inclusive), so latest_committed_version = 11"
     );
 
@@ -964,7 +972,8 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
     let mut writer = EventFileWriterStep::new(
         store.clone(),
         config.clone(),
-        1,
+        1, // chain_id
+        0, // initial_starting_version
         recovered.starting_version,
         recovered.folder_state,
         recovered.flushed_version,
@@ -984,7 +993,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         .expect("root metadata should exist");
     let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
     assert_eq!(
-        root.current_folder_txn_count, 5,
+        root.tracking.current_folder_txn_count, 5,
         "total should be 5 (2 pre-crash + 3 post-recovery), not 6 (double-counted)"
     );
 }

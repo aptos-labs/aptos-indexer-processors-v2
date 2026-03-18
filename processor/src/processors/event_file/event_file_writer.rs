@@ -3,7 +3,9 @@
 
 use super::{
     event_file_config::{CompressionMode, EventFileProcessorConfig, OutputFormat},
-    metadata::{FileMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata},
+    metadata::{
+        FileMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata, VersionTracking,
+    },
     models::{EventFile, EventWithContext},
     storage::FileStore,
 };
@@ -30,6 +32,7 @@ pub struct EventFileWriterStep {
     config: EventFileProcessorConfig,
     file_extension: &'static str,
     chain_id: u64,
+    initial_starting_version: u64,
 
     // Buffer state
     buffer: Vec<EventWithContext>,
@@ -75,6 +78,7 @@ impl EventFileWriterStep {
         store: Arc<dyn FileStore>,
         config: EventFileProcessorConfig,
         chain_id: u64,
+        initial_starting_version: u64,
         starting_version: u64,
         folder_state: InternalFolderState,
         flushed_version: Option<u64>,
@@ -89,6 +93,7 @@ impl EventFileWriterStep {
             config,
             file_extension,
             chain_id,
+            initial_starting_version,
             buffer: Vec::new(),
             buffer_size_bytes: 0,
             folder_txn_count,
@@ -263,12 +268,15 @@ impl EventFileWriterStep {
         }
 
         let root = RootMetadata {
-            chain_id: self.chain_id,
-            latest_committed_version: flushed,
-            latest_processed_version: self.processed_version,
-            current_folder_index: self.folder_state.folder_index,
-            current_folder_txn_count: self.folder_state.total_transactions,
-            config: self.config.immutable_config(),
+            config: self
+                .config
+                .immutable_config(self.chain_id, self.initial_starting_version),
+            tracking: VersionTracking {
+                latest_committed_version: flushed,
+                latest_processed_version: self.processed_version,
+                current_folder_index: self.folder_state.folder_index,
+                current_folder_txn_count: self.folder_state.total_transactions,
+            },
         };
         let data = serde_json::to_vec(&root)?;
         self.store

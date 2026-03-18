@@ -69,29 +69,30 @@ pub async fn recover_state(
         Some(data) => {
             let root: RootMetadata =
                 serde_json::from_slice(&data).context("Failed to parse root metadata.json")?;
+            let t = &root.tracking;
             info!(
-                latest_committed_version = root.latest_committed_version,
-                latest_processed_version = root.latest_processed_version,
-                folder = root.current_folder_index,
-                chain_id = root.chain_id,
+                latest_committed_version = t.latest_committed_version,
+                latest_processed_version = t.latest_processed_version,
+                folder = t.current_folder_index,
+                chain_id = root.config.chain_id,
                 "Recovered from existing metadata"
             );
 
-            // Validate immutable config.
-            let expected = config.immutable_config();
-            if root.config != expected {
+            // Validate immutable processor config.
+            let expected = config.immutable_processor_config();
+            if root.config.processor != expected {
                 bail!(
                     "Immutable config mismatch between running config and stored metadata.\n\
                      Stored:  {stored}\n\
                      Current: {current}\n\
                      If you intentionally changed these fields you must use a fresh GCS prefix.",
-                    stored = serde_json::to_string_pretty(&root.config)?,
+                    stored = serde_json::to_string_pretty(&root.config.processor)?,
                     current = serde_json::to_string_pretty(&expected)?,
                 );
             }
 
             let folder_meta_path: PathBuf = [
-                root.current_folder_index.to_string(),
+                t.current_folder_index.to_string(),
                 METADATA_FILE_NAME.to_string(),
             ]
             .iter()
@@ -104,13 +105,13 @@ pub async fn recover_state(
                     InternalFolderState::from_folder_metadata(fm)
                 },
                 None => {
-                    let mut fs = InternalFolderState::new(root.current_folder_index);
-                    fs.total_transactions = root.current_folder_txn_count;
+                    let mut fs = InternalFolderState::new(t.current_folder_index);
+                    fs.total_transactions = t.current_folder_txn_count;
                     fs
                 },
             };
 
-            // Both root.latest_committed_version and file.last_version are
+            // Both tracking.latest_committed_version and file.last_version are
             // inclusive, so we can compare them directly. Take the max to
             // handle any inconsistency between root and folder metadata after
             // a crash (e.g. folder metadata ahead of a stale root, or vice
@@ -118,13 +119,13 @@ pub async fn recover_state(
             let (last_committed_version, folder_txn_count) =
                 if let Some(last_file) = folder_state.files.last() {
                     (
-                        last_file.last_version.max(root.latest_committed_version),
+                        last_file.last_version.max(t.latest_committed_version),
                         folder_state
                             .total_transactions
-                            .max(root.current_folder_txn_count),
+                            .max(t.current_folder_txn_count),
                     )
                 } else {
-                    (root.latest_committed_version, root.current_folder_txn_count)
+                    (t.latest_committed_version, t.current_folder_txn_count)
                 };
 
             let starting_version = last_committed_version + 1;
@@ -136,17 +137,17 @@ pub async fn recover_state(
             // we don't append files to a sealed folder.
             let folder_state = if folder_txn_count >= config.max_txns_per_folder {
                 info!(
-                    old_folder = root.current_folder_index,
-                    new_folder = root.current_folder_index + 1,
+                    old_folder = t.current_folder_index,
+                    new_folder = t.current_folder_index + 1,
                     "Recovered folder already complete, advancing to next folder"
                 );
-                InternalFolderState::new(root.current_folder_index + 1)
+                InternalFolderState::new(t.current_folder_index + 1)
             } else {
                 folder_state
             };
 
             Ok(RecoveredState {
-                chain_id: root.chain_id,
+                chain_id: root.config.chain_id,
                 starting_version,
                 folder_state,
                 flushed_version: Some(last_committed_version),
@@ -231,17 +232,26 @@ impl EventFileProcessor {
         ]))
     }
 
+    /// Extract the configured initial starting version from the processor mode.
+    fn initial_starting_version(&self) -> u64 {
+        match &self.config.processor_mode {
+            ProcessorMode::Default(boot) => boot.initial_starting_version,
+            ProcessorMode::Testing(test) => test.override_starting_version,
+            ProcessorMode::Backfill(bf) => bf.initial_starting_version,
+        }
+    }
+
     /// Recover from GCS metadata to determine the starting version, current
     /// folder state, and chain_id. If no metadata exists yet this is a fresh
     /// start and we return defaults without writing anything — the root metadata
     /// is only written once we know the chain_id (from the gRPC stream).
     async fn recover_or_initialize(&self, store: &Arc<dyn FileStore>) -> Result<RecoveredState> {
-        let starting_version = match &self.config.processor_mode {
-            ProcessorMode::Default(boot) => boot.initial_starting_version,
-            ProcessorMode::Testing(test) => test.override_starting_version,
-            ProcessorMode::Backfill(bf) => bf.initial_starting_version,
-        };
-        recover_state(store, &self.event_file_config, starting_version).await
+        recover_state(
+            store,
+            &self.event_file_config,
+            self.initial_starting_version(),
+        )
+        .await
     }
 }
 
@@ -297,6 +307,7 @@ impl ProcessorTrait for EventFileProcessor {
             store,
             self.event_file_config.clone(),
             chain_id,
+            self.initial_starting_version(),
             recovered.starting_version,
             recovered.folder_state,
             recovered.flushed_version,
