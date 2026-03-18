@@ -28,6 +28,7 @@ use std::{path::PathBuf, sync::Arc};
 use tracing::info;
 
 /// State recovered from on-disk metadata, used to initialize the writer.
+#[derive(Debug)]
 pub struct RecoveredState {
     pub chain_id: u64,
     /// Exclusive: the next version to fetch from the transaction stream.
