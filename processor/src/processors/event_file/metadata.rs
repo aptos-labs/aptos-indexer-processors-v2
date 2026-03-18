@@ -11,9 +11,9 @@ pub const METADATA_FILE_NAME: &str = "metadata.json";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RootMetadata {
     pub chain_id: u64,
-    /// The next transaction version to process (exclusive upper bound of what
-    /// has been *flushed* to files). Safe for recovery — the stream can restart
-    /// from here without losing data.
+    /// One past the last version flushed to files. All matching events with
+    /// `version < latest_committed_version` are in files. The processor
+    /// restarts from this value after a crash.
     pub latest_committed_version: u64,
     /// The next transaction version the processor has scanned through. This may
     /// be ahead of `latest_version` when there are buffered-but-unflushed events
@@ -37,7 +37,8 @@ pub struct FolderMetadata {
     pub files: Vec<FileMetadata>,
     /// First transaction version in this folder (from the first file).
     pub first_version: u64,
-    /// Last transaction version in this folder (from the last file, exclusive).
+    /// Last transaction version in this folder (inclusive — the actual version
+    /// of the last event in the last file).
     pub last_version: u64,
     /// Total number of filtered transactions across all files.
     pub total_transactions: u64,
@@ -60,8 +61,7 @@ pub struct FileMetadata {
     pub filename: String,
     /// First transaction version whose events appear in this file.
     pub first_version: u64,
-    /// Last transaction version (exclusive) — the next version to process after
-    /// this file.
+    /// Last transaction version whose events appear in this file (inclusive).
     pub last_version: u64,
     pub num_events: u64,
     /// Number of filtered transactions that contributed events to this file.

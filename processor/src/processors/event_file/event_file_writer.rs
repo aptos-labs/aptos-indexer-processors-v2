@@ -177,11 +177,15 @@ impl EventFileWriterStep {
             "failpoint: after-file-write"
         )));
 
-        // Update folder metadata.
+        // Update folder metadata. last_version is inclusive (the actual version
+        // of the last event), not the internal exclusive watermark.
+        let last_version_inclusive = self
+            .last_version_in_file
+            .expect("last_version_in_file must be set when buffer is non-empty");
         let file_meta = FileMetadata {
             filename,
             first_version,
-            last_version: self.latest_version,
+            last_version: last_version_inclusive,
             num_events,
             num_transactions: file_txn_count,
             size_bytes,
@@ -189,7 +193,7 @@ impl EventFileWriterStep {
         if self.folder_metadata.files.is_empty() {
             self.folder_metadata.first_version = first_version;
         }
-        self.folder_metadata.last_version = self.latest_version;
+        self.folder_metadata.last_version = last_version_inclusive;
         self.folder_metadata.total_transactions += file_txn_count;
         self.folder_metadata.files.push(file_meta);
 

@@ -229,7 +229,7 @@ async fn test_recovery_after_flush_then_more_buffered() {
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 13,
-        "Recovery should restart from flushed watermark (exclusive upper bound of v10-v12)"
+        "Recovery should restart from flushed watermark (one past last flushed version 12)"
     );
 }
 
@@ -286,11 +286,11 @@ async fn test_recovery_advances_past_completed_folder() {
     folder_metadata.is_complete = true;
     folder_metadata.total_transactions = 3;
     folder_metadata.first_version = 10;
-    folder_metadata.last_version = 13;
+    folder_metadata.last_version = 12;
     folder_metadata.files.push(super::metadata::FileMetadata {
         filename: "10.pb".to_string(),
         first_version: 10,
-        last_version: 13,
+        last_version: 12,
         num_events: 3,
         num_transactions: 3,
         size_bytes: 100,
@@ -325,7 +325,7 @@ async fn test_recovery_advances_past_completed_folder() {
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 13,
-        "starting version should be max(folder.last_version, root.latest_committed_version)"
+        "starting version should be max(file.last_version + 1, root.latest_committed_version)"
     );
     assert_eq!(folder_index, 1, "should advance past sealed folder 0");
     assert_eq!(folder_txn_count, 0, "new folder should start with 0 txns");
@@ -353,11 +353,11 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     folder_0_metadata.is_complete = true;
     folder_0_metadata.total_transactions = 3;
     folder_0_metadata.first_version = 10;
-    folder_0_metadata.last_version = 13;
+    folder_0_metadata.last_version = 12;
     folder_0_metadata.files.push(super::metadata::FileMetadata {
         filename: "10.pb".to_string(),
         first_version: 10,
-        last_version: 13,
+        last_version: 12,
         num_events: 3,
         num_transactions: 3,
         size_bytes: 100,
@@ -502,16 +502,16 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     // Simulate a crash where root metadata is ahead of folder metadata.
     // Root was written after the latest flush (latest_committed_version=200,
     // current_folder_txn_count=20), but the folder metadata write was
-    // rate-limited and still reflects an older state (last_version=100,
+    // rate-limited and still reflects an older state (last_version=99,
     // total_transactions=10).
     let mut folder_metadata = FolderMetadata::new(0);
     folder_metadata.total_transactions = 10;
     folder_metadata.first_version = 50;
-    folder_metadata.last_version = 100;
+    folder_metadata.last_version = 99;
     folder_metadata.files.push(super::metadata::FileMetadata {
         filename: "50.pb".to_string(),
         first_version: 50,
-        last_version: 100,
+        last_version: 99,
         num_events: 10,
         num_transactions: 10,
         size_bytes: 500,
@@ -546,7 +546,7 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
         do_recovery(&store, &config).await;
     assert_eq!(
         starting_version, 200,
-        "starting version must be clamped to root.latest_committed_version, not stale folder value of 100"
+        "starting version must be clamped to root.latest_committed_version, not stale folder value of 99+1"
     );
     assert_eq!(
         folder_txn_count, 20,
@@ -683,7 +683,7 @@ async fn test_config_mismatch_rejected_on_recovery() {
 // ---------------------------------------------------------------------------
 
 /// Verify that after a flush:
-/// - `file.last_version` is an exclusive upper bound (version + 1).
+/// - `file.last_version` is the actual last event version (inclusive).
 /// - `file.first_version` matches the filename prefix.
 /// - `folder_metadata.last_version` equals the file's `last_version`.
 #[tokio::test]
@@ -720,11 +720,11 @@ async fn test_version_semantics_and_filename_encoding() {
 
     assert_eq!(file.first_version, 10, "file.first_version should be 10");
 
-    // last_version is exclusive: the file contains versions 10, 11, 12
-    // so last_version = max(version) + 1 = 13.
+    // last_version is inclusive: the file contains versions 10, 11, 12
+    // so last_version is the actual last event version (12).
     assert_eq!(
-        file.last_version, 13,
-        "file.last_version should be exclusive upper bound (13)"
+        file.last_version, 12,
+        "file.last_version should be the last event version (inclusive)"
     );
 
     // Filename should encode first_version + extension.
@@ -928,7 +928,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
     );
     assert_eq!(
         root.latest_committed_version, 12,
-        "flushed through v11, so exclusive upper bound is 12"
+        "flushed through v11, so latest_committed_version is one past = 12"
     );
 
     // Simulate crash: drop writer without cleanup.

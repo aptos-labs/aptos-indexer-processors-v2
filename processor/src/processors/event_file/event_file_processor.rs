@@ -100,10 +100,14 @@ pub async fn recover_state(
             // but always clamp to at least root's committed version. Folder
             // metadata updates are rate-limited and may lag behind root
             // metadata after a crash.
+            //
+            // file.last_version is inclusive (the actual last event version),
+            // so add 1 to get the exclusive resume point comparable to
+            // root.latest_committed_version.
             let (latest_version, folder_txn_count) =
                 if let Some(last_file) = folder_metadata.files.last() {
                     (
-                        last_file.last_version.max(root.latest_committed_version),
+                        (last_file.last_version + 1).max(root.latest_committed_version),
                         folder_metadata
                             .total_transactions
                             .max(root.current_folder_txn_count),

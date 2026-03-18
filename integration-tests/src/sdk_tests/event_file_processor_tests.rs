@@ -245,8 +245,8 @@ async fn crash_after_folder_metadata_before_root() {
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
     // Root metadata is stale (latest_committed_version=0) but folder metadata
-    // has the file with last_version=11 (exclusive upper bound of [v10]).
-    // Recovery: max(file.last_version=11, root.latest_committed_version=0) = 11.
+    // has the file with last_version=10 (the actual last event version).
+    // Recovery: max(file.last_version + 1 = 11, root.latest_committed_version=0) = 11.
     let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
         do_recovery(&store, &config).await;
     assert_eq!(
@@ -297,8 +297,8 @@ async fn crash_with_flushed_and_buffered_events() {
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // Folder 0 was sealed with last_version=13 (exclusive upper bound of
-    // v10-v12). Folder 1 has only buffered events, no metadata on disk.
+    // Folder 0 was sealed with last_version=12 (the last event version,
+    // inclusive). Folder 1 has only buffered events, no metadata on disk.
     // Recovery picks up from root.latest_committed_version = 13.
     let (_chain_id, starting_version, _folder_index, folder_metadata, folder_txn_count) =
         do_recovery(&store, &config).await;
