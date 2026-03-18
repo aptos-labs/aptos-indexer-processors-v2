@@ -79,15 +79,16 @@ pub async fn recover_state(
                 "Recovered from existing metadata"
             );
 
-            // Validate immutable processor config.
-            let expected = config.immutable_processor_config();
-            if root.config.processor != expected {
+            // Validate all immutable config fields. Changing any of these between
+            // runs would silently corrupt data or break consumer identity checks.
+            let expected = config.immutable_config(root.config.chain_id, default_starting_version);
+            if root.config != expected {
                 bail!(
                     "Immutable config mismatch between running config and stored metadata.\n\
                      Stored:  {stored}\n\
                      Current: {current}\n\
                      If you intentionally changed these fields you must use a fresh GCS prefix.",
-                    stored = serde_json::to_string_pretty(&root.config.processor)?,
+                    stored = serde_json::to_string_pretty(&root.config)?,
                     current = serde_json::to_string_pretty(&expected)?,
                 );
             }
@@ -276,16 +277,23 @@ impl ProcessorTrait for EventFileProcessor {
 
         let recovered = self.recover_or_initialize(&store).await?;
 
-        let chain_id = match recovered.chain_id {
-            Some(id) => id,
-            None => {
-                let id = get_chain_id(self.config.transaction_stream_config.clone())
-                    .await
-                    .context("Failed to get chain_id from transaction stream")?;
-                info!(chain_id = id, "Resolved chain_id from gRPC stream");
-                id
-            },
-        };
+        // Always resolve chain_id from the stream so we can detect if the
+        // stream endpoint was switched to a different chain between runs.
+        let stream_chain_id = get_chain_id(self.config.transaction_stream_config.clone())
+            .await
+            .context("Failed to get chain_id from transaction stream")?;
+
+        if let Some(stored_chain_id) = recovered.chain_id
+            && stored_chain_id != stream_chain_id
+        {
+            bail!(
+                "Chain ID mismatch: stored metadata has chain_id={stored_chain_id} but \
+                 the transaction stream reports chain_id={stream_chain_id}. \
+                 If you intentionally switched chains you must use a fresh GCS prefix."
+            );
+        }
+
+        let chain_id = stream_chain_id;
 
         let transaction_filter = self.build_transaction_filter();
         let ending_version = match &self.config.processor_mode {

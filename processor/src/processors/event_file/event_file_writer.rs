@@ -130,10 +130,7 @@ impl EventFileWriterStep {
         if let (Some(first_ts), Some(cur_ts)) =
             (&self.first_timestamp_since_flush, current_timestamp)
         {
-            let elapsed_secs = cur_ts
-                .seconds
-                .saturating_sub(first_ts.seconds)
-                .max(0) as u64;
+            let elapsed_secs = cur_ts.seconds.saturating_sub(first_ts.seconds).max(0) as u64;
             if elapsed_secs >= self.config.max_seconds_between_flushes {
                 return true;
             }

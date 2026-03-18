@@ -125,7 +125,7 @@ impl Processable for EventFileExtractorStep {
 
             // Skip transactions without a timestamp — we require it for every
             // output event.
-            let timestamp = match txn.timestamp.clone() {
+            let timestamp = match txn.timestamp {
                 Some(t) => t,
                 None => {
                     warn!(version, "Skipping transaction without timestamp");
@@ -148,7 +148,7 @@ impl Processable for EventFileExtractorStep {
                 if self.matches(event) {
                     out.push(EventWithContext {
                         version,
-                        timestamp: Some(timestamp.clone()),
+                        timestamp: Some(timestamp),
                         event: Some(event.clone()),
                     });
                 }

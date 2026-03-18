@@ -602,6 +602,54 @@ async fn test_config_mismatch_rejected_on_recovery() {
     );
 }
 
+/// Verify that `recover_state` rejects startup when `initial_starting_version`
+/// changed between runs (e.g. the operator edited the config). This field is
+/// part of the immutable identity that consumers hash.
+#[tokio::test]
+async fn test_initial_starting_version_mismatch_rejected_on_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let config = test_config();
+
+    // Root metadata was written with initial_starting_version=0.
+    let root = RootMetadata {
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 50,
+            latest_processed_version: 50,
+            current_folder_index: 0,
+            current_folder_txn_count: 5,
+        },
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Try to recover with a different initial_starting_version (42 instead of 0).
+    let result = recover_state(&store, &config, 42).await;
+    assert!(
+        result.is_err(),
+        "recovery must fail when initial_starting_version differs"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Immutable config mismatch"),
+        "error should mention config mismatch, got: {err_msg}"
+    );
+
+    // With the original initial_starting_version=0, recovery should succeed.
+    let result = recover_state(&store, &config, 0).await;
+    assert!(
+        result.is_ok(),
+        "recovery with matching initial_starting_version should succeed"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Version semantics and filename encoding
 // ---------------------------------------------------------------------------
@@ -1329,10 +1377,10 @@ async fn test_recovery_fresh_start_uses_default_starting_version() {
         "should start at folder 0"
     );
 
-    // When metadata already exists, default_starting_version is ignored — the
-    // stored state takes precedence.
+    // When metadata exists, starting_version comes from the stored state (not
+    // the default). The initial_starting_version must match what was stored.
     let root = RootMetadata {
-        config: config.immutable_config(1, 0),
+        config: config.immutable_config(1, 42),
         tracking: VersionTracking {
             latest_committed_version: 99,
             latest_processed_version: 99,
