@@ -158,14 +158,16 @@ The processor refuses to start if the processor config fields differ from what i
 
 ## Fetching strategy
 
-This assumes that you want to download all the data, rather than some kind of polling approach. This describes the simplest approach.
+This assumes that you want to download all the data, rather than some kind of polling approach.
+
+**Simplest approach** (safe, slightly wasteful):
 
 1. Clone the entire bucket.
 2. Delete the folder with the highest index since it may be incomplete.
 
-The rest of the data will be a complete, consistent set of events. You can look at `metadata.json` in the highest index folder to see what the latest txn is.
+The rest of the data will be a complete, consistent set of events. You can look at `metadata.json` in the remaining highest-index folder to see what the latest txn is.
 
-If you want to be less wasteful, you could keep the latest folder and parse the `metadata.json` file in that folder based on the above rules.
+**Less wasteful approach**: keep the highest folder and check its `metadata.json`. If `is_complete` is `true` the folder is sealed and all files listed in its metadata are safe to use. If `is_complete` is `false` the folder is still being written to, but every file listed in its `files[]` array is fully written and safe to read (see write ordering above). You can use those files and discard any data files on disk that are not listed in the metadata.
 
 ### Example script
 

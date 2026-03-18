@@ -9,5 +9,8 @@ pub mod metadata;
 pub mod models;
 pub mod storage;
 
+#[cfg(any(test, feature = "failpoints"))]
+pub mod test_utils;
+
 #[cfg(test)]
 mod tests;

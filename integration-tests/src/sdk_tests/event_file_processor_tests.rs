@@ -19,129 +19,14 @@
 //! Tests that don't require failpoints are in
 //! `processor/src/processors/event_file/tests.rs`.
 
-use aptos_indexer_processor_sdk::{
-    aptos_protos::transaction::v1::Event,
-    traits::Processable,
-    types::transaction_context::{TransactionContext, TransactionMetadata},
-};
+use aptos_indexer_processor_sdk::traits::Processable;
 use failpoints::FailScenario;
 use processor::processors::event_file::{
-    event_file_config::{
-        CompressionMode, EventFileFilterConfig, EventFileProcessorConfig, OutputFormat,
-        SingleEventFilter,
-    },
-    event_file_processor::recover_state,
-    event_file_writer::EventFileWriterStep,
     metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata, VersionTracking},
-    models::EventWithContext,
     storage::{FileStore, LocalFileStore},
+    test_utils::{do_recovery, make_events, new_writer, process_batch, test_config},
 };
 use std::{path::PathBuf, sync::Arc};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn test_config() -> EventFileProcessorConfig {
-    EventFileProcessorConfig {
-        event_filter_config: EventFileFilterConfig {
-            filters: vec![SingleEventFilter {
-                module_address: "0x1".to_string(),
-                module_name: None,
-                event_name: None,
-            }],
-        },
-        bucket_name: "test".to_string(),
-        bucket_root: "test".to_string(),
-        google_application_credentials: None,
-        max_file_size_bytes: 50 * 1024 * 1024,
-        max_txns_per_folder: 100,
-        max_seconds_between_flushes: 600,
-        output_format: OutputFormat::Protobuf,
-        compression: CompressionMode::None,
-        channel_size: 10,
-    }
-}
-
-fn make_events(versions: &[u64]) -> Vec<EventWithContext> {
-    versions
-        .iter()
-        .map(|&v| EventWithContext {
-            version: v,
-            timestamp: Some(prost_types::Timestamp {
-                seconds: v as i64,
-                nanos: 0,
-            }),
-            event: Some(Event {
-                type_str: "0x1::test::TestEvent".to_string(),
-                ..Default::default()
-            }),
-        })
-        .collect()
-}
-
-/// Build a `TransactionContext` with explicit batch range.
-///
-/// `start_version..=end_version` (both inclusive) represents the range of
-/// transaction versions the processor *scanned*, which is typically wider than
-/// the events (most transactions don't match the filter).
-fn make_batch(
-    events: Vec<EventWithContext>,
-    start_version: u64,
-    end_version: u64,
-) -> TransactionContext<Vec<EventWithContext>> {
-    TransactionContext {
-        data: events,
-        metadata: TransactionMetadata {
-            start_version,
-            end_version,
-            start_transaction_timestamp: None,
-            end_transaction_timestamp: None,
-            total_size_in_bytes: 0,
-        },
-    }
-}
-
-/// Process events with batch range derived from the events themselves.
-/// Suitable for most tests that don't care about the scanned range.
-async fn process_batch(
-    writer: &mut EventFileWriterStep,
-    events: Vec<EventWithContext>,
-) -> anyhow::Result<()> {
-    let start = events.first().map_or(0, |e| e.version);
-    let end = events.last().map_or(0, |e| e.version);
-    let batch = make_batch(events, start, end);
-    writer
-        .process(batch)
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    Ok(())
-}
-
-async fn do_recovery(
-    store: &Arc<dyn FileStore>,
-    config: &EventFileProcessorConfig,
-) -> processor::processors::event_file::event_file_processor::RecoveredState {
-    recover_state(store, config, 0).await.unwrap()
-}
-
-fn new_writer(
-    store: Arc<dyn FileStore>,
-    config: EventFileProcessorConfig,
-    starting_version: u64,
-    folder_state: InternalFolderState,
-    flushed_version: Option<u64>,
-) -> EventFileWriterStep {
-    EventFileWriterStep::new(
-        store,
-        config,
-        1, // chain_id
-        0, // initial_starting_version
-        starting_version,
-        folder_state,
-        flushed_version,
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -161,7 +46,6 @@ async fn crash_after_file_write_before_metadata() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        0,
         InternalFolderState::new(0),
         None,
     );
@@ -224,7 +108,6 @@ async fn crash_after_folder_metadata_before_root() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        1, // resume from version 0 + 1 = 1
         InternalFolderState::new(0),
         Some(0), // flushed through version 0
     );
@@ -265,7 +148,6 @@ async fn crash_with_flushed_and_buffered_events() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        0,
         InternalFolderState::new(0),
         None,
     );
@@ -319,7 +201,6 @@ async fn repeated_crash_recovery_no_drift() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        0,
         InternalFolderState::new(0),
         None,
     );
@@ -334,7 +215,6 @@ async fn repeated_crash_recovery_no_drift() {
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
-        recovered_1.starting_version,
         recovered_1.folder_state.clone(),
         recovered_1.flushed_version,
     );

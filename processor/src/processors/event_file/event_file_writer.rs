@@ -59,8 +59,9 @@ pub struct EventFileWriterStep {
     /// `Some`, ensuring on-disk `latest_committed_version` is always valid.
     flushed_version: Option<u64>,
     /// Last version the processor has scanned through (inclusive, from batch
-    /// metadata). Used only for progress reporting.
-    processed_version: u64,
+    /// metadata). `None` until the first batch is processed. Used only for
+    /// progress reporting in root metadata.
+    processed_version: Option<u64>,
     /// Timestamp of the first event written after the last flush. Used for the
     /// deterministic time-based flush trigger.
     first_timestamp_since_flush: Option<prost_types::Timestamp>,
@@ -79,7 +80,6 @@ impl EventFileWriterStep {
         config: EventFileProcessorConfig,
         chain_id: u64,
         initial_starting_version: u64,
-        starting_version: u64,
         folder_state: InternalFolderState,
         flushed_version: Option<u64>,
     ) -> Self {
@@ -101,9 +101,7 @@ impl EventFileWriterStep {
             last_version_in_file: None,
             file_first_version: None,
             flushed_version,
-            // Initialize to starting_version so the first batch comparison works.
-            // Once an actual batch is processed this will be overwritten.
-            processed_version: starting_version,
+            processed_version: None,
             first_timestamp_since_flush: None,
             folder_state,
             last_folder_metadata_update: Instant::now(),
@@ -273,7 +271,7 @@ impl EventFileWriterStep {
                 .immutable_config(self.chain_id, self.initial_starting_version),
             tracking: VersionTracking {
                 latest_committed_version: flushed,
-                latest_processed_version: self.processed_version,
+                latest_processed_version: self.processed_version.unwrap_or(flushed),
                 current_folder_index: self.folder_state.folder_index,
                 current_folder_txn_count: self.folder_state.total_transactions,
             },
@@ -361,8 +359,11 @@ impl Processable for EventFileWriterStep {
 
         // Advance processed_version (inclusive) from batch metadata so progress
         // is tracked even when no events matched our filters.
-        if batch.metadata.end_version > self.processed_version {
-            self.processed_version = batch.metadata.end_version;
+        let dominated = self
+            .processed_version
+            .map_or(true, |v| batch.metadata.end_version > v);
+        if dominated {
+            self.processed_version = Some(batch.metadata.end_version);
         }
 
         // Periodically persist root metadata so external observers can see

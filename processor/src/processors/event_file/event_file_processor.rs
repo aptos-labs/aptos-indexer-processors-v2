@@ -30,7 +30,8 @@ use tracing::info;
 /// State recovered from on-disk metadata, used to initialize the writer.
 #[derive(Debug)]
 pub struct RecoveredState {
-    pub chain_id: u64,
+    /// `None` on fresh start (no root metadata on disk yet).
+    pub chain_id: Option<u64>,
     /// Exclusive: the next version to fetch from the transaction stream.
     pub starting_version: u64,
     /// Folder state including `folder_index` and `total_transactions`.
@@ -60,7 +61,7 @@ pub async fn recover_state(
                 "No existing metadata found, bootstrapping"
             );
             Ok(RecoveredState {
-                chain_id: 0,
+                chain_id: None,
                 starting_version: default_starting_version,
                 folder_state: InternalFolderState::new(0),
                 flushed_version: None,
@@ -147,7 +148,7 @@ pub async fn recover_state(
             };
 
             Ok(RecoveredState {
-                chain_id: root.config.chain_id,
+                chain_id: Some(root.config.chain_id),
                 starting_version,
                 folder_state,
                 flushed_version: Some(last_committed_version),
@@ -275,15 +276,16 @@ impl ProcessorTrait for EventFileProcessor {
 
         let recovered = self.recover_or_initialize(&store).await?;
 
-        // On a fresh start, chain_id is 0. Resolve it from the gRPC stream
-        // before writing any metadata so we never persist an unknown chain_id.
-        let mut chain_id = recovered.chain_id;
-        if chain_id == 0 {
-            chain_id = get_chain_id(self.config.transaction_stream_config.clone())
-                .await
-                .context("Failed to get chain_id from transaction stream")?;
-            info!(chain_id, "Resolved chain_id from gRPC stream");
-        }
+        let chain_id = match recovered.chain_id {
+            Some(id) => id,
+            None => {
+                let id = get_chain_id(self.config.transaction_stream_config.clone())
+                    .await
+                    .context("Failed to get chain_id from transaction stream")?;
+                info!(chain_id = id, "Resolved chain_id from gRPC stream");
+                id
+            },
+        };
 
         let transaction_filter = self.build_transaction_filter();
         let ending_version = match &self.config.processor_mode {
@@ -308,7 +310,6 @@ impl ProcessorTrait for EventFileProcessor {
             self.event_file_config.clone(),
             chain_id,
             self.initial_starting_version(),
-            recovered.starting_version,
             recovered.folder_state,
             recovered.flushed_version,
         );
