@@ -299,6 +299,7 @@ fn any_public_key_to_serialized_string(key: &AnyPublicKey) -> String {
         },
         AnyPublicKeyEnum::Keyless => {},
         AnyPublicKeyEnum::FederatedKeyless => {},
+        AnyPublicKeyEnum::SlhDsaSha2128s => {},
         AnyPublicKeyEnum::Unspecified => {
             tracing::warn!("Unspecified public key type not supported");
         },
