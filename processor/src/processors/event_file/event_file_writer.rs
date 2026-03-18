@@ -172,13 +172,11 @@ impl EventFileWriterStep {
             "Flushing event file"
         );
 
-        self.store.save_file(file_path, compressed, None).await?;
-
-        // Advance the flushed watermark (inclusive) now that the file is persisted.
         let last_version_inclusive = self
             .last_version_in_file
             .context("last_version_in_file must be set when buffer is non-empty")?;
-        self.flushed_version = Some(last_version_inclusive);
+
+        self.store.save_file(file_path, compressed, None).await?;
 
         #[cfg(feature = "failpoints")]
         failpoints::failpoint!("after-file-write", |_| Err(anyhow::anyhow!(
@@ -193,10 +191,6 @@ impl EventFileWriterStep {
             num_transactions: file_txn_count,
             size_bytes,
         };
-        if self.folder_state.first_version.is_none() {
-            self.folder_state.first_version = Some(first_version);
-        }
-        self.folder_state.last_version = Some(last_version_inclusive);
         self.folder_state.total_transactions += file_txn_count;
         self.folder_state.files.push(file_meta);
 
@@ -214,6 +208,12 @@ impl EventFileWriterStep {
         }
 
         self.write_folder_metadata().await?;
+
+        // Advance the flushed watermark only after both the data file and
+        // folder metadata are durably stored. This ensures that if anything
+        // above fails, flushed_version stays at its old value and root
+        // metadata won't over-claim committed versions.
+        self.flushed_version = Some(last_version_inclusive);
 
         #[cfg(feature = "failpoints")]
         failpoints::failpoint!("after-folder-metadata", |_| Err(anyhow::anyhow!(

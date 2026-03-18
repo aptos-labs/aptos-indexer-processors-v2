@@ -86,15 +86,13 @@ pub struct FileMetadata {
 // Internal state types (in-memory only, never serialized directly)
 // ---------------------------------------------------------------------------
 
-/// In-memory representation of folder state during processing. Unlike
-/// `FolderMetadata` (the on-disk format), version fields use `Option` because
-/// they aren't known until the first file is committed to the folder.
+/// In-memory representation of folder state during processing. Version fields
+/// (`first_version`, `last_version`) are derived from the `files` list when
+/// converting to the on-disk `FolderMetadata` format.
 #[derive(Clone, Debug)]
 pub struct InternalFolderState {
     pub folder_index: u64,
     pub files: Vec<FileMetadata>,
-    pub first_version: Option<u64>,
-    pub last_version: Option<u64>,
     pub total_transactions: u64,
     pub is_complete: bool,
 }
@@ -104,8 +102,6 @@ impl InternalFolderState {
         Self {
             folder_index,
             files: Vec::new(),
-            first_version: None,
-            last_version: None,
             total_transactions: 0,
             is_complete: false,
         }
@@ -114,29 +110,29 @@ impl InternalFolderState {
     /// Convert to the on-disk `FolderMetadata` format for serialization.
     /// Only valid when at least one file has been committed.
     pub fn to_folder_metadata(&self) -> Result<FolderMetadata> {
+        let first = self
+            .files
+            .first()
+            .context("files must be non-empty before writing folder metadata to disk")?;
+        let last = self
+            .files
+            .last()
+            .context("files must be non-empty before writing folder metadata to disk")?;
         Ok(FolderMetadata {
             folder_index: self.folder_index,
             files: self.files.clone(),
-            first_version: self
-                .first_version
-                .context("first_version must be set before writing folder metadata to disk")?,
-            last_version: self
-                .last_version
-                .context("last_version must be set before writing folder metadata to disk")?,
+            first_version: first.first_version,
+            last_version: last.last_version,
             total_transactions: self.total_transactions,
             is_complete: self.is_complete,
         })
     }
 
     /// Load internal state from the on-disk `FolderMetadata` format.
-    /// Folder metadata is only written after at least one file is committed,
-    /// so version fields are always valid.
     pub fn from_folder_metadata(fm: FolderMetadata) -> Self {
         Self {
             folder_index: fm.folder_index,
             files: fm.files,
-            first_version: Some(fm.first_version),
-            last_version: Some(fm.last_version),
             total_transactions: fm.total_transactions,
             is_complete: fm.is_complete,
         }
