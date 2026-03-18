@@ -8,7 +8,7 @@ use super::{
         FileMetadata, FolderMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata,
         VersionTracking,
     },
-    models::EventFile,
+    models::{EventFile, EventWithContext},
     storage::{FileStore, LocalFileStore},
     test_utils::{
         do_recovery, make_events, make_multi_events, new_writer, process_batch,
@@ -861,5 +861,394 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
     assert_eq!(
         root.tracking.current_folder_txn_count, 5,
         "total should be 5 (2 pre-crash + 3 post-recovery), not 6 (double-counted)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Size-trigger flush
+// ---------------------------------------------------------------------------
+
+/// Verify that the size trigger (`max_file_size_bytes`) causes a flush when the
+/// buffer exceeds the threshold. A single test event is ~30-50 bytes (protobuf
+/// encoded), so setting `max_file_size_bytes = 1` guarantees the trigger fires
+/// as soon as the second version arrives and finds a non-empty buffer.
+#[tokio::test]
+async fn test_size_trigger_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_file_size_bytes = 1;
+    // Keep other triggers high so only the size trigger fires.
+    config.max_txns_per_folder = 100;
+    config.max_seconds_between_flushes = 600;
+
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        InternalFolderState::new(0),
+        None,
+    );
+
+    // v10: buffered (buffer was empty, so should_flush returns false).
+    //      buffer_size_bytes is now ~40 (well above max_file_size_bytes=1).
+    // v11: new version → should_flush fires (buffer_size_bytes >= 1).
+    //      Flush [v10] → file "10.pb". Then buffer v11.
+    // v12: new version → should_flush fires again. Flush [v11] → file "11.pb".
+    //      Then buffer v12.
+    let events = make_events(&[10, 11, 12]);
+    process_batch(&mut writer, events).await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder metadata should exist after size-triggered flushes");
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+
+    assert_eq!(
+        folder_metadata.files.len(),
+        2,
+        "size trigger should have produced 2 files (v10 and v11), with v12 still buffered"
+    );
+    assert_eq!(folder_metadata.files[0].filename, "10.pb");
+    assert_eq!(folder_metadata.files[0].first_version, 10);
+    assert_eq!(folder_metadata.files[0].last_version, 10);
+    assert_eq!(folder_metadata.files[1].filename, "11.pb");
+    assert_eq!(folder_metadata.files[1].first_version, 11);
+    assert_eq!(folder_metadata.files[1].last_version, 11);
+
+    // Root metadata should reflect the flushed watermark (v11).
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.tracking.latest_committed_version, 11,
+        "latest_committed_version should be 11 (last flushed, inclusive)"
+    );
+
+    // Cleanup flushes the remaining buffer (v12).
+    writer.cleanup().await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .unwrap();
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+    assert_eq!(
+        folder_metadata.files.len(),
+        3,
+        "cleanup should have flushed v12 as a third file"
+    );
+    assert_eq!(folder_metadata.files[2].filename, "12.pb");
+}
+
+// ---------------------------------------------------------------------------
+// Multiple files per folder
+// ---------------------------------------------------------------------------
+
+/// Verify that a single folder can accumulate multiple data files before being
+/// sealed. Uses the time trigger (`max_seconds_between_flushes=5`) with version
+/// gaps to produce multiple multi-event files within one folder.
+#[tokio::test]
+async fn test_multiple_files_per_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_txns_per_folder = 100;
+    config.max_seconds_between_flushes = 5;
+
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        InternalFolderState::new(0),
+        None,
+    );
+
+    // Version timestamps (make_events sets seconds = version) are spaced so the
+    // time trigger fires at the gaps. With max_seconds_between_flushes=5:
+    //
+    //   v10 (t=10): buffered, first_timestamp_since_flush = 10.
+    //   v11 (t=11): elapsed = 1 < 5, no flush.
+    //   v12 (t=12): elapsed = 2 < 5, no flush.
+    //   v16 (t=16): elapsed = 6 >= 5 → flush [v10, v11, v12] → file 1.
+    //               Then buffer v16, first_timestamp_since_flush = 16.
+    //   v17 (t=17): elapsed = 1 < 5, no flush.
+    //   v18 (t=18): elapsed = 2 < 5, no flush.
+    //   v24 (t=24): elapsed = 8 >= 5 → flush [v16, v17, v18] → file 2.
+    //               Then buffer v24, first_timestamp_since_flush = 24.
+    //   v25 (t=25): elapsed = 1 < 5, no flush.
+    //
+    // After batch: 2 files flushed, 2 events buffered [v24, v25].
+    let events = make_events(&[10, 11, 12, 16, 17, 18, 24, 25]);
+    process_batch(&mut writer, events).await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .expect("folder metadata should exist");
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+
+    assert_eq!(
+        folder_metadata.files.len(),
+        2,
+        "should have 2 flushed files before cleanup"
+    );
+
+    // File 1: versions 10, 11, 12.
+    assert_eq!(folder_metadata.files[0].first_version, 10);
+    assert_eq!(folder_metadata.files[0].last_version, 12);
+    assert_eq!(folder_metadata.files[0].num_transactions, 3);
+
+    // File 2: versions 16, 17, 18.
+    assert_eq!(folder_metadata.files[1].first_version, 16);
+    assert_eq!(folder_metadata.files[1].last_version, 18);
+    assert_eq!(folder_metadata.files[1].num_transactions, 3);
+
+    // Folder-level aggregates should span both files.
+    assert_eq!(folder_metadata.first_version, 10);
+    assert_eq!(folder_metadata.last_version, 18);
+    assert_eq!(
+        folder_metadata.total_transactions, 6,
+        "6 txns flushed across 2 files"
+    );
+    assert!(
+        !folder_metadata.is_complete,
+        "folder should not be sealed (6 < max_txns_per_folder=100)"
+    );
+
+    // Cleanup flushes the remaining buffer [v24, v25] → file 3.
+    writer.cleanup().await.unwrap();
+
+    let folder_raw = store
+        .get_file(PathBuf::from("0/metadata.json"))
+        .await
+        .unwrap()
+        .unwrap();
+    let folder_metadata: FolderMetadata = serde_json::from_slice(&folder_raw).unwrap();
+
+    assert_eq!(
+        folder_metadata.files.len(),
+        3,
+        "cleanup should produce a third file"
+    );
+    assert_eq!(folder_metadata.files[2].first_version, 24);
+    assert_eq!(folder_metadata.files[2].last_version, 25);
+    assert_eq!(folder_metadata.files[2].num_transactions, 2);
+
+    assert_eq!(folder_metadata.first_version, 10);
+    assert_eq!(folder_metadata.last_version, 25);
+    assert_eq!(
+        folder_metadata.total_transactions, 8,
+        "8 total txns across 3 files in 1 folder"
+    );
+    assert!(
+        !folder_metadata.is_complete,
+        "folder still not sealed (8 < 100)"
+    );
+
+    // Root metadata should reflect the final state.
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .unwrap();
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(root.tracking.latest_committed_version, 25);
+    assert_eq!(root.tracking.current_folder_txn_count, 8);
+    assert_eq!(root.tracking.current_folder_index, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Empty batch (no matching events)
+// ---------------------------------------------------------------------------
+
+/// Verify that processing a batch with no matching events (empty data vec) does
+/// not panic and still advances `processed_version` in root metadata. This is
+/// the "stretches with no matching events" scenario.
+#[tokio::test]
+async fn test_empty_batch_advances_processed_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_seconds_between_flushes = 0;
+
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        InternalFolderState::new(0),
+        None,
+    );
+
+    // First, flush some real data so flushed_version is Some and root metadata
+    // can be written. With max_seconds_between_flushes=0, v2 triggers a flush
+    // of [v1].
+    let events = make_events(&[1, 2]);
+    process_batch(&mut writer, events).await.unwrap();
+
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist after first flush");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(root.tracking.latest_committed_version, 1);
+    assert_eq!(
+        root.tracking.latest_processed_version, 2,
+        "processed_version should be batch end_version (2)"
+    );
+
+    // Now send an empty batch representing a scan of versions 100..200 that
+    // found no matching events. This should not panic and should advance
+    // processed_version to 200.
+    let empty_events: Vec<EventWithContext> = vec![];
+    process_batch_with_range(&mut writer, empty_events, 100, 200)
+        .await
+        .unwrap();
+
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .unwrap();
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.tracking.latest_committed_version, 1,
+        "no new data flushed, so latest_committed_version stays at 1"
+    );
+    assert_eq!(
+        root.tracking.latest_processed_version, 200,
+        "processed_version should advance to 200 even with no matching events"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// processed_version reporting
+// ---------------------------------------------------------------------------
+
+/// Verify that `latest_processed_version` in root metadata reflects the batch
+/// scan range (from batch metadata), not just the flushed event versions. In
+/// production the scanned range is much wider than the matching events because
+/// most transactions don't emit matching events.
+#[tokio::test]
+async fn test_processed_version_reflects_batch_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let mut config = test_config();
+    config.max_seconds_between_flushes = 0;
+
+    let mut writer = new_writer(
+        store.clone(),
+        config.clone(),
+        InternalFolderState::new(0),
+        None,
+    );
+
+    // Events at versions 10, 11, 12 but the batch scanned versions 0..500.
+    // With max_seconds_between_flushes=0:
+    //   v10: buffered.
+    //   v11: flush [v10], buffer v11.
+    //   v12: flush [v11], buffer v12.
+    // After batch: flushed through v11, v12 buffered.
+    let events = make_events(&[10, 11, 12]);
+    process_batch_with_range(&mut writer, events, 0, 500)
+        .await
+        .unwrap();
+
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .expect("root metadata should exist");
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+
+    assert_eq!(
+        root.tracking.latest_committed_version, 11,
+        "latest_committed_version = last flushed version (v11)"
+    );
+    assert_eq!(
+        root.tracking.latest_processed_version, 500,
+        "latest_processed_version should reflect batch end_version (500), not event versions"
+    );
+
+    // Cleanup flushes v12.
+    writer.cleanup().await.unwrap();
+
+    let root_raw = store
+        .get_file(PathBuf::from(METADATA_FILE_NAME))
+        .await
+        .unwrap()
+        .unwrap();
+    let root: RootMetadata = serde_json::from_slice(&root_raw).unwrap();
+    assert_eq!(
+        root.tracking.latest_committed_version, 12,
+        "after cleanup, latest_committed_version = 12"
+    );
+    assert_eq!(
+        root.tracking.latest_processed_version, 500,
+        "processed_version should still be 500"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Recovery with nonzero default_starting_version
+// ---------------------------------------------------------------------------
+
+/// Verify that on a fresh start (no existing metadata), recovery uses the
+/// configured `default_starting_version` rather than hardcoding 0.
+#[tokio::test]
+async fn test_recovery_fresh_start_uses_default_starting_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let config = test_config();
+
+    // Recover with default_starting_version = 42. No metadata exists on disk.
+    let recovered = recover_state(&store, &config, 42).await.unwrap();
+    assert_eq!(
+        recovered.starting_version, 42,
+        "fresh-start recovery should use the configured default_starting_version"
+    );
+    assert!(
+        recovered.chain_id.is_none(),
+        "chain_id should be None on fresh start"
+    );
+    assert!(
+        recovered.flushed_version.is_none(),
+        "flushed_version should be None on fresh start"
+    );
+    assert_eq!(
+        recovered.folder_state.folder_index, 0,
+        "should start at folder 0"
+    );
+
+    // When metadata already exists, default_starting_version is ignored — the
+    // stored state takes precedence.
+    let root = RootMetadata {
+        config: config.immutable_config(1, 0),
+        tracking: VersionTracking {
+            latest_committed_version: 99,
+            latest_processed_version: 99,
+            current_folder_index: 0,
+            current_folder_txn_count: 5,
+        },
+    };
+    store
+        .save_file(
+            PathBuf::from(METADATA_FILE_NAME),
+            serde_json::to_vec(&root).unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let recovered = recover_state(&store, &config, 42).await.unwrap();
+    assert_eq!(
+        recovered.starting_version, 100,
+        "with existing metadata, starting_version should be latest_committed_version + 1 (100), \
+         not default_starting_version (42)"
     );
 }
