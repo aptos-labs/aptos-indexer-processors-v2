@@ -5,7 +5,7 @@ use super::{
     event_file_config::EventFileProcessorConfig,
     event_file_extractor::EventFileExtractorStep,
     event_file_writer::EventFileWriterStep,
-    metadata::{FolderMetadata, METADATA_FILE_NAME, RootMetadata},
+    metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata},
     storage::{FileStore, GcsFileStore},
 };
 use crate::config::{
@@ -27,9 +27,20 @@ use aptos_indexer_processor_sdk::{
 use std::{path::PathBuf, sync::Arc};
 use tracing::info;
 
-/// Recover writer state from the file store. Returns
-/// `(chain_id, starting_version, folder_index, folder_metadata,
-/// folder_txn_count)`.
+/// State recovered from on-disk metadata, used to initialize the writer.
+#[derive(Debug)]
+pub struct RecoveredState {
+    pub chain_id: u64,
+    /// Exclusive: the next version to fetch from the transaction stream.
+    pub starting_version: u64,
+    pub folder_index: u64,
+    pub folder_state: InternalFolderState,
+    pub folder_txn_count: u64,
+    /// Inclusive last version flushed to disk, or `None` on fresh start.
+    pub flushed_version: Option<u64>,
+}
+
+/// Recover writer state from the file store.
 ///
 /// Exposed as a free function so crash-recovery tests can call it directly
 /// without constructing a full `EventFileProcessor`.
@@ -37,7 +48,7 @@ pub async fn recover_state(
     store: &Arc<dyn FileStore>,
     config: &EventFileProcessorConfig,
     default_starting_version: u64,
-) -> Result<(u64, u64, u64, FolderMetadata, u64)> {
+) -> Result<RecoveredState> {
     let raw = store
         .get_file(PathBuf::from(METADATA_FILE_NAME))
         .await
@@ -49,7 +60,14 @@ pub async fn recover_state(
                 starting_version = default_starting_version,
                 "No existing metadata found, bootstrapping"
             );
-            Ok((0, default_starting_version, 0, FolderMetadata::new(0), 0))
+            Ok(RecoveredState {
+                chain_id: 0,
+                starting_version: default_starting_version,
+                folder_index: 0,
+                folder_state: InternalFolderState::new(0),
+                folder_txn_count: 0,
+                flushed_version: None,
+            })
         },
         Some(data) => {
             let root: RootMetadata =
@@ -82,33 +100,31 @@ pub async fn recover_state(
             .iter()
             .collect();
 
-            let folder_metadata = match store.get_file(folder_meta_path).await? {
+            let folder_state = match store.get_file(folder_meta_path).await? {
                 Some(data) => {
-                    serde_json::from_slice(&data).context("Failed to parse folder metadata")?
+                    let fm = serde_json::from_slice(&data)
+                        .context("Failed to parse folder metadata")?;
+                    InternalFolderState::from_folder_metadata(&fm)
                 },
                 None => {
-                    // Folder metadata not yet written. Initialize it with the
+                    // Folder metadata not yet written. Initialize with the
                     // folder_txn_count from root metadata to keep the two in
                     // sync across crash-recovery cycles.
-                    let mut fm = FolderMetadata::new(root.current_folder_index);
-                    fm.total_transactions = root.current_folder_txn_count;
-                    fm
+                    let mut fs = InternalFolderState::new(root.current_folder_index);
+                    fs.total_transactions = root.current_folder_txn_count;
+                    fs
                 },
             };
 
-            // Use folder metadata when available (it tracks per-file details),
-            // but always clamp to at least root's committed version. Folder
-            // metadata updates are rate-limited and may lag behind root
-            // metadata after a crash.
-            //
-            // file.last_version is inclusive (the actual last event version),
-            // so add 1 to get the exclusive resume point comparable to
-            // root.latest_committed_version.
-            let (latest_version, folder_txn_count) =
-                if let Some(last_file) = folder_metadata.files.last() {
+            // Both root.latest_committed_version and file.last_version are
+            // inclusive, so we can compare them directly. Take the max to
+            // handle stale folder metadata (rate-limited writes may lag behind
+            // root metadata after a crash).
+            let (last_committed_version, folder_txn_count) =
+                if let Some(last_file) = folder_state.files.last() {
                     (
-                        (last_file.last_version + 1).max(root.latest_committed_version),
-                        folder_metadata
+                        last_file.last_version.max(root.latest_committed_version),
+                        folder_state
                             .total_transactions
                             .max(root.current_folder_txn_count),
                     )
@@ -116,19 +132,21 @@ pub async fn recover_state(
                     (root.latest_committed_version, root.current_folder_txn_count)
                 };
 
-            // Keep folder_metadata.total_transactions consistent with the
-            // clamped folder_txn_count. When folder metadata is stale (due to
+            let starting_version = last_committed_version + 1;
+
+            // Keep folder_state.total_transactions consistent with the clamped
+            // folder_txn_count. When folder metadata is stale (due to
             // rate-limited writes), its total_transactions can lag behind
             // root's count. Without this sync the writer would start with a
             // permanent gap between the two counters.
-            let mut folder_metadata = folder_metadata;
-            folder_metadata.total_transactions = folder_txn_count;
+            let mut folder_state = folder_state;
+            folder_state.total_transactions = folder_txn_count;
 
             // If the folder was already completed before the crash (e.g. root
             // metadata was written after sealing the folder but before
             // start_new_folder advanced the index), move to the next folder so
             // we don't append files to a sealed folder.
-            let (folder_index, folder_metadata, folder_txn_count) =
+            let (folder_index, folder_state, folder_txn_count) =
                 if folder_txn_count >= config.max_txns_per_folder {
                     info!(
                         old_folder = root.current_folder_index,
@@ -137,20 +155,21 @@ pub async fn recover_state(
                     );
                     (
                         root.current_folder_index + 1,
-                        FolderMetadata::new(root.current_folder_index + 1),
+                        InternalFolderState::new(root.current_folder_index + 1),
                         0,
                     )
                 } else {
-                    (root.current_folder_index, folder_metadata, folder_txn_count)
+                    (root.current_folder_index, folder_state, folder_txn_count)
                 };
 
-            Ok((
-                root.chain_id,
-                latest_version,
+            Ok(RecoveredState {
+                chain_id: root.chain_id,
+                starting_version,
                 folder_index,
-                folder_metadata,
+                folder_state,
                 folder_txn_count,
-            ))
+                flushed_version: Some(last_committed_version),
+            })
         },
     }
 }
@@ -235,14 +254,10 @@ impl EventFileProcessor {
     /// folder state, and chain_id. If no metadata exists yet this is a fresh
     /// start and we return defaults without writing anything — the root metadata
     /// is only written once we know the chain_id (from the gRPC stream).
-    ///
-    /// Returns `(chain_id, starting_version, folder_index, folder_metadata,
-    /// folder_txn_count)`. `chain_id` is 0 on fresh start and will be resolved
-    /// by the caller before the writer begins.
     async fn recover_or_initialize(
         &self,
         store: &Arc<dyn FileStore>,
-    ) -> Result<(u64, u64, u64, FolderMetadata, u64)> {
+    ) -> Result<RecoveredState> {
         let starting_version = match &self.config.processor_mode {
             ProcessorMode::Default(boot) => boot.initial_starting_version,
             ProcessorMode::Testing(test) => test.override_starting_version,
@@ -270,11 +285,11 @@ impl ProcessorTrait for EventFileProcessor {
             .await?,
         );
 
-        let (mut chain_id, starting_version, folder_index, folder_metadata, folder_txn_count) =
-            self.recover_or_initialize(&store).await?;
+        let recovered = self.recover_or_initialize(&store).await?;
 
         // On a fresh start, chain_id is 0. Resolve it from the gRPC stream
         // before writing any metadata so we never persist an unknown chain_id.
+        let mut chain_id = recovered.chain_id;
         if chain_id == 0 {
             chain_id = get_chain_id(self.config.transaction_stream_config.clone())
                 .await
@@ -290,7 +305,7 @@ impl ProcessorTrait for EventFileProcessor {
         };
 
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version: Some(starting_version),
+            starting_version: Some(recovered.starting_version),
             request_ending_version: ending_version,
             transaction_filter,
             ..self.config.transaction_stream_config.clone()
@@ -304,10 +319,11 @@ impl ProcessorTrait for EventFileProcessor {
             store,
             self.event_file_config.clone(),
             chain_id,
-            starting_version,
-            folder_index,
-            folder_metadata,
-            folder_txn_count,
+            recovered.starting_version,
+            recovered.folder_index,
+            recovered.folder_state,
+            recovered.folder_txn_count,
+            recovered.flushed_version,
         );
 
         let channel_size = self.event_file_config.channel_size;

@@ -3,7 +3,7 @@
 
 use super::{
     event_file_config::{CompressionMode, EventFileProcessorConfig, OutputFormat},
-    metadata::{FileMetadata, FolderMetadata, METADATA_FILE_NAME, RootMetadata},
+    metadata::{FileMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata},
     models::{EventFile, EventWithContext},
     storage::FileStore,
 };
@@ -53,21 +53,19 @@ pub struct EventFileWriterStep {
     // Version tracking
     /// Earliest version in the current file buffer.
     file_first_version: Option<u64>,
-    /// Exclusive upper bound of event versions added to the buffer. Advanced
-    /// per-event; may be ahead of `flushed_version` when events are buffered.
-    latest_version: u64,
-    /// Exclusive upper bound of versions that have been flushed to files. Only
-    /// updated after a successful flush. This is the recovery-safe watermark.
-    flushed_version: u64,
-    /// Exclusive upper bound of all versions the processor has scanned through
-    /// (from batch metadata). Used only for progress reporting.
+    /// Last version that has been flushed to files (inclusive). `None` until
+    /// the first successful flush. Root metadata is only written when this is
+    /// `Some`, ensuring on-disk `latest_committed_version` is always valid.
+    flushed_version: Option<u64>,
+    /// Last version the processor has scanned through (inclusive, from batch
+    /// metadata). Used only for progress reporting.
     processed_version: u64,
     /// Timestamp of the first event written after the last flush. Used for the
     /// deterministic time-based flush trigger.
     first_timestamp_since_flush: Option<prost_types::Timestamp>,
 
     // Folder state
-    folder_metadata: FolderMetadata,
+    folder_state: InternalFolderState,
     current_folder_index: u64,
 
     // Rate limiting
@@ -82,8 +80,9 @@ impl EventFileWriterStep {
         chain_id: u64,
         starting_version: u64,
         folder_index: u64,
-        folder_metadata: FolderMetadata,
+        folder_state: InternalFolderState,
         folder_txn_count: u64,
+        flushed_version: Option<u64>,
     ) -> Self {
         let file_extension = config.file_extension();
         Self {
@@ -97,11 +96,12 @@ impl EventFileWriterStep {
             file_txn_count: 0,
             last_version_in_file: None,
             file_first_version: None,
-            latest_version: starting_version,
-            flushed_version: starting_version,
+            flushed_version,
+            // Initialize to starting_version so the first batch comparison works.
+            // Once an actual batch is processed this will be overwritten.
             processed_version: starting_version,
             first_timestamp_since_flush: None,
-            folder_metadata,
+            folder_state,
             current_folder_index: folder_index,
             last_folder_metadata_update: None,
             last_root_metadata_update: Instant::now(),
@@ -146,7 +146,9 @@ impl EventFileWriterStep {
         let events = std::mem::take(&mut self.buffer);
         let num_events = events.len() as u64;
         let file_txn_count = self.file_txn_count;
-        let first_version = self.file_first_version.unwrap_or(self.latest_version);
+        let first_version = self
+            .file_first_version
+            .expect("file_first_version must be set when buffer is non-empty");
 
         let event_file = EventFile { events };
         let serialized = self.serialize(&event_file)?;
@@ -169,19 +171,17 @@ impl EventFileWriterStep {
 
         self.store.save_file(file_path, compressed, None).await?;
 
-        // Advance the flushed watermark now that the file is persisted.
-        self.flushed_version = self.latest_version;
+        // Advance the flushed watermark (inclusive) now that the file is persisted.
+        let last_version_inclusive = self
+            .last_version_in_file
+            .expect("last_version_in_file must be set when buffer is non-empty");
+        self.flushed_version = Some(last_version_inclusive);
 
         #[cfg(feature = "failpoints")]
         failpoints::failpoint!("after-file-write", |_| Err(anyhow::anyhow!(
             "failpoint: after-file-write"
         )));
 
-        // Update folder metadata. last_version is inclusive (the actual version
-        // of the last event), not the internal exclusive watermark.
-        let last_version_inclusive = self
-            .last_version_in_file
-            .expect("last_version_in_file must be set when buffer is non-empty");
         let file_meta = FileMetadata {
             filename,
             first_version,
@@ -190,12 +190,12 @@ impl EventFileWriterStep {
             num_transactions: file_txn_count,
             size_bytes,
         };
-        if self.folder_metadata.files.is_empty() {
-            self.folder_metadata.first_version = first_version;
+        if self.folder_state.first_version.is_none() {
+            self.folder_state.first_version = Some(first_version);
         }
-        self.folder_metadata.last_version = last_version_inclusive;
-        self.folder_metadata.total_transactions += file_txn_count;
-        self.folder_metadata.files.push(file_meta);
+        self.folder_state.last_version = Some(last_version_inclusive);
+        self.folder_state.total_transactions += file_txn_count;
+        self.folder_state.files.push(file_meta);
 
         // Reset file-level state.
         self.buffer_size_bytes = 0;
@@ -207,7 +207,7 @@ impl EventFileWriterStep {
         // Check if folder is complete.
         let end_folder = self.folder_txn_count >= self.config.max_txns_per_folder;
         if end_folder {
-            self.folder_metadata.is_complete = true;
+            self.folder_state.is_complete = true;
         }
 
         self.maybe_update_folder_metadata(end_folder).await?;
@@ -250,7 +250,8 @@ impl EventFileWriterStep {
         ]
         .iter()
         .collect();
-        let data = serde_json::to_vec(&self.folder_metadata)?;
+        let disk_metadata = self.folder_state.to_folder_metadata();
+        let data = serde_json::to_vec(&disk_metadata)?;
         self.store
             .save_file(folder_meta_path, data, Some(METADATA_CACHE_CONTROL))
             .await?;
@@ -264,6 +265,13 @@ impl EventFileWriterStep {
     }
 
     async fn maybe_update_root_metadata(&mut self, force: bool) -> Result<()> {
+        // Only write root metadata after the first successful flush so that
+        // on-disk `latest_committed_version` is always a real version.
+        let flushed = match self.flushed_version {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+
         let max_freq = self.store.max_update_frequency();
         if !force && Instant::now() - self.last_root_metadata_update < max_freq {
             return Ok(());
@@ -271,15 +279,15 @@ impl EventFileWriterStep {
 
         let root = RootMetadata {
             chain_id: self.chain_id,
-            latest_committed_version: self.flushed_version,
+            latest_committed_version: flushed,
             latest_processed_version: self.processed_version,
             current_folder_index: self.current_folder_index,
-            // Use folder_metadata.total_transactions (only incremented during
+            // Use folder_state.total_transactions (only incremented during
             // flush) rather than folder_txn_count (includes buffered events).
             // This keeps current_folder_txn_count consistent with
             // latest_committed_version so recovery doesn't double-count
             // buffered transactions that get re-processed after a crash.
-            current_folder_txn_count: self.folder_metadata.total_transactions,
+            current_folder_txn_count: self.folder_state.total_transactions,
             config: self.config.immutable_config(),
         };
         let data = serde_json::to_vec(&root)?;
@@ -297,7 +305,7 @@ impl EventFileWriterStep {
     fn start_new_folder(&mut self) {
         self.current_folder_index += 1;
         self.folder_txn_count = 0;
-        self.folder_metadata = FolderMetadata::new(self.current_folder_index);
+        self.folder_state = InternalFolderState::new(self.current_folder_index);
     }
 
     fn serialize(&self, event_file: &EventFile) -> Result<Vec<u8>> {
@@ -362,25 +370,17 @@ impl Processable for EventFileWriterStep {
 
             self.buffer.push(event);
             self.buffer_size_bytes += size;
-
-            // latest_version is the exclusive upper bound (next version to
-            // process), so we store version + 1.
-            if version >= self.latest_version {
-                self.latest_version = version + 1;
-            }
         }
 
-        // Advance processed_version from batch metadata so progress is tracked
-        // even when no events matched our filters. This is separate from
-        // latest_version (which only tracks event versions) and flushed_version
-        // (which only advances after a flush).
-        let batch_end_exclusive = batch.metadata.end_version + 1;
-        if batch_end_exclusive > self.processed_version {
-            self.processed_version = batch_end_exclusive;
+        // Advance processed_version (inclusive) from batch metadata so progress
+        // is tracked even when no events matched our filters.
+        if batch.metadata.end_version > self.processed_version {
+            self.processed_version = batch.metadata.end_version;
         }
 
         // Periodically persist root metadata so external observers can see
-        // indexing progress even during stretches with no matching events.
+        // indexing progress even during stretches with no matching events
+        // (only writes if at least one flush has happened).
         self.maybe_update_root_metadata(false)
             .await
             .map_err(|e| ProcessorError::ProcessError {
@@ -406,11 +406,14 @@ impl Processable for EventFileWriterStep {
                 message: format!("Failed to flush during cleanup: {e}"),
             })?;
         // Force a final metadata write so the store reflects the true state.
-        self.maybe_update_folder_metadata(true).await.map_err(|e| {
-            ProcessorError::ProcessError {
-                message: format!("Failed to update folder metadata during cleanup: {e}"),
-            }
-        })?;
+        // Only write folder metadata if we have data (versions are set).
+        if self.folder_state.first_version.is_some() {
+            self.maybe_update_folder_metadata(true).await.map_err(|e| {
+                ProcessorError::ProcessError {
+                    message: format!("Failed to update folder metadata during cleanup: {e}"),
+                }
+            })?;
+        }
         self.maybe_update_root_metadata(true)
             .await
             .map_err(|e| ProcessorError::ProcessError {
