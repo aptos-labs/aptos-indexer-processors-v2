@@ -34,9 +34,12 @@ async fn test_recovery_after_buffered_events_not_flushed() {
         None,
     );
 
-    // 3 events with default config: none of the flush triggers fire
-    // (3 txns < max_txns_per_folder=100, tiny size < 50 MiB,
-    // elapsed 2s < max_seconds_between_flushes=600). All events stay buffered.
+    // 3 events with default config: none of the three flush triggers fire:
+    //   1. Folder boundary: 3 txns < max_txns_per_folder=100.
+    //   2. Size: tiny buffer < max_file_size_bytes=50 MiB.
+    //   3. Time: make_events uses timestamp=version, so elapsed = 12-10 = 2s
+    //      < max_seconds_between_flushes=600.
+    // All events stay buffered in memory, nothing is written to disk.
     let events = make_events(&[10, 11, 12]);
     process_batch_with_range(&mut writer, events, 0, 100)
         .await
@@ -81,9 +84,11 @@ async fn test_recovery_after_flush_then_more_buffered() {
         None,
     );
 
-    // Versions 10, 11, 12 reach max_txns_per_folder=3. When version 20
-    // arrives it triggers a flush of [v10, v11, v12] at the transaction
-    // boundary. Version 20 remains buffered (unflushed).
+    // Versions 10, 11, 12 bring folder_txn_count to 3 (= max_txns_per_folder).
+    // When version 20 arrives, should_flush() fires at the transaction boundary,
+    // writing [v10, v11, v12] to disk and sealing folder 0. Version 20 is then
+    // buffered in the new folder 1 but never flushed (no subsequent version
+    // triggers another flush).
     let events = make_events(&[10, 11, 12, 20]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -101,8 +106,8 @@ async fn test_recovery_after_flush_then_more_buffered() {
     );
 }
 
-/// Verify that folder_txn_count and folder_state.total_transactions stay
-/// consistent across a clean shutdown and recovery cycle.
+/// Verify that the recovered folder state is internally consistent after a
+/// clean shutdown (cleanup + drop) and recovery cycle.
 #[tokio::test]
 async fn test_folder_txn_count_consistent_across_recovery() {
     let dir = tempfile::tempdir().unwrap();
@@ -135,8 +140,8 @@ async fn test_folder_txn_count_consistent_across_recovery() {
 }
 
 /// Verify that recovery advances to the next folder when the current folder is
-/// already at capacity (crash between root metadata write and
-/// start_new_folder).
+/// already sealed. This simulates a crash between writing root metadata (which
+/// still references the old folder) and calling start_new_folder().
 #[tokio::test]
 async fn test_recovery_advances_past_completed_folder() {
     let dir = tempfile::tempdir().unwrap();
@@ -144,8 +149,8 @@ async fn test_recovery_advances_past_completed_folder() {
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
-    // Simulate the state after a crash: root says folder 0 with 3 txns
-    // (at capacity), and folder metadata is sealed.
+    // Manually construct on-disk state as if the writer crashed after sealing
+    // folder 0 (is_complete=true, 3 txns) but before calling start_new_folder().
     let folder_metadata = FolderMetadata {
         folder_index: 0,
         files: vec![FileMetadata {
@@ -221,7 +226,8 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
-    // Simulate the post-crash state: folder 0 sealed, root still at folder 0.
+    // Same post-crash state as test_recovery_advances_past_completed_folder:
+    // folder 0 is sealed, root still references folder 0.
     let folder_0_metadata = FolderMetadata {
         folder_index: 0,
         files: vec![FileMetadata {
@@ -275,8 +281,9 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         recovered.flushed_version,
     );
 
-    // Versions 20, 21, 22 reach max_txns_per_folder=3 in folder 1. Version
-    // 30 triggers a flush of [v20, v21, v22] and seals folder 1.
+    // Recovery placed us in folder 1. Versions 20, 21, 22 bring
+    // folder_txn_count to 3 (= max). Version 30 triggers a flush of
+    // [v20, v21, v22] and seals folder 1.
     let events = make_events(&[20, 21, 22, 30]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -323,8 +330,9 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     assert!(data_file.is_some(), "data file 1/20.pb should exist");
 }
 
-/// Verify consistency when folder metadata is absent but root has a non-zero
-/// folder_txn_count.
+/// Verify that when folder metadata is absent on disk, recovery still uses
+/// the root metadata's `current_folder_txn_count` to initialize the folder
+/// state. This can happen if root was written but folder metadata was lost.
 #[tokio::test]
 async fn test_recovery_no_folder_metadata_uses_root_count() {
     let dir = tempfile::tempdir().unwrap();
@@ -362,19 +370,21 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
 }
 
 /// Verify that recovery uses `max(folder_version, root_version)` when folder
-/// metadata is stale (e.g. rate-limited folder metadata write was skipped
-/// before a crash, but root metadata was written).
+/// metadata on disk is stale. In production this can happen because root
+/// metadata is updated to reflect newer flushed data while the folder
+/// metadata file still contains an older snapshot. Recovery must trust
+/// whichever source reports the higher version.
 #[tokio::test]
 async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     let dir = tempfile::tempdir().unwrap();
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
-    // Simulate a crash where root metadata is ahead of folder metadata.
-    // Root was written after the latest flush (latest_committed_version=199,
-    // current_folder_txn_count=20), but the folder metadata write was
-    // rate-limited and still reflects an older state (last_version=99,
-    // total_transactions=10).
+    // Manually construct a scenario where root metadata is ahead of folder
+    // metadata. Root was updated after a later flush
+    // (latest_committed_version=199, current_folder_txn_count=20), but the
+    // folder metadata file on disk still reflects an earlier flush
+    // (last_version=99, total_transactions=10).
     let folder_metadata = FolderMetadata {
         folder_index: 0,
         files: vec![FileMetadata {
@@ -450,8 +460,9 @@ async fn test_complete_transactions_multi_event_txn_not_split() {
         None,
     );
 
-    // 3 events each for versions 10 and 11 (2 txns, 6 events total) reach
-    // max_txns_per_folder=2. Version 12 triggers a flush of [v10×3, v11×3].
+    // 3 events each for versions 10 and 11 (2 txns, 6 events total) bring
+    // folder_txn_count to 2 (= max). Version 12 triggers a flush of all 6
+    // events from [v10, v11].
     let mut events = make_multi_events(&[10, 11], 3);
     events.extend(make_events(&[12]));
     process_batch(&mut writer, events).await.unwrap();
@@ -577,8 +588,8 @@ async fn test_version_semantics_and_filename_encoding() {
         None,
     );
 
-    // Versions 10, 11, 12 reach max_txns_per_folder=3. Version 50 triggers
-    // a flush of [v10, v11, v12]. Version 50 remains buffered.
+    // Versions 10, 11, 12 bring folder_txn_count to 3 (= max). Version 50
+    // triggers a flush of [v10, v11, v12]. Version 50 remains buffered.
     let events = make_events(&[10, 11, 12, 50]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -659,8 +670,8 @@ async fn test_data_file_content_matches_after_flush() {
         None,
     );
 
-    // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
-    // a flush of [v10, v11].
+    // Versions 10 and 11 bring folder_txn_count to 2 (= max). Version 20
+    // triggers a flush of [v10, v11].
     let events = make_events(&[10, 11, 20]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -708,8 +719,9 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
         None,
     );
 
-    // Versions 10 and 11 reach max_txns_per_folder=2. Version 20 triggers
-    // a flush of [v10, v11] and seals folder 0. Version 20 goes into folder 1.
+    // Versions 10 and 11 bring folder_txn_count to 2 (= max). Version 20
+    // triggers a flush of [v10, v11] and seals folder 0. Version 20 goes into
+    // folder 1's buffer.
     let events = make_events(&[10, 11, 20]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -722,8 +734,9 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
     let folder_0_before: FolderMetadata = serde_json::from_slice(&folder_0_snapshot).unwrap();
     assert!(folder_0_before.is_complete, "folder 0 should be sealed");
 
-    // Folder 1 already has v20 (buffered). v21 is the 2nd txn in folder 1,
-    // reaching max_txns_per_folder=2. v30 triggers the flush + seal.
+    // Folder 1 already has v20 (buffered from above). v21 is the 2nd txn in
+    // folder 1, bringing folder_txn_count to 2 (= max). v30 triggers the
+    // flush of [v20, v21] and seals folder 1.
     let events = make_events(&[21, 30]);
     process_batch(&mut writer, events).await.unwrap();
 
@@ -759,12 +772,12 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
 }
 
 // ---------------------------------------------------------------------------
-// Root metadata must not inflate folder_txn_count with buffered events
+// Root metadata must not count buffered (unflushed) events
 // ---------------------------------------------------------------------------
 
-/// After a partial flush + crash, re-processing must not double-count buffered
-/// transactions. This exercises the scenario where root metadata is written
-/// (during flush) with buffered events still in flight.
+/// After flushing some events and crashing with others still buffered,
+/// re-processing the buffered events must not double-count them. Root metadata
+/// should only reflect flushed transactions, so recovery starts cleanly.
 #[tokio::test]
 async fn test_no_double_counting_after_partial_flush_and_recovery() {
     let dir = tempfile::tempdir().unwrap();
@@ -780,12 +793,15 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         None,
     );
 
-    // With max_seconds_between_flushes=0, each new version after the first
-    // triggers a flush of the previous buffer. So events [10, 11, 12]:
-    //   - v10: buffered (first event, no flush yet)
-    //   - v11: flush [v10], then buffer v11
-    //   - v12: flush [v11], then buffer v12
-    // After batch: flushed versions 10 and 11 (2 txns). v12 is buffered.
+    // With max_seconds_between_flushes=0, the time trigger fires whenever a new
+    // version arrives and there are already buffered events (the deterministic
+    // txn-timestamp elapsed time is always >= 0). So for events [v10, v11, v12]:
+    //   - v10: buffered (first event, first_timestamp_since_flush not yet set).
+    //   - v11: new version seen → should_flush() fires (elapsed = 11-10 >= 0),
+    //          flush [v10], then buffer v11.
+    //   - v12: new version seen → should_flush() fires (elapsed = 12-11 >= 0),
+    //          flush [v11], then buffer v12.
+    // After batch: v10 and v11 are flushed (2 files, 2 txns). v12 is buffered.
     let events = make_events(&[10, 11, 12]);
     process_batch(&mut writer, events).await.unwrap();
 

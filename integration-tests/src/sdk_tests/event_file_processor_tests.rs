@@ -52,9 +52,10 @@ async fn crash_after_file_write_before_metadata() {
 
     failpoints::cfg("after-file-write", "return").unwrap();
 
-    // With max_seconds_between_flushes=0: v10 is buffered, then v11 triggers a
-    // time-based flush (elapsed >= 0). The flush writes the data file for [v10],
-    // then the failpoint fires before any metadata is written.
+    // With max_seconds_between_flushes=0, the time trigger fires when v11
+    // arrives (elapsed txn-timestamp = 11-10 = 1s >= 0). The flush writes the
+    // data file for [v10], then the "after-file-write" failpoint fires before
+    // folder or root metadata is written.
     let events = make_events(&[10, 11]);
     let result = process_batch(&mut writer, events).await;
     assert!(result.is_err(), "failpoint should cause an error");
@@ -62,7 +63,7 @@ async fn crash_after_file_write_before_metadata() {
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // No metadata was written, so recovery falls back to default starting
+    // No metadata was persisted, so recovery falls back to the default starting
     // version (0). The orphaned data file (0/10.pb) is harmless — it will be
     // overwritten on the next successful flush.
     let recovered = do_recovery(&store, &config).await;
@@ -85,8 +86,9 @@ async fn crash_after_folder_metadata_before_root() {
     let mut config = test_config();
     config.max_seconds_between_flushes = 0;
 
-    // Write initial root metadata so recovery has something to find.
-    // latest_committed_version=0 means "committed through version 0" (inclusive).
+    // Write initial root metadata so recovery has a baseline to find.
+    // latest_committed_version=0 and current_folder_txn_count=0 represent a
+    // fresh start where no real data has been committed yet.
     let root = RootMetadata {
         config: config.immutable_config(1, 0),
         tracking: VersionTracking {
@@ -114,9 +116,10 @@ async fn crash_after_folder_metadata_before_root() {
 
     failpoints::cfg("after-folder-metadata", "return").unwrap();
 
-    // With max_seconds_between_flushes=0: v10 is buffered, then v11 triggers a
-    // time-based flush of [v10]. File and folder metadata are written
-    // successfully, then the failpoint fires before root metadata is updated.
+    // With max_seconds_between_flushes=0, the time trigger fires when v11
+    // arrives. The flush writes the data file for [v10] and folder metadata
+    // successfully, then the "after-folder-metadata" failpoint fires before
+    // root metadata is updated.
     let events = make_events(&[10, 11]);
     let result = process_batch(&mut writer, events).await;
     assert!(result.is_err(), "failpoint should cause an error");
@@ -124,9 +127,9 @@ async fn crash_after_folder_metadata_before_root() {
     drop(writer);
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
-    // Root metadata is stale (latest_committed_version=0) but folder metadata
-    // has the file with last_version=10 (inclusive).
-    // Recovery: max(10, 0) = 10, starting_version = 11.
+    // Root metadata is stale (latest_committed_version=0, never updated) but
+    // folder metadata has the file with last_version=10 (inclusive). Recovery
+    // takes the max: max(folder=10, root=0) = 10, so starting_version = 11.
     let recovered = do_recovery(&store, &config).await;
     assert_eq!(
         recovered.starting_version, 11,
@@ -152,15 +155,18 @@ async fn crash_with_flushed_and_buffered_events() {
         None,
     );
 
-    // Batch 1: versions [10, 11, 12, 20]. Versions 10-12 reach
-    // max_txns_per_folder=3, then version 20 triggers a flush of [v10,v11,v12]
-    // and seals folder 0. Version 20 goes into folder 1's buffer (unflushed).
+    // Batch 1: versions [10, 11, 12, 20]. Versions 10-12 bring
+    // folder_txn_count to 3 (= max_txns_per_folder). When version 20 arrives,
+    // should_flush() fires, flushing [v10, v11, v12] and sealing folder 0.
+    // Version 20 goes into folder 1's buffer (unflushed).
     let events = make_events(&[10, 11, 12, 20]);
     process_batch(&mut writer, events).await.unwrap();
 
-    // Arm failpoint defensively — in practice, no flush fires for batch 2
-    // because folder 1 reaches capacity (3 txns: v20, v21, v22) but no next
-    // version arrives to trigger it. The "crash" is the writer drop.
+    // Arm failpoint defensively, though in practice no flush fires for batch 2.
+    // Folder 1 now has v20 (buffered), then v21 and v22 arrive, bringing
+    // folder_txn_count to 3. But should_flush() only fires when a *new* version
+    // arrives and the threshold is already met, so no version after v22 arrives
+    // to trigger it. The "crash" is simulated by dropping the writer.
     failpoints::cfg("after-file-write", "return").unwrap();
 
     let events = make_events(&[21, 22]);
@@ -169,9 +175,9 @@ async fn crash_with_flushed_and_buffered_events() {
     drop(writer);
     failpoints::cfg("after-file-write", "off").unwrap();
 
-    // Folder 0 was sealed with last_version=12 (inclusive).
-    // Folder 1 has only buffered events, no metadata on disk.
-    // Recovery: root.latest_committed_version = 12, starting_version = 13.
+    // Folder 0 was sealed with last_version=12 (inclusive). Folder 1 has only
+    // buffered events (v20, v21, v22) with no metadata on disk — they are lost.
+    // Recovery uses root.latest_committed_version=12, so starting_version=13.
     let recovered = do_recovery(&store, &config).await;
     assert_eq!(
         recovered.starting_version, 13,
@@ -182,7 +188,11 @@ async fn crash_with_flushed_and_buffered_events() {
 }
 
 /// Two back-to-back crash-recovery cycles must produce a consistent state.
-/// Verifies that recovery advances starting_version correctly across cycles.
+/// Cycle 1 is a clean run (flush + cleanup). Cycle 2 processes more events,
+/// then crashes after folder metadata is written but before root metadata is
+/// updated. Recovery after cycle 2 must advance starting_version beyond what
+/// cycle 1 had, proving that the folder metadata (which is ahead of the stale
+/// root metadata) is correctly used during recovery.
 #[tokio::test]
 async fn repeated_crash_recovery_no_drift() {
     let scenario = FailScenario::setup();
@@ -190,10 +200,9 @@ async fn repeated_crash_recovery_no_drift() {
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 1000;
-    // Time-trigger after every txn so each new version flushes the previous
-    // buffer. This means folder metadata is rate-limited (only written once
-    // per MIN_METADATA_UPDATE_INTERVAL) even though multiple flushes happen,
-    // creating the stale-folder-metadata scenario.
+    // With max_seconds_between_flushes=0 the time trigger fires on every new
+    // version (the deterministic txn-timestamp elapsed is always >= 0), so each
+    // new version flushes the previous buffer immediately.
     config.max_seconds_between_flushes = 0;
 
     // ---- Cycle 1: clean run, graceful shutdown ----
@@ -221,20 +230,17 @@ async fn repeated_crash_recovery_no_drift() {
     let events = make_events(&[10, 11, 12]);
     process_batch(&mut writer, events).await.unwrap();
 
-    // Arm failpoint: the next flush will write the data file and folder
-    // metadata, then crash before root metadata is updated.
+    // Arm failpoint: the next flush writes the data file and folder metadata
+    // successfully, then crashes before root metadata is updated.
     failpoints::cfg("after-folder-metadata", "return").unwrap();
     let events = make_events(&[20, 21]);
     let _ = process_batch(&mut writer, events).await;
     drop(writer);
     failpoints::cfg("after-folder-metadata", "off").unwrap();
 
-    // The key assertion: after two cycles (one clean, one crashed), the
-    // recovered folder_txn_count must still equal
-    // folder_state.total_transactions. If they diverge, the writer
-    // would miscount transactions and seal folders at the wrong time.
-    // After two cycles (one clean, one crashed), verify recovered state is
-    // still valid by checking that starting_version is beyond what was flushed.
+    // After two cycles (one clean, one crashed), verify that recovery uses the
+    // folder metadata (which is ahead of the stale root) and advances
+    // starting_version beyond what cycle 1 recovered.
     let recovered_2 = do_recovery(&store, &config).await;
     assert!(
         recovered_2.starting_version > recovered_1.starting_version,
