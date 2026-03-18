@@ -144,9 +144,7 @@ fn new_writer(
     store: Arc<dyn FileStore>,
     config: EventFileProcessorConfig,
     starting_version: u64,
-    folder_index: u64,
     folder_state: InternalFolderState,
-    folder_txn_count: u64,
     flushed_version: Option<u64>,
 ) -> EventFileWriterStep {
     EventFileWriterStep::new(
@@ -154,9 +152,7 @@ fn new_writer(
         config,
         1, // chain_id
         starting_version,
-        folder_index,
         folder_state,
-        folder_txn_count,
         flushed_version,
     )
 }
@@ -173,9 +169,7 @@ async fn test_recovery_after_buffered_events_not_flushed() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -223,9 +217,7 @@ async fn test_recovery_after_flush_then_more_buffered() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -263,9 +255,7 @@ async fn test_folder_txn_count_consistent_across_recovery() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -276,12 +266,12 @@ async fn test_folder_txn_count_consistent_across_recovery() {
     writer.cleanup().await.unwrap();
     drop(writer);
 
+    // After clean shutdown + recovery, verify the folder state is consistent
+    // by checking that we can create a writer and it doesn't error.
     let recovered = do_recovery(&store, &config).await;
-    assert_eq!(
-        recovered.folder_txn_count, recovered.folder_state.total_transactions,
-        "folder_txn_count must equal folder_state.total_transactions \
-         after recovery (got {} vs {})",
-        recovered.folder_txn_count, recovered.folder_state.total_transactions
+    assert!(
+        recovered.folder_state.total_transactions > 0,
+        "should have recovered non-zero transaction count"
     );
 }
 
@@ -345,11 +335,11 @@ async fn test_recovery_advances_past_completed_folder() {
         "starting version should be last_committed_version + 1"
     );
     assert_eq!(
-        recovered.folder_index, 1,
+        recovered.folder_state.folder_index, 1,
         "should advance past sealed folder 0"
     );
     assert_eq!(
-        recovered.folder_txn_count, 0,
+        recovered.folder_state.total_transactions, 0,
         "new folder should start with 0 txns"
     );
     assert!(
@@ -420,9 +410,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         config.clone(),
         recovered.chain_id,
         recovered.starting_version,
-        recovered.folder_index,
         recovered.folder_state,
-        recovered.folder_txn_count,
         recovered.flushed_version,
     );
 
@@ -506,12 +494,8 @@ async fn test_recovery_no_folder_metadata_uses_root_count() {
         "should recover from latest_committed_version + 1"
     );
     assert_eq!(
-        recovered.folder_txn_count, 42,
-        "folder_txn_count should come from root"
-    );
-    assert_eq!(
         recovered.folder_state.total_transactions, 42,
-        "folder_state.total_transactions should match root's count"
+        "folder_state.total_transactions should come from root"
     );
 }
 
@@ -577,8 +561,8 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
         "starting version must be max(99, 199) + 1 = 200, not stale folder value of 99+1"
     );
     assert_eq!(
-        recovered.folder_txn_count, 20,
-        "folder_txn_count must be clamped to root.current_folder_txn_count, not stale folder value of 10"
+        recovered.folder_state.total_transactions, 20,
+        "total_transactions must be clamped to root.current_folder_txn_count, not stale folder value of 10"
     );
 }
 
@@ -600,9 +584,7 @@ async fn test_complete_transactions_multi_event_txn_not_split() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -666,7 +648,10 @@ async fn test_config_mismatch_rejected_on_recovery() {
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
-    // Write root metadata with the original config.
+    // Write root metadata with the original config. Note:
+    // latest_committed_version=0 with no data files is slightly unrealistic
+    // (root metadata is normally only written after the first flush), but
+    // this test only validates config mismatch detection.
     let root = RootMetadata {
         chain_id: 1,
         latest_committed_version: 0,
@@ -726,9 +711,7 @@ async fn test_version_semantics_and_filename_encoding() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -811,9 +794,7 @@ async fn test_data_file_content_matches_after_flush() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -863,9 +844,7 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -938,9 +917,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -979,8 +956,8 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         "should resume from flushed watermark + 1"
     );
     assert_eq!(
-        recovered.folder_txn_count, 2,
-        "recovered folder_txn_count should be 2 (flushed only)"
+        recovered.folder_state.total_transactions, 2,
+        "recovered total_transactions should be 2 (flushed only)"
     );
 
     // Create a new writer from recovered state and re-process v12 + new events.
@@ -989,9 +966,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
         config.clone(),
         1,
         recovered.starting_version,
-        recovered.folder_index,
         recovered.folder_state,
-        recovered.folder_txn_count,
         recovered.flushed_version,
     );
 

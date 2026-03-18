@@ -129,9 +129,7 @@ fn new_writer(
     store: Arc<dyn FileStore>,
     config: EventFileProcessorConfig,
     starting_version: u64,
-    folder_index: u64,
     folder_state: InternalFolderState,
-    folder_txn_count: u64,
     flushed_version: Option<u64>,
 ) -> EventFileWriterStep {
     EventFileWriterStep::new(
@@ -139,9 +137,7 @@ fn new_writer(
         config,
         1, // chain_id
         starting_version,
-        folder_index,
         folder_state,
-        folder_txn_count,
         flushed_version,
     )
 }
@@ -165,9 +161,7 @@ async fn crash_after_file_write_before_metadata() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -229,9 +223,7 @@ async fn crash_after_folder_metadata_before_root() {
         store.clone(),
         config.clone(),
         1, // resume from version 0 + 1 = 1
-        0,
         InternalFolderState::new(0),
-        0,
         Some(0), // flushed through version 0
     );
 
@@ -255,11 +247,6 @@ async fn crash_after_folder_metadata_before_root() {
         recovered.starting_version, 11,
         "Should recover from folder metadata's file last_version + 1 (ahead of stale root)"
     );
-    assert_eq!(
-        recovered.folder_txn_count, recovered.folder_state.total_transactions,
-        "folder txn count must be consistent"
-    );
-
     scenario.teardown();
 }
 
@@ -277,9 +264,7 @@ async fn crash_with_flushed_and_buffered_events() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
 
@@ -308,22 +293,12 @@ async fn crash_with_flushed_and_buffered_events() {
         recovered.starting_version, 13,
         "Recovery should restart from root.latest_committed_version + 1 (flushed watermark)"
     );
-    assert_eq!(
-        recovered.folder_txn_count, recovered.folder_state.total_transactions
-    );
 
     scenario.teardown();
 }
 
-/// Two back-to-back crash-recovery cycles must not cause
-/// `folder_txn_count` and `folder_state.total_transactions` to diverge.
-///
-/// The scenario that would cause drift: folder metadata is written to disk
-/// less frequently than root metadata (rate-limited). If root's
-/// `current_folder_txn_count` gets ahead of folder metadata's
-/// `total_transactions`, recovery must reconcile them so the writer starts
-/// with consistent state. Without the reconciliation fix in `recover_state`,
-/// the gap compounds with every cycle.
+/// Two back-to-back crash-recovery cycles must produce a consistent state.
+/// Verifies that recovery advances starting_version correctly across cycles.
 #[tokio::test]
 async fn repeated_crash_recovery_no_drift() {
     let scenario = FailScenario::setup();
@@ -343,9 +318,7 @@ async fn repeated_crash_recovery_no_drift() {
         store.clone(),
         config.clone(),
         0,
-        0,
         InternalFolderState::new(0),
-        0,
         None,
     );
     let events = make_events(&[1, 2, 3]);
@@ -354,24 +327,13 @@ async fn repeated_crash_recovery_no_drift() {
     drop(writer);
 
     let recovered_1 = do_recovery(&store, &config).await;
-    assert_eq!(
-        recovered_1.folder_txn_count, recovered_1.folder_state.total_transactions,
-        "Cycle 1: txn counts must match after clean shutdown"
-    );
 
     // ---- Cycle 2: recover, process more, then crash mid-flush ----
-    // Resume from cycle 1's state. Process [v10, v11, v12] successfully —
-    // with max_seconds_between_flushes=0 each new version triggers a flush
-    // of the previous, but folder metadata is only written on the first
-    // flush (subsequent ones are rate-limited). This makes folder metadata
-    // on disk stale relative to root metadata.
     let mut writer = new_writer(
         store.clone(),
         config.clone(),
         recovered_1.starting_version,
-        recovered_1.folder_index,
         recovered_1.folder_state.clone(),
-        recovered_1.folder_txn_count,
         recovered_1.flushed_version,
     );
     let events = make_events(&[10, 11, 12]);
@@ -389,11 +351,14 @@ async fn repeated_crash_recovery_no_drift() {
     // recovered folder_txn_count must still equal
     // folder_state.total_transactions. If they diverge, the writer
     // would miscount transactions and seal folders at the wrong time.
+    // After two cycles (one clean, one crashed), verify recovered state is
+    // still valid by checking that starting_version is beyond what was flushed.
     let recovered_2 = do_recovery(&store, &config).await;
-    assert_eq!(
-        recovered_2.folder_txn_count, recovered_2.folder_state.total_transactions,
-        "Cycle 2: txn counts must match after crash (got ftc={}, fm.total={})",
-        recovered_2.folder_txn_count, recovered_2.folder_state.total_transactions
+    assert!(
+        recovered_2.starting_version > recovered_1.starting_version,
+        "Cycle 2 should advance past cycle 1 (got {} vs {})",
+        recovered_2.starting_version,
+        recovered_1.starting_version
     );
 
     scenario.teardown();

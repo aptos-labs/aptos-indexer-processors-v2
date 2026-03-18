@@ -7,7 +7,7 @@ use super::{
     models::{EventFile, EventWithContext},
     storage::FileStore,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use aptos_indexer_processor_sdk::{
     traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
     types::transaction_context::TransactionContext,
@@ -15,13 +15,9 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 use tokio::time::Instant;
 use tracing::info;
-
-/// Minimum wall-clock interval between folder-metadata updates (prevents
-/// hammering GCS metadata objects).
-const MIN_METADATA_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Cache-Control header for metadata objects. GCS defaults publicly-readable
 /// objects to `public, max-age=3600` which causes CDN edge nodes to serve stale
@@ -42,7 +38,9 @@ pub struct EventFileWriterStep {
     /// than this estimate — configure `max_file_size_bytes` accordingly.
     buffer_size_bytes: usize,
     /// Number of distinct transaction versions that contributed events to the
-    /// current *folder* (across potentially many files).
+    /// current *folder* (across potentially many files). Includes both flushed
+    /// and buffered events, unlike `folder_state.total_transactions` which
+    /// only counts flushed.
     folder_txn_count: u64,
     /// Txn count within the current buffered file (reset on each flush).
     file_txn_count: u64,
@@ -66,10 +64,9 @@ pub struct EventFileWriterStep {
 
     // Folder state
     folder_state: InternalFolderState,
-    current_folder_index: u64,
 
     // Rate limiting
-    last_folder_metadata_update: Option<Instant>,
+    last_folder_metadata_update: Instant,
     last_root_metadata_update: Instant,
 }
 
@@ -79,12 +76,14 @@ impl EventFileWriterStep {
         config: EventFileProcessorConfig,
         chain_id: u64,
         starting_version: u64,
-        folder_index: u64,
         folder_state: InternalFolderState,
-        folder_txn_count: u64,
         flushed_version: Option<u64>,
     ) -> Self {
         let file_extension = config.file_extension();
+        // At init time, folder_txn_count == folder_state.total_transactions
+        // because all recovered state is flushed. They diverge during processing
+        // as folder_txn_count includes buffered (unflushed) events.
+        let folder_txn_count = folder_state.total_transactions;
         Self {
             store,
             config,
@@ -102,8 +101,7 @@ impl EventFileWriterStep {
             processed_version: starting_version,
             first_timestamp_since_flush: None,
             folder_state,
-            current_folder_index: folder_index,
-            last_folder_metadata_update: None,
+            last_folder_metadata_update: Instant::now(),
             last_root_metadata_update: Instant::now(),
         }
     }
@@ -148,20 +146,21 @@ impl EventFileWriterStep {
         let file_txn_count = self.file_txn_count;
         let first_version = self
             .file_first_version
-            .expect("file_first_version must be set when buffer is non-empty");
+            .context("file_first_version must be set when buffer is non-empty")?;
 
         let event_file = EventFile { events };
         let serialized = self.serialize(&event_file)?;
         let compressed = self.compress(&serialized)?;
         let size_bytes = compressed.len();
 
+        let folder_index = self.folder_state.folder_index;
         let filename = format!("{first_version}{}", self.file_extension);
-        let file_path: PathBuf = [self.current_folder_index.to_string(), filename.clone()]
+        let file_path: PathBuf = [folder_index.to_string(), filename.clone()]
             .iter()
             .collect();
 
         info!(
-            folder = self.current_folder_index,
+            folder = folder_index,
             file = %filename,
             events = num_events,
             txns = file_txn_count,
@@ -174,7 +173,7 @@ impl EventFileWriterStep {
         // Advance the flushed watermark (inclusive) now that the file is persisted.
         let last_version_inclusive = self
             .last_version_in_file
-            .expect("last_version_in_file must be set when buffer is non-empty");
+            .context("last_version_in_file must be set when buffer is non-empty")?;
         self.flushed_version = Some(last_version_inclusive);
 
         #[cfg(feature = "failpoints")]
@@ -210,7 +209,7 @@ impl EventFileWriterStep {
             self.folder_state.is_complete = true;
         }
 
-        self.maybe_update_folder_metadata(end_folder).await?;
+        self.write_folder_metadata().await?;
 
         #[cfg(feature = "failpoints")]
         failpoints::failpoint!("after-folder-metadata", |_| Err(anyhow::anyhow!(
@@ -226,26 +225,16 @@ impl EventFileWriterStep {
         Ok(())
     }
 
-    async fn maybe_update_folder_metadata(&mut self, force: bool) -> Result<()> {
-        let should_update = match self.last_folder_metadata_update {
-            None => true,
-            Some(last) if Instant::now() - last >= MIN_METADATA_UPDATE_INTERVAL => true,
-            Some(last) if force => {
-                // Respect GCS per-object rate limit before writing.
-                let target = last + self.store.max_update_frequency();
-                if Instant::now() < target {
-                    tokio::time::sleep_until(target).await;
-                }
-                true
-            },
-            _ => false,
-        };
-        if !should_update {
-            return Ok(());
+    /// Write folder metadata, sleeping if needed to respect the GCS per-object
+    /// rate limit (~1 write/sec per object).
+    async fn write_folder_metadata(&mut self) -> Result<()> {
+        let target = self.last_folder_metadata_update + self.store.max_update_frequency();
+        if Instant::now() < target {
+            tokio::time::sleep_until(target).await;
         }
 
         let folder_meta_path: PathBuf = [
-            self.current_folder_index.to_string(),
+            self.folder_state.folder_index.to_string(),
             METADATA_FILE_NAME.to_string(),
         ]
         .iter()
@@ -256,11 +245,7 @@ impl EventFileWriterStep {
             .save_file(folder_meta_path, data, Some(METADATA_CACHE_CONTROL))
             .await?;
 
-        if force {
-            self.last_folder_metadata_update = None;
-        } else {
-            self.last_folder_metadata_update = Some(Instant::now());
-        }
+        self.last_folder_metadata_update = Instant::now();
         Ok(())
     }
 
@@ -281,12 +266,7 @@ impl EventFileWriterStep {
             chain_id: self.chain_id,
             latest_committed_version: flushed,
             latest_processed_version: self.processed_version,
-            current_folder_index: self.current_folder_index,
-            // Use folder_state.total_transactions (only incremented during
-            // flush) rather than folder_txn_count (includes buffered events).
-            // This keeps current_folder_txn_count consistent with
-            // latest_committed_version so recovery doesn't double-count
-            // buffered transactions that get re-processed after a crash.
+            current_folder_index: self.folder_state.folder_index,
             current_folder_txn_count: self.folder_state.total_transactions,
             config: self.config.immutable_config(),
         };
@@ -303,9 +283,8 @@ impl EventFileWriterStep {
     }
 
     fn start_new_folder(&mut self) {
-        self.current_folder_index += 1;
         self.folder_txn_count = 0;
-        self.folder_state = InternalFolderState::new(self.current_folder_index);
+        self.folder_state = InternalFolderState::new(self.folder_state.folder_index + 1);
     }
 
     fn serialize(&self, event_file: &EventFile) -> Result<Vec<u8>> {
@@ -405,15 +384,8 @@ impl Processable for EventFileWriterStep {
             .map_err(|e| ProcessorError::ProcessError {
                 message: format!("Failed to flush during cleanup: {e}"),
             })?;
-        // Force a final metadata write so the store reflects the true state.
-        // Only write folder metadata if we have data (versions are set).
-        if self.folder_state.first_version.is_some() {
-            self.maybe_update_folder_metadata(true).await.map_err(|e| {
-                ProcessorError::ProcessError {
-                    message: format!("Failed to update folder metadata during cleanup: {e}"),
-                }
-            })?;
-        }
+        // Force a final root metadata write so the store reflects the true
+        // state. Folder metadata is already written on every flush.
         self.maybe_update_root_metadata(true)
             .await
             .map_err(|e| ProcessorError::ProcessError {

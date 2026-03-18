@@ -33,9 +33,8 @@ pub struct RecoveredState {
     pub chain_id: u64,
     /// Exclusive: the next version to fetch from the transaction stream.
     pub starting_version: u64,
-    pub folder_index: u64,
+    /// Folder state including `folder_index` and `total_transactions`.
     pub folder_state: InternalFolderState,
-    pub folder_txn_count: u64,
     /// Inclusive last version flushed to disk, or `None` on fresh start.
     pub flushed_version: Option<u64>,
 }
@@ -63,9 +62,7 @@ pub async fn recover_state(
             Ok(RecoveredState {
                 chain_id: 0,
                 starting_version: default_starting_version,
-                folder_index: 0,
                 folder_state: InternalFolderState::new(0),
-                folder_txn_count: 0,
                 flushed_version: None,
             })
         },
@@ -107,9 +104,6 @@ pub async fn recover_state(
                     InternalFolderState::from_folder_metadata(&fm)
                 },
                 None => {
-                    // Folder metadata not yet written. Initialize with the
-                    // folder_txn_count from root metadata to keep the two in
-                    // sync across crash-recovery cycles.
                     let mut fs = InternalFolderState::new(root.current_folder_index);
                     fs.total_transactions = root.current_folder_txn_count;
                     fs
@@ -118,8 +112,9 @@ pub async fn recover_state(
 
             // Both root.latest_committed_version and file.last_version are
             // inclusive, so we can compare them directly. Take the max to
-            // handle stale folder metadata (rate-limited writes may lag behind
-            // root metadata after a crash).
+            // handle the case where root metadata was written after a flush
+            // but the corresponding folder metadata write hadn't happened yet
+            // before the crash.
             let (last_committed_version, folder_txn_count) =
                 if let Some(last_file) = folder_state.files.last() {
                     (
@@ -134,11 +129,6 @@ pub async fn recover_state(
 
             let starting_version = last_committed_version + 1;
 
-            // Keep folder_state.total_transactions consistent with the clamped
-            // folder_txn_count. When folder metadata is stale (due to
-            // rate-limited writes), its total_transactions can lag behind
-            // root's count. Without this sync the writer would start with a
-            // permanent gap between the two counters.
             let mut folder_state = folder_state;
             folder_state.total_transactions = folder_txn_count;
 
@@ -146,28 +136,21 @@ pub async fn recover_state(
             // metadata was written after sealing the folder but before
             // start_new_folder advanced the index), move to the next folder so
             // we don't append files to a sealed folder.
-            let (folder_index, folder_state, folder_txn_count) =
-                if folder_txn_count >= config.max_txns_per_folder {
-                    info!(
-                        old_folder = root.current_folder_index,
-                        new_folder = root.current_folder_index + 1,
-                        "Recovered folder already complete, advancing to next folder"
-                    );
-                    (
-                        root.current_folder_index + 1,
-                        InternalFolderState::new(root.current_folder_index + 1),
-                        0,
-                    )
-                } else {
-                    (root.current_folder_index, folder_state, folder_txn_count)
-                };
+            let folder_state = if folder_txn_count >= config.max_txns_per_folder {
+                info!(
+                    old_folder = root.current_folder_index,
+                    new_folder = root.current_folder_index + 1,
+                    "Recovered folder already complete, advancing to next folder"
+                );
+                InternalFolderState::new(root.current_folder_index + 1)
+            } else {
+                folder_state
+            };
 
             Ok(RecoveredState {
                 chain_id: root.chain_id,
                 starting_version,
-                folder_index,
                 folder_state,
-                folder_txn_count,
                 flushed_version: Some(last_committed_version),
             })
         },
@@ -320,9 +303,7 @@ impl ProcessorTrait for EventFileProcessor {
             self.event_file_config.clone(),
             chain_id,
             recovered.starting_version,
-            recovered.folder_index,
             recovered.folder_state,
-            recovered.folder_txn_count,
             recovered.flushed_version,
         );
 

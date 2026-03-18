@@ -65,16 +65,14 @@ All `version` fields use the Aptos transaction ledger version (a globally unique
 
 | Field | Meaning |
 |-------|---------|
-| `root.latest_committed_version` | All matching events with `version < latest_committed_version` have been written to files. If this is 13, versions 0–12 are fully covered. The value is 0 when nothing has been committed yet. |
-| `root.latest_processed_version` | The processor has scanned all transactions with `version < latest_processed_version`. May be ahead of `latest_committed_version` during stretches with no matching events. Tells you how far the indexer has progressed regardless of event density. |
-| `folder_metadata.first_version` | Version of the first event in this folder. |
-| `folder_metadata.last_version` | Version of the last event in this folder. |
-| `file.first_version` | Version of the first event in this file. Also encoded in the filename. |
-| `file.last_version` | Version of the last event in this file. |
+| `root.latest_committed_version` | All matching events with `version <= latest_committed_version` have been written to files. If this is 12, versions 0–12 are fully covered (though only versions matching the filter will have events). Root metadata is only written after the first successful flush, so this field is always meaningful. |
+| `root.latest_processed_version` | The processor has scanned all transactions with `version <= latest_processed_version`. May be ahead of `latest_committed_version` during stretches with no matching events. Tells you how far the indexer has progressed regardless of event density. |
+| `folder_metadata.first_version` | Version of the first event in this folder (inclusive). |
+| `folder_metadata.last_version` | Version of the last event in this folder (inclusive). |
+| `file.first_version` | Version of the first event in this file (inclusive). Also encoded in the filename. |
+| `file.last_version` | Version of the last event in this file (inclusive). |
 
-`first_version` and `last_version` on files and folders are both **inclusive** — they are the actual transaction versions of the first and last events. For example, if `first_version` is 10 and `last_version` is 12, the file contains events from versions 10, 11, and 12 (though there may be gaps — not every version in the range necessarily has an event).
-
-`latest_committed_version` and `latest_processed_version` on root metadata use a different convention: they are **one past** the last version committed/processed. This is a recovery watermark — the processor restarts from this value. The value 0 naturally represents "nothing yet".
+All version fields are **inclusive** — they are the actual transaction versions of the first and last events. For example, if `first_version` is 10 and `last_version` is 12, the file contains events from versions 10, 11, and 12 (though there may be gaps — not every version in the range necessarily has an event).
 
 ### Folder lifecycle
 
