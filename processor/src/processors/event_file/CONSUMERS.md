@@ -160,18 +160,16 @@ The processor refuses to start if the processor config fields differ from what i
 
 This assumes that you want to download all the data, rather than some kind of polling approach.
 
-**Simplest approach** (safe, slightly wasteful):
-
 1. Clone the entire bucket.
-2. Delete the folder with the highest index since it may be incomplete.
-
-The rest of the data will be a complete, consistent set of events. You can look at `metadata.json` in the remaining highest-index folder to see what the latest txn is.
-
-**Less wasteful approach**: keep the highest folder and check its `metadata.json`. If `is_complete` is `true` the folder is sealed and all files listed in its metadata are safe to use. If `is_complete` is `false` the folder is still being written to, but every file listed in its `files[]` array is fully written and safe to read (see write ordering above). You can use those files and discard any data files on disk that are not listed in the metadata.
+2. For the highest-numbered folder, check its `metadata.json`:
+   - If `is_complete` is `true`, the folder is sealed and safe to use as-is.
+   - If `is_complete` is `false`, the folder is still being written to. Every file listed in its `files[]` array is fully written and safe to read (see write ordering above), but there may be orphaned data files on disk that are **not** listed in the metadata. Delete any data files not referenced by the metadata.
+   - If there is no `metadata.json` at all, the folder has no committed data. Delete it.
 
 ### Example script
 
-This implements the above dumb approach.
+Downloads the bucket and trims the highest folder to only files referenced by
+its `metadata.json` (safe even when there is only one folder).
 
 ```bash
 #!/usr/bin/env bash
@@ -184,8 +182,8 @@ Usage:
 
 Example:
   download_events.sh \
-    -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet' \
-    -d './shelbynet'
+    -s ':gcs:aptos-indexer-event-files-shelbynet/shelbynet/v2' \
+    -d './out'
 EOF
 }
 
@@ -238,37 +236,26 @@ fi
 
 command -v rclone >/dev/null 2>&1 || { echo "rclone not found"; exit 1; }
 command -v lz4 >/dev/null 2>&1 || { echo "lz4 not found"; exit 1; }
-command -v find >/dev/null 2>&1 || { echo "find not found"; exit 1; }
-command -v du >/dev/null 2>&1 || { echo "du not found"; exit 1; }
-command -v date >/dev/null 2>&1 || { echo "date not found"; exit 1; }
-command -v awk >/dev/null 2>&1 || { echo "awk not found"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 not found"; exit 1; }
 
 mkdir -p "$DEST"
 
 echo "Downloading from: $SRC"
 echo "Destination: $DEST"
 
-download_start_ms=$(python3 - <<'PY'
-import time
-print(int(time.time() * 1000))
-PY
-)
+download_start_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
 rclone copy \
   --gcs-anonymous \
   --transfers 64 \
   --checkers 64 \
   --fast-list \
-  --no-traverse \
   "$SRC" "$DEST"
 
-download_end_ms=$(python3 - <<'PY'
-import time
-print(int(time.time() * 1000))
-PY
-)
+download_end_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 download_ms=$((download_end_ms - download_start_ms))
 
+# --- Trim the highest-numbered folder to only metadata-referenced files ---
 echo "Looking for highest-numbered folder under $DEST ..."
 highest_dir=""
 highest_idx=""
@@ -283,9 +270,42 @@ while IFS= read -r -d '' dir; do
   fi
 done < <(find "$DEST" -mindepth 1 -maxdepth 1 -type d -print0)
 
+trimmed_info="none"
 if [[ -n "$highest_dir" ]]; then
-  echo "Removing highest-numbered folder (may be incomplete): $highest_dir"
-  rm -rf -- "$highest_dir"
+  meta="$highest_dir/metadata.json"
+  if [[ -f "$meta" ]]; then
+    is_complete=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['is_complete'])" "$meta")
+    if [[ "$is_complete" == "True" ]]; then
+      echo "Highest folder $highest_idx is sealed (is_complete=true), keeping it."
+      trimmed_info="folder $highest_idx: sealed, kept as-is"
+    else
+      echo "Highest folder $highest_idx is incomplete, trimming to metadata-referenced files ..."
+      # Build set of filenames listed in metadata, then delete anything else.
+      keep_files=$(python3 -c "
+import json, sys
+m = json.load(open(sys.argv[1]))
+for f in m.get('files', []):
+    print(f['filename'])
+" "$meta")
+      removed=0
+      while IFS= read -r -d '' f; do
+        fname="$(basename "$f")"
+        if [[ "$fname" == "metadata.json" ]]; then
+          continue
+        fi
+        if ! echo "$keep_files" | grep -qxF "$fname"; then
+          rm -f "$f"
+          removed=$((removed + 1))
+        fi
+      done < <(find "$highest_dir" -maxdepth 1 -type f -print0)
+      trimmed_info="folder $highest_idx: incomplete, removed $removed orphaned file(s)"
+      echo "$trimmed_info"
+    fi
+  else
+    echo "Highest folder $highest_idx has no metadata.json, removing entirely."
+    rm -rf -- "$highest_dir"
+    trimmed_info="folder $highest_idx: no metadata, removed"
+  fi
 else
   echo "No numbered top-level folders found under $DEST"
 fi
@@ -295,11 +315,7 @@ before_bytes="$(bytes_size "$DEST")"
 
 echo "Size on disk before decompressing: $before_human ($before_bytes bytes)"
 
-decompress_start_ms=$(python3 - <<'PY'
-import time
-print(int(time.time() * 1000))
-PY
-)
+decompress_start_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
 find "$DEST" -type f \( -name '*.pb.lz4' -o -name '*.json.lz4' \) -print0 |
 while IFS= read -r -d '' file; do
@@ -308,11 +324,7 @@ while IFS= read -r -d '' file; do
   lz4 -d --rm "$file" "$out"
 done
 
-decompress_end_ms=$(python3 - <<'PY'
-import time
-print(int(time.time() * 1000))
-PY
-)
+decompress_end_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 decompress_ms=$((decompress_end_ms - decompress_start_ms))
 
 after_human="$(human_size "$DEST")"
@@ -323,11 +335,7 @@ echo "Summary"
 echo "-------"
 echo "Source:                       $SRC"
 echo "Destination:                  $DEST"
-if [[ -n "$highest_dir" ]]; then
-  echo "Removed highest folder:       $highest_dir"
-else
-  echo "Removed highest folder:       none"
-fi
+echo "Highest folder:               $trimmed_info"
 echo "Size before decompressing:    $before_human ($before_bytes bytes)"
 echo "Size after decompressing:     $after_human ($after_bytes bytes)"
 echo "Download time:                $(format_duration_ms "$download_ms") (${download_ms} ms)"
