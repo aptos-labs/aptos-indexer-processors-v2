@@ -26,6 +26,9 @@ use tracing::info;
 /// objects to `public, max-age=3600` which causes CDN edge nodes to serve stale
 /// metadata for up to an hour. Metadata files are mutable and must always be
 /// read fresh.
+//
+// Note: We could optimize and when we seal a folder metadata.json file, we could
+// let it be cached indefinitely because it will never change.
 const METADATA_CACHE_CONTROL: &str = "no-store";
 
 pub struct EventFileWriterStep {
@@ -204,7 +207,7 @@ impl EventFileWriterStep {
         // Check if folder is complete.
         let end_folder = self.folder_txn_count >= self.config.max_txns_per_folder;
         if end_folder {
-            self.folder_state.is_complete = true;
+            self.folder_state.is_sealed = true;
         }
 
         self.write_folder_metadata().await?;

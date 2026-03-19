@@ -121,6 +121,11 @@ async fn test_recovery_after_flush_then_more_buffered() {
         "Last flushed version should be 12 (inclusive)"
     );
     // Folder 0 was sealed (3 txns = max), recovery should advance to folder 1.
+    // recovered.folder_state is folder 1 (the new, empty folder), not folder 0.
+    assert!(
+        !recovered.folder_state.is_sealed,
+        "folder 1 just started, it should not be sealed"
+    );
     assert_eq!(
         recovered.folder_state.folder_index, 1,
         "should advance past sealed folder 0 to folder 1"
@@ -187,7 +192,7 @@ async fn test_recovery_advances_past_completed_folder() {
     config.max_txns_per_folder = 3;
 
     // Manually construct on-disk state as if the writer crashed after sealing
-    // folder 0 (is_complete=true, 3 txns) but before calling start_new_folder().
+    // folder 0 (is_sealed=true, 3 txns) but before calling start_new_folder().
     let folder_metadata = FolderMetadata {
         folder_index: 0,
         files: vec![FileMetadata {
@@ -201,7 +206,7 @@ async fn test_recovery_advances_past_completed_folder() {
         first_version: 10,
         last_version: 12,
         total_transactions: 3,
-        is_complete: true,
+        is_sealed: true,
     };
 
     // latest_committed_version is inclusive (12 = last committed version).
@@ -249,7 +254,7 @@ async fn test_recovery_advances_past_completed_folder() {
         "new folder state should have no files"
     );
     assert!(
-        !recovered.folder_state.is_complete,
+        !recovered.folder_state.is_sealed,
         "new folder should not be sealed"
     );
 }
@@ -278,7 +283,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         first_version: 10,
         last_version: 12,
         total_transactions: 3,
-        is_complete: true,
+        is_sealed: true,
     };
 
     let root = RootMetadata {
@@ -332,10 +337,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
         .unwrap()
         .expect("folder 0 metadata should exist");
     let folder_0_after: FolderMetadata = serde_json::from_slice(&folder_0_raw).unwrap();
-    assert!(
-        folder_0_after.is_complete,
-        "folder 0 should still be sealed"
-    );
+    assert!(folder_0_after.is_sealed, "folder 0 should still be sealed");
     assert_eq!(
         folder_0_after.files.len(),
         1,
@@ -358,7 +360,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     assert_eq!(folder_1_metadata.files[0].first_version, 20);
     assert_eq!(folder_1_metadata.total_transactions, 3);
     assert!(
-        folder_1_metadata.is_complete,
+        folder_1_metadata.is_sealed,
         "folder 1 should be complete (3 txns = max)"
     );
 
@@ -367,85 +369,52 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     assert!(data_file.is_some(), "data file 1/20.pb should exist");
 }
 
-/// Verify that when folder metadata is absent on disk, recovery still uses
-/// the root metadata's `current_folder_txn_count` to initialize the folder
-/// state. This can happen if root was written but folder metadata was lost.
+/// Verify that recovery trusts folder metadata over a stale root. Root
+/// metadata is only written periodically or when a folder is sealed, so
+/// after a crash between a folder-metadata write and the next root-metadata
+/// write, the folder is ahead. Recovery must use the folder's values.
 #[tokio::test]
-async fn test_recovery_no_folder_metadata_uses_root_count() {
+async fn test_recovery_prefers_folder_metadata_over_stale_root() {
     let dir = tempfile::tempdir().unwrap();
     let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
-    // latest_committed_version is inclusive (49 = last committed version).
-    let root = RootMetadata {
-        config: config.immutable_config(1, 0),
-        tracking: VersionTracking {
-            latest_committed_version: 49,
-            latest_processed_version: 99,
-            current_folder_index: 0,
-            current_folder_txn_count: 42,
-        },
-    };
-    store
-        .save_file(
-            PathBuf::from(METADATA_FILE_NAME),
-            serde_json::to_vec(&root).unwrap(),
-            None,
-        )
-        .await
-        .unwrap();
-
-    let recovered = do_recovery(&store, &config).await;
-    assert_eq!(
-        recovered.starting_version, 50,
-        "should recover from latest_committed_version + 1"
-    );
-    assert_eq!(
-        recovered.folder_state.total_transactions, 42,
-        "folder_state.total_transactions should come from root"
-    );
-}
-
-/// Verify that recovery uses `max(folder_version, root_version)` when folder
-/// metadata on disk is stale. In production this can happen because root
-/// metadata is updated to reflect newer flushed data while the folder
-/// metadata file still contains an older snapshot. Recovery must trust
-/// whichever source reports the higher version.
-#[tokio::test]
-async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
-    let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
-    let config = test_config();
-
-    // Manually construct a scenario where root metadata is ahead of folder
-    // metadata. Root was updated after a later flush
-    // (latest_committed_version=199, current_folder_txn_count=20), but the
-    // folder metadata file on disk still reflects an earlier flush
-    // (last_version=99, total_transactions=10).
+    // Simulate a crash between writing folder metadata and root metadata.
+    // Folder metadata reflects two flushes (last_version=199, 20 txns) but
+    // root metadata is stale from an earlier flush (last_version=99, 10 txns).
     let folder_metadata = FolderMetadata {
         folder_index: 0,
-        files: vec![FileMetadata {
-            filename: "50.pb".to_string(),
-            first_version: 50,
-            last_version: 99,
-            num_events: 10,
-            num_transactions: 10,
-            size_bytes: 500,
-        }],
+        files: vec![
+            FileMetadata {
+                filename: "50.pb".to_string(),
+                first_version: 50,
+                last_version: 99,
+                num_events: 10,
+                num_transactions: 10,
+                size_bytes: 500,
+            },
+            FileMetadata {
+                filename: "100.pb".to_string(),
+                first_version: 100,
+                last_version: 199,
+                num_events: 10,
+                num_transactions: 10,
+                size_bytes: 500,
+            },
+        ],
         first_version: 50,
-        last_version: 99,
-        total_transactions: 10,
-        is_complete: false,
+        last_version: 199,
+        total_transactions: 20,
+        is_sealed: false,
     };
 
-    // latest_committed_version=199 (inclusive).
     let root = RootMetadata {
         config: config.immutable_config(1, 0),
         tracking: VersionTracking {
-            latest_committed_version: 199,
-            latest_processed_version: 249,
+            latest_committed_version: 99,
+            latest_processed_version: 149,
             current_folder_index: 0,
-            current_folder_txn_count: 20,
+            current_folder_txn_count: 10,
         },
     };
     store
@@ -468,11 +437,16 @@ async fn test_recovery_clamps_version_to_root_when_folder_metadata_stale() {
     let recovered = do_recovery(&store, &config).await;
     assert_eq!(
         recovered.starting_version, 200,
-        "starting version must be max(99, 199) + 1 = 200, not stale folder value of 99+1"
+        "starting version must come from folder (199 + 1), not stale root (99 + 1)"
     );
     assert_eq!(
         recovered.folder_state.total_transactions, 20,
-        "total_transactions must be clamped to root.current_folder_txn_count, not stale folder value of 10"
+        "total_transactions must come from folder (20), not stale root (10)"
+    );
+    assert_eq!(
+        recovered.flushed_version,
+        Some(199),
+        "flushed_version must reflect folder's last_version, not root's"
     );
 }
 
@@ -855,7 +829,7 @@ async fn test_file_metadata_size_and_counts_match_actual_file() {
 // Sealed folder immutability
 // ---------------------------------------------------------------------------
 
-/// After a folder is sealed (`is_complete: true`) and new events flow into the
+/// After a folder is sealed (`is_sealed: true`) and new events flow into the
 /// next folder, the sealed folder's metadata must remain unchanged.
 #[tokio::test]
 async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
@@ -884,7 +858,7 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
         .unwrap()
         .expect("folder 0 metadata should exist");
     let folder_0_before: FolderMetadata = serde_json::from_slice(&folder_0_snapshot).unwrap();
-    assert!(folder_0_before.is_complete, "folder 0 should be sealed");
+    assert!(folder_0_before.is_sealed, "folder 0 should be sealed");
 
     // Folder 1 already has v20 (buffered from above). v21 is the 2nd txn in
     // folder 1, bringing folder_txn_count to 2 (= max). v30 triggers the
@@ -914,7 +888,7 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
         "sealed folder total_transactions should not change"
     );
     assert!(
-        folder_0_after.is_complete,
+        folder_0_after.is_sealed,
         "sealed folder should remain complete"
     );
     assert_eq!(
@@ -1169,7 +1143,7 @@ async fn test_multiple_files_per_folder() {
         "6 txns flushed across 2 files"
     );
     assert!(
-        !folder_metadata.is_complete,
+        !folder_metadata.is_sealed,
         "folder should not be sealed (6 < max_txns_per_folder=100)"
     );
 
@@ -1199,7 +1173,7 @@ async fn test_multiple_files_per_folder() {
         "8 total txns across 3 files in 1 folder"
     );
     assert!(
-        !folder_metadata.is_complete,
+        !folder_metadata.is_sealed,
         "folder still not sealed (8 < 100)"
     );
 

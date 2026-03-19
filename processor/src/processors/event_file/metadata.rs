@@ -61,10 +61,10 @@ pub struct FolderMetadata {
     pub first_version: u64,
     /// Last transaction version in this folder (inclusive).
     pub last_version: u64,
-    /// Total number of filtered transactions across all files.
+    /// Total number of transactions (post-filtering) across all files.
     pub total_transactions: u64,
     /// Whether the folder has reached `max_txns_per_folder` and is sealed.
-    pub is_complete: bool,
+    pub is_sealed: bool,
 }
 
 /// Metadata for a single data file within a folder.
@@ -76,7 +76,7 @@ pub struct FileMetadata {
     /// Last transaction version whose events appear in this file (inclusive).
     pub last_version: u64,
     pub num_events: u64,
-    /// Number of filtered transactions that contributed events to this file.
+    /// Number of transactions (post-filtering) that contributed events to this file.
     pub num_transactions: u64,
     /// Size of the serialized (and possibly compressed) file in bytes.
     pub size_bytes: usize,
@@ -94,7 +94,7 @@ pub struct InternalFolderState {
     pub folder_index: u64,
     pub files: Vec<FileMetadata>,
     pub total_transactions: u64,
-    pub is_complete: bool,
+    pub is_sealed: bool,
 }
 
 impl InternalFolderState {
@@ -103,7 +103,7 @@ impl InternalFolderState {
             folder_index,
             files: Vec::new(),
             total_transactions: 0,
-            is_complete: false,
+            is_sealed: false,
         }
     }
 
@@ -124,7 +124,7 @@ impl InternalFolderState {
             first_version: first.first_version,
             last_version: last.last_version,
             total_transactions: self.total_transactions,
-            is_complete: self.is_complete,
+            is_sealed: self.is_sealed,
         })
     }
 
@@ -134,7 +134,7 @@ impl InternalFolderState {
             folder_index: fm.folder_index,
             files: fm.files,
             total_transactions: fm.total_transactions,
-            is_complete: fm.is_complete,
+            is_sealed: fm.is_sealed,
         }
     }
 }

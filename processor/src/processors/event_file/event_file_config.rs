@@ -3,8 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// region: --- Flush trigger defaults ---
-
 const fn default_max_file_size_bytes() -> usize {
     50 * 1024 * 1024 // 50 MiB
 }
@@ -20,8 +18,6 @@ const fn default_max_seconds_between_flushes() -> u64 {
 const fn default_channel_size() -> usize {
     10
 }
-
-// endregion
 
 /// Top-level config for the event file processor.
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -32,9 +32,9 @@ use tracing::info;
 pub struct RecoveredState {
     /// `None` on fresh start (no root metadata on disk yet).
     pub chain_id: Option<u64>,
-    /// Exclusive: the next version to fetch from the transaction stream.
+    /// The version to start fetching transactions at from the transaction stream.
     pub starting_version: u64,
-    /// Folder state including `folder_index` and `total_transactions`.
+    /// Current folder state including `folder_index` and `total_transactions`.
     pub folder_state: InternalFolderState,
     /// Inclusive last version flushed to disk, or `None` on fresh start.
     pub flushed_version: Option<u64>,
@@ -58,7 +58,7 @@ pub async fn recover_state(
         None => {
             info!(
                 starting_version = default_starting_version,
-                "No existing metadata found, bootstrapping"
+                "No existing metadata found, starting from scratch"
             );
             Ok(RecoveredState {
                 chain_id: None,
@@ -70,17 +70,16 @@ pub async fn recover_state(
         Some(data) => {
             let root: RootMetadata =
                 serde_json::from_slice(&data).context("Failed to parse root metadata.json")?;
-            let t = &root.tracking;
             info!(
-                latest_committed_version = t.latest_committed_version,
-                latest_processed_version = t.latest_processed_version,
-                folder = t.current_folder_index,
+                latest_committed_version = root.tracking.latest_committed_version,
+                latest_processed_version = root.tracking.latest_processed_version,
+                folder = root.tracking.current_folder_index,
                 chain_id = root.config.chain_id,
                 "Recovered from existing metadata"
             );
 
-            // Validate all immutable config fields. Changing any of these between
-            // runs would silently corrupt data or break consumer identity checks.
+            // Validate immutable config. Changing any of these between runs would
+            // silently corrupt data or break consumer identity checks.
             let expected = config.immutable_config(root.config.chain_id, default_starting_version);
             if root.config != expected {
                 bail!(
@@ -94,12 +93,28 @@ pub async fn recover_state(
             }
 
             let folder_meta_path: PathBuf = [
-                t.current_folder_index.to_string(),
+                root.tracking.current_folder_index.to_string(),
                 METADATA_FILE_NAME.to_string(),
             ]
             .iter()
             .collect();
 
+            // Two recovery cases for the current folder:
+            //
+            // 1. Folder metadata EXISTS: folder metadata is the source of
+            //    truth — it's written on every flush, whereas root metadata
+            //    is only written periodically or when a folder is sealed, so
+            //    it can be stale after a crash. We derive version/count
+            //    entirely from the folder. This also handles the case where
+            //    root is stale after a crash between writing folder metadata
+            //    (with is_sealed=true) and updating root: root still points
+            //    at the sealed folder, we load it, see it's complete, and
+            //    advance to the next folder below.
+            //
+            // 2. Folder metadata MISSING: this is the normal state after
+            //    cleanly sealing a folder — root was updated with the new
+            //    folder index but nothing has been flushed to it yet, so no
+            //    folder metadata.json exists. We fall back to the root's values.
             let mut folder_state = match store.get_file(folder_meta_path).await? {
                 Some(data) => {
                     let fm =
@@ -107,43 +122,35 @@ pub async fn recover_state(
                     InternalFolderState::from_folder_metadata(fm)
                 },
                 None => {
-                    let mut fs = InternalFolderState::new(t.current_folder_index);
-                    fs.total_transactions = t.current_folder_txn_count;
+                    let mut fs = InternalFolderState::new(root.tracking.current_folder_index);
+                    fs.total_transactions = root.tracking.current_folder_txn_count;
                     fs
                 },
             };
 
-            // Both tracking.latest_committed_version and file.last_version are
-            // inclusive, so we can compare them directly. Take the max to
-            // handle any inconsistency between root and folder metadata after
-            // a crash (e.g. folder metadata ahead of a stale root, or vice
-            // versa).
             let (last_committed_version, folder_txn_count) =
                 if let Some(last_file) = folder_state.files.last() {
-                    (
-                        last_file.last_version.max(t.latest_committed_version),
-                        folder_state
-                            .total_transactions
-                            .max(t.current_folder_txn_count),
-                    )
+                    (last_file.last_version, folder_state.total_transactions)
                 } else {
-                    (t.latest_committed_version, t.current_folder_txn_count)
+                    (
+                        root.tracking.latest_committed_version,
+                        root.tracking.current_folder_txn_count,
+                    )
                 };
 
             let starting_version = last_committed_version + 1;
             folder_state.total_transactions = folder_txn_count;
 
-            // If the folder was already completed before the crash (e.g. root
-            // metadata was written after sealing the folder but before
-            // start_new_folder advanced the index), move to the next folder so
-            // we don't append files to a sealed folder.
+            // Handle the stale-root case from (1) above: if the folder is
+            // already complete, advance to the next folder so we don't append
+            // files to a sealed folder.
             let folder_state = if folder_txn_count >= config.max_txns_per_folder {
                 info!(
-                    old_folder = t.current_folder_index,
-                    new_folder = t.current_folder_index + 1,
+                    old_folder = root.tracking.current_folder_index,
+                    new_folder = root.tracking.current_folder_index + 1,
                     "Recovered folder already complete, advancing to next folder"
                 );
-                InternalFolderState::new(t.current_folder_index + 1)
+                InternalFolderState::new(root.tracking.current_folder_index + 1)
             } else {
                 folder_state
             };
@@ -187,7 +194,7 @@ impl EventFileProcessor {
     fn build_transaction_filter(&self) -> Option<BooleanTransactionFilter> {
         let filters = &self.event_file_config.event_filter_config.filters;
         if filters.is_empty() {
-            return None;
+            unreachable!("filters are empty, this should have been checked at startup");
         }
 
         // Only stream successful transactions — failed txns don't produce
@@ -238,8 +245,12 @@ impl EventFileProcessor {
     fn initial_starting_version(&self) -> u64 {
         match &self.config.processor_mode {
             ProcessorMode::Default(boot) => boot.initial_starting_version,
-            ProcessorMode::Testing(test) => test.override_starting_version,
-            ProcessorMode::Backfill(bf) => bf.initial_starting_version,
+            ProcessorMode::Testing(_) => {
+                panic!("Testing mode is not supported for the event file processor")
+            },
+            ProcessorMode::Backfill(_) => {
+                panic!("Backfill mode is not supported for the event file processor")
+            },
         }
     }
 
@@ -275,7 +286,7 @@ impl ProcessorTrait for EventFileProcessor {
             .await?,
         );
 
-        let recovered = self.recover_or_initialize(&store).await?;
+        let recovered_state = self.recover_or_initialize(&store).await?;
 
         // Always resolve chain_id from the stream so we can detect if the
         // stream endpoint was switched to a different chain between runs.
@@ -283,7 +294,7 @@ impl ProcessorTrait for EventFileProcessor {
             .await
             .context("Failed to get chain_id from transaction stream")?;
 
-        if let Some(stored_chain_id) = recovered.chain_id
+        if let Some(stored_chain_id) = recovered_state.chain_id
             && stored_chain_id != stream_chain_id
         {
             bail!(
@@ -293,18 +304,10 @@ impl ProcessorTrait for EventFileProcessor {
             );
         }
 
-        let chain_id = stream_chain_id;
-
         let transaction_filter = self.build_transaction_filter();
-        let ending_version = match &self.config.processor_mode {
-            ProcessorMode::Backfill(bf) => bf.ending_version,
-            ProcessorMode::Testing(t) => t.ending_version,
-            _ => None,
-        };
-
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version: Some(recovered.starting_version),
-            request_ending_version: ending_version,
+            starting_version: Some(recovered_state.starting_version),
+            request_ending_version: None,
             transaction_filter,
             ..self.config.transaction_stream_config.clone()
         })
@@ -316,14 +319,13 @@ impl ProcessorTrait for EventFileProcessor {
         let writer = EventFileWriterStep::new(
             store,
             self.event_file_config.clone(),
-            chain_id,
+            stream_chain_id,
             self.initial_starting_version(),
-            recovered.folder_state,
-            recovered.flushed_version,
+            recovered_state.folder_state,
+            recovered_state.flushed_version,
         );
 
         let channel_size = self.event_file_config.channel_size;
-
         let (_, output_receiver) = ProcessorBuilder::new_with_inputless_first_step(
             transaction_stream.into_runnable_step(),
         )

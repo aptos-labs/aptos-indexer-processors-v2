@@ -14,7 +14,7 @@
     ...
 ```
 
-Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions. Once full, `is_complete` is set and a new folder begins. The folder prefix does not correspond to txn ledger version or anything like that (unlike the filestore worker in indexer-grpc-v2). Doing so would make folders too sparse.
+Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions. Once full, `is_sealed` is set and a new folder begins. The folder prefix does not correspond to txn ledger version or anything like that (unlike the filestore worker in indexer-grpc-v2). Doing so would make folders too sparse.
 
 ## Data files
 
@@ -81,7 +81,7 @@ Once a data file is written it is **never modified or rewritten** under normal o
 
 ### Metadata files are mutable
 
-Both `metadata.json` (root and folder) are **overwritten in place** as new data arrives. Always re-read them to get the latest state. Once a folder is sealed (`is_complete: true`), it is **never modified** again.
+Both `metadata.json` (root and folder) are **overwritten in place** as new data arrives. Always re-read them to get the latest state. Once a folder is sealed (`is_sealed: true`), it is **never modified** again.
 
 ### Caching
 
@@ -111,7 +111,7 @@ All `version` fields use the Aptos transaction ledger version (a globally unique
 | `first_version` | Version of the first event in this folder (inclusive). |
 | `last_version` | Version of the last event in this folder (inclusive). |
 | `total_transactions` | Total number of filtered transactions across all files in the folder. |
-| `is_complete` | Whether the folder is sealed (see folder lifecycle below). |
+| `is_sealed` | Whether the folder is sealed (see folder lifecycle below). |
 
 **File metadata fields** (entries in `folder_metadata.files[]`):
 
@@ -128,11 +128,10 @@ All version fields are **inclusive** — they are the actual transaction version
 
 ### Folder lifecycle
 
-- `is_complete: false` — the folder is still being written to.
-- `is_complete: true` — the folder is sealed. No more files will be added. A new folder with `folder_index + 1` has been (or will be) created.
+- `is_sealed: false` — the folder is still being written to.
+- `is_sealed: true` — the folder is sealed. No more files will be added. A new folder with `folder_index + 1` has been (or will be) created.
 
-A folder transitions to complete when its accumulated filtered transaction
-count reaches `max_txns_per_folder`.
+A folder transitions to complete when its accumulated filtered transaction count reaches `max_txns_per_folder`.
 
 ### Gaps in versions
 
@@ -162,8 +161,8 @@ This assumes that you want to download all the data, rather than some kind of po
 
 1. Clone the entire bucket.
 2. For the highest-numbered folder, check its `metadata.json`:
-   - If `is_complete` is `true`, the folder is sealed and safe to use as-is.
-   - If `is_complete` is `false`, the folder is still being written to. Every file listed in its `files[]` array is fully written and safe to read (see write ordering above), but there may be orphaned data files on disk that are **not** listed in the metadata. Delete any data files not referenced by the metadata.
+   - If `is_sealed` is `true`, the folder is sealed and safe to use as-is.
+   - If `is_sealed` is `false`, the folder is still being written to. Every file listed in its `files[]` array is fully written and safe to read (see write ordering above), but there may be orphaned data files on disk that are **not** listed in the metadata. Delete any data files not referenced by the metadata.
    - If there is no `metadata.json` at all, the folder has no committed data. Delete it.
 
 ### Example script
@@ -274,9 +273,9 @@ trimmed_info="none"
 if [[ -n "$highest_dir" ]]; then
   meta="$highest_dir/metadata.json"
   if [[ -f "$meta" ]]; then
-    is_complete=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['is_complete'])" "$meta")
-    if [[ "$is_complete" == "True" ]]; then
-      echo "Highest folder $highest_idx is sealed (is_complete=true), keeping it."
+    is_sealed=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['is_sealed'])" "$meta")
+    if [[ "$is_sealed" == "True" ]]; then
+      echo "Highest folder $highest_idx is sealed (is_sealed=true), keeping it."
       trimmed_info="folder $highest_idx: sealed, kept as-is"
     else
       echo "Highest folder $highest_idx is incomplete, trimming to metadata-referenced files ..."

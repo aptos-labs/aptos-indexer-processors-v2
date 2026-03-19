@@ -129,7 +129,7 @@ async fn crash_after_folder_metadata_before_root() {
 
     // Root metadata is stale (latest_committed_version=0, never updated) but
     // folder metadata has the file with last_version=10 (inclusive). Recovery
-    // takes the max: max(folder=10, root=0) = 10, so starting_version = 11.
+    // prefers folder metadata when it exists, so starting_version = 10 + 1 = 11.
     let recovered = do_recovery(&store, &config).await;
     assert_eq!(
         recovered.starting_version, 11,

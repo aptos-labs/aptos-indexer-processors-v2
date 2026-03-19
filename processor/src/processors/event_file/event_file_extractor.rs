@@ -9,16 +9,14 @@ use aptos_indexer_processor_sdk::{
     utils::{convert::standardize_address, errors::ProcessorError},
 };
 use async_trait::async_trait;
-use tracing::warn;
 
 /// Extracts matching events from filtered transactions and produces a flat
 /// `Vec<EventWithContext>`.
 ///
-/// Server-side filtering narrows the gRPC stream to successful transactions
-/// containing events from the specified modules. This step applies the same
-/// filters again defensively (in case server-side filtering is misconfigured or
-/// relaxed in the future), plus the finer-grained client-side filter for
-/// module_name and event_name which may not be part of the server-side filter.
+/// Server-side filtering narrows the gRPC stream to successful transactions containing
+/// events from the specified modules. This step applies the same filters again
+/// defensively (in case there is an issue with server-side filtering plus the
+/// finer-grained client-side filters for module_name and event_name.
 pub struct EventFileExtractorStep {
     /// Filters with addresses pre-standardized to 0x + 64-char hex for
     /// consistent comparison against on-chain type_str addresses.
@@ -44,7 +42,7 @@ impl EventFileExtractorStep {
     /// Event type strings look like `{address}::{module}::{struct}<...>`.
     fn matches(&self, event: &Event) -> bool {
         if self.filters.is_empty() {
-            return true;
+            unreachable!("filters are empty, this should have been checked at startup");
         }
         self.filters
             .iter()
@@ -69,7 +67,6 @@ fn event_matches_filter(event: &Event, filter: &SingleEventFilter) -> bool {
         Some(a) => a,
         None => return false,
     };
-    // Defensive: standardize the on-chain address for comparison.
     if standardize_address(address) != filter.module_address {
         return false;
     }
@@ -115,9 +112,8 @@ impl Processable for EventFileExtractorStep {
         for txn in &batch.data {
             let version = txn.version;
 
-            // Defensive: skip failed transactions. Server-side filtering
-            // already requests only successful txns, but we re-check here in
-            // case the server filter is relaxed or misconfigured.
+            // Defensive: skip failed transactions. Server-side filtering already
+            // requests only successful txns, but we re-check here just in case.
             let is_success = txn.info.as_ref().is_some_and(|info| info.success);
             if !is_success {
                 continue;
@@ -128,7 +124,6 @@ impl Processable for EventFileExtractorStep {
             let timestamp = match txn.timestamp {
                 Some(t) => t,
                 None => {
-                    warn!(version, "Skipping transaction without timestamp");
                     continue;
                 },
             };
@@ -254,7 +249,6 @@ mod tests {
 
     #[test]
     fn test_event_name_without_module_name() {
-        // event_name should work even when module_name is None.
         let f = filter("0x1", None, Some("Transfer"));
         assert!(event_matches_filter(
             &make_event(
