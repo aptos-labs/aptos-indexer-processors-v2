@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY --link . /app
 
-RUN apt-get update && apt-get install -y cmake curl clang git pkg-config libssl-dev libdw-dev libpq-dev lld
+RUN apt-get update && apt-get install -y cmake curl clang git pkg-config libssl-dev libdw-dev libpq-dev lld protobuf-compiler
 ENV CARGO_NET_GIT_FETCH_WITH_CLI true
 # TODO: Fix this with real processors.
 RUN cargo build --locked --release -p processor && ls -lah target/release/

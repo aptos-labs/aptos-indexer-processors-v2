@@ -12,6 +12,9 @@ publish = false
 repository = "https://github.com/aptos-labs/aptos-core"
 rust-version = { workspace = true }
 
+[features]
+failpoints = ["dep:failpoints", "failpoints/failpoints", "processor/failpoints"]
+
 [dependencies]
 ahash = { workspace = true }
 anyhow = { workspace = true }
@@ -21,8 +24,10 @@ assert-json-diff = { workspace = true }
 bigdecimal = { workspace = true }
 chrono = { workspace = true }
 diesel = { workspace = true }
+failpoints = { workspace = true, optional = true }
 field_count = { workspace = true }
 processor = { workspace = true }
+prost-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
