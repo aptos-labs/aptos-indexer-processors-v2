@@ -55,4 +55,5 @@ pub struct UserTransaction {
     pub entry_function_module_name: Option<String>,
     pub entry_function_function_name: Option<String>,
     pub replay_protection_nonce: Option<BigDecimal>,
+    pub encrypted_state: Option<String>,
 }

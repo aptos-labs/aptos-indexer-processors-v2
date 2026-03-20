@@ -14,6 +14,7 @@
     "epoch": 5547,
     "entry_function_contract_address": "0x0000000000000000000000000000000000000000000000000000000000000001",
     "entry_function_module_name": "coin",
-    "entry_function_function_name": "transfer"
+    "entry_function_function_name": "transfer",
+    "encrypted_state": null
   }
 ]

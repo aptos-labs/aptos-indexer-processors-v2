@@ -21,12 +21,14 @@ use aptos_indexer_processor_sdk::{
     aptos_protos::{
         transaction::v1::{
             TransactionInfo, UserTransaction as UserTransactionPB, UserTransactionRequest,
+            encrypted_transaction_payload::State as EncryptedState,
         },
         util::timestamp::Timestamp,
     },
     utils::{
         convert::{bigdecimal_to_u64, standardize_address, u64_to_bigdecimal},
         extract::{
+            get_encrypted_payload_from_user_request,
             get_entry_function_contract_address_from_user_request,
             get_entry_function_from_user_request,
             get_entry_function_function_name_from_user_request,
@@ -36,9 +38,69 @@ use aptos_indexer_processor_sdk::{
     },
 };
 use bigdecimal::BigDecimal;
+use diesel::{
+    deserialize,
+    deserialize::{FromSql, FromSqlRow},
+    expression::AsExpression,
+    pg::{Pg, PgValue},
+    serialize,
+    serialize::{IsNull, Output, ToSql},
+    sql_types::Text,
+};
 use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = Text)]
+pub enum EncryptedTransactionState {
+    Unspecified,
+    FailedDecryption,
+    Decrypted,
+}
+
+impl EncryptedTransactionState {
+    pub fn from_proto_state(state: &Option<EncryptedState>) -> Self {
+        match state {
+            Some(EncryptedState::FailedDecryption(_)) => Self::FailedDecryption,
+            Some(EncryptedState::Decrypted(_)) => Self::Decrypted,
+            None => Self::Unspecified,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "ENCRYPTED_STATE_UNSPECIFIED",
+            Self::FailedDecryption => "ENCRYPTED_STATE_FAILED_DECRYPTION",
+            Self::Decrypted => "ENCRYPTED_STATE_DECRYPTED",
+        }
+    }
+}
+
+impl std::fmt::Display for EncryptedTransactionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl ToSql<Text, Pg> for EncryptedTransactionState {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Text, Pg> for EncryptedTransactionState {
+    fn from_sql(bytes: PgValue<'_>) -> deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"ENCRYPTED_STATE_UNSPECIFIED" => Ok(Self::Unspecified),
+            b"ENCRYPTED_STATE_FAILED_DECRYPTION" => Ok(Self::FailedDecryption),
+            b"ENCRYPTED_STATE_DECRYPTED" => Ok(Self::Decrypted),
+            _ => Err("Unrecognized EncryptedTransactionState variant".into()),
+        }
+    }
+}
 
 /**
  * This is a base UserTransaction model struct which should be used to build all other extended models such as
@@ -66,6 +128,7 @@ pub struct UserTransaction {
     pub is_transaction_success: bool,
     pub storage_refund_octa: u64,
     pub gas_fee_payer_address: Option<String>,
+    pub encrypted_state: Option<EncryptedTransactionState>,
 }
 
 impl UserTransaction {
@@ -141,6 +204,8 @@ impl UserTransaction {
                     .map(|fs| fs.storage_fee_refund_octas)
                     .unwrap_or(0),
                 gas_fee_payer_address,
+                encrypted_state: get_encrypted_payload_from_user_request(user_request)
+                    .map(|encrypted| EncryptedTransactionState::from_proto_state(&encrypted.state)),
                 num_signatures, // Corrected to use the calculated number of signatures
             },
             Self::get_signatures(user_request, version, block_height, block_timestamp),
@@ -194,6 +259,7 @@ pub struct ParquetUserTransaction {
     pub storage_refund_octa: u64,
     pub is_transaction_success: bool,
     pub num_signatures: i64,
+    pub encrypted_state: Option<String>,
 }
 
 impl NamedTable for ParquetUserTransaction {
@@ -228,6 +294,7 @@ impl From<UserTransaction> for ParquetUserTransaction {
             storage_refund_octa: user_transaction.storage_refund_octa,
             is_transaction_success: user_transaction.is_transaction_success,
             num_signatures: user_transaction.num_signatures,
+            encrypted_state: user_transaction.encrypted_state.map(|s| s.to_string()),
         }
     }
 }
@@ -252,6 +319,7 @@ pub struct PostgresUserTransaction {
     pub entry_function_contract_address: Option<String>,
     pub entry_function_module_name: Option<String>,
     pub entry_function_function_name: Option<String>,
+    pub encrypted_state: Option<EncryptedTransactionState>,
 }
 
 impl From<UserTransaction> for PostgresUserTransaction {
@@ -276,6 +344,7 @@ impl From<UserTransaction> for PostgresUserTransaction {
             entry_function_contract_address: user_transaction.entry_function_contract_address,
             entry_function_module_name: user_transaction.entry_function_module_name,
             entry_function_function_name: user_transaction.entry_function_function_name,
+            encrypted_state: user_transaction.encrypted_state,
         }
     }
 }

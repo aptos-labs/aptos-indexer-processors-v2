@@ -12,6 +12,7 @@ pub fn get_any_signature_type(any_signature: &AnySignature) -> String {
         AnySignatureTypeEnum::Secp256k1Ecdsa => "secp256k1_ecdsa".to_string(),
         AnySignatureTypeEnum::Webauthn => "webauthn".to_string(),
         AnySignatureTypeEnum::Keyless => "keyless".to_string(),
+        AnySignatureTypeEnum::SlhDsaSha2128s => "slh_dsa_sha2_128s".to_string(),
         AnySignatureTypeEnum::Unspecified => {
             tracing::warn!("Any signature type doesn't exist");
             "unknown".to_string()
@@ -37,5 +38,6 @@ fn get_any_signature_bytes_from_variant(signature_variant: &SignatureVariant) ->
         SignatureVariant::Keyless(sig) => sig.signature.clone(),
         SignatureVariant::Webauthn(sig) => sig.signature.clone(),
         SignatureVariant::Secp256k1Ecdsa(sig) => sig.signature.clone(),
+        SignatureVariant::SlhDsaSha2128s(sig) => sig.signature.clone(),
     }
 }
