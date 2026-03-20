@@ -60,6 +60,10 @@ impl EventFileExtractorStep {
 fn event_matches_filter(event: &Event, filter: &SingleEventFilter) -> bool {
     let type_str = &event.type_str;
 
+    if type_str.is_empty() {
+        return false;
+    }
+
     // type_str format: "{address}::{module}::{struct}<generics>"
     let mut parts = type_str.splitn(3, "::");
 

@@ -6,11 +6,14 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use google_cloud_storage::{
     client::{Client as GCSClient, ClientConfig as GcsClientConfig},
-    http::objects::{
-        Object,
-        download::Range,
-        get::GetObjectRequest,
-        upload::{Media, UploadObjectRequest, UploadType},
+    http::{
+        Error as GcsError,
+        objects::{
+            Object,
+            download::Range,
+            get::GetObjectRequest,
+            upload::{Media, UploadObjectRequest, UploadType},
+        },
     },
 };
 use std::{
@@ -162,14 +165,8 @@ impl FileStore for GcsFileStore {
             .await
         {
             Ok(data) => Ok(Some(data)),
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("No such object") || msg.contains("404") {
-                    Ok(None)
-                } else {
-                    Err(e).context(format!("Failed to download {object_name}"))
-                }
-            },
+            Err(GcsError::Response(ref resp)) if resp.code == 404 => Ok(None),
+            Err(e) => Err(e).context(format!("Failed to download {object_name}")),
         }
     }
 

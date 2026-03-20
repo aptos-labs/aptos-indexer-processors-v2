@@ -28,10 +28,6 @@ use processor::processors::event_file::{
 };
 use std::{path::PathBuf, sync::Arc};
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 /// Crash after writing the data file but before updating folder or root
 /// metadata. Recovery should restart from the pre-file version (no metadata
 /// was persisted), causing the data to be re-written idempotently.

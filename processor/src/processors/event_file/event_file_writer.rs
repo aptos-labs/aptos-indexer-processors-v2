@@ -22,6 +22,23 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::time::Instant;
 use tracing::info;
 
+#[derive(Debug, Clone, Copy)]
+enum FlushReason {
+    MaxFileSize,
+    FolderBoundary,
+    TimeTrigger,
+}
+
+impl std::fmt::Display for FlushReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FlushReason::MaxFileSize => write!(f, "max_file_size"),
+            FlushReason::FolderBoundary => write!(f, "folder_boundary"),
+            FlushReason::TimeTrigger => write!(f, "time_trigger"),
+        }
+    }
+}
+
 /// Cache-Control header for metadata objects. GCS defaults publicly-readable
 /// objects to `public, max-age=3600` which causes CDN edge nodes to serve stale
 /// metadata for up to an hour. Metadata files are mutable and must always be
@@ -114,32 +131,29 @@ impl EventFileWriterStep {
     }
 
     /// Check whether a flush is needed based on the three triggers.
-    fn should_flush(&self, current_timestamp: Option<&AptosTimestamp>) -> bool {
+    fn should_flush(&self, current_timestamp: Option<&AptosTimestamp>) -> Option<FlushReason> {
         if self.buffer.is_empty() {
-            return false;
+            return None;
         }
 
-        // 1. Size trigger.
         if self.buffer_size_bytes >= self.config.max_file_size_bytes {
-            return true;
+            return Some(FlushReason::MaxFileSize);
         }
 
-        // 2. Folder boundary trigger.
         if self.folder_txn_count >= self.config.max_txns_per_folder {
-            return true;
+            return Some(FlushReason::FolderBoundary);
         }
 
-        // 3. Time trigger (deterministic, using txn timestamps).
         if let (Some(first_ts), Some(cur_ts)) =
             (&self.first_timestamp_since_flush, current_timestamp)
         {
             let elapsed_secs = cur_ts.seconds.saturating_sub(first_ts.seconds).max(0) as u64;
             if elapsed_secs >= self.config.max_seconds_between_flushes {
-                return true;
+                return Some(FlushReason::TimeTrigger);
             }
         }
 
-        false
+        None
     }
 
     /// Serialize and write the current buffer to storage, then update metadata.
@@ -337,7 +351,8 @@ impl Processable for EventFileWriterStep {
             // check triggers *before* adding its events. This guarantees every
             // file contains complete transactions.
             if self.last_version_in_file != Some(version) {
-                if self.should_flush(ts.as_ref()) {
+                if let Some(reason) = self.should_flush(ts.as_ref()) {
+                    info!(version, %reason, "Flush triggered");
                     self.flush()
                         .await
                         .map_err(|e| ProcessorError::ProcessError {

@@ -14,7 +14,7 @@
     ...
 ```
 
-Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions. Once full, `is_sealed` is set and a new folder begins. The folder prefix does not correspond to txn ledger version or anything like that (unlike the filestore worker in indexer-grpc-v2). Doing so would make folders too sparse.
+Folders are numbered sequentially starting from 0. Each folder holds up to `max_txns_per_folder` filtered transactions. Once full, `is_sealed` is set and a new folder begins. If `current_folder_index` is 3, you can expect folders `0/`, `1/`, `2/` to exist and be sealed. Folder `3/` may or may not exist yet — a folder is only created on disk when the first data file is flushed into it, so there is a window between sealing folder N-1 and writing the first file to folder N where folder N has no files or metadata on disk.
 
 ## Data files
 
@@ -135,7 +135,7 @@ A folder transitions to complete when its accumulated filtered transaction count
 
 ### Gaps in versions
 
-There may be **large gaps** between consecutive `version` values within and across files. The processor only writes events matching its configured filters (specific module addresses, module names, event names). Transactions without matching events are skipped entirely. Use `tracking.latest_processed_version` in root metadata to see how far the indexer has scanned regardless of event density.
+There may be **large gaps** between consecutive `version` values within and across files. The processor only writes events matching its configured filters (specific module addresses, module names, event names). Transactions without matching events are skipped entirely. Use `tracking.latest_processed_version` in root metadata to see how far the indexer has scanned regardless of event density. Note that root metadata is only written after the first data file has been flushed, so `latest_processed_version` is unavailable until there is at least one batch of matching events.
 
 ### Event filtering
 
