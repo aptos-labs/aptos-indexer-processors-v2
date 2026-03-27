@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx test-processor.ts"
+    "test": "tsx test-processor.ts",
+    "repro-wasm-crash": "tsx repro-wasm-crash.ts"
   },
   "dependencies": {
     "@aptos-labs/confidential-assets": "file:../../../aptos-ts-sdk/confidential-assets",
