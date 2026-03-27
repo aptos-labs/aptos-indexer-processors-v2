@@ -102,6 +102,7 @@ pub enum ProcessorConfig {
     AccountRestorationProcessor(DefaultProcessorConfig),
     AccountTransactionsProcessor(DefaultProcessorConfig),
     AnsProcessor(AnsProcessorConfig),
+    ConfidentialAssetProcessor(DefaultProcessorConfig),
     DefaultProcessor(DefaultProcessorConfig),
     FungibleAssetProcessor(DefaultProcessorConfig),
     UserTransactionProcessor(DefaultProcessorConfig),
