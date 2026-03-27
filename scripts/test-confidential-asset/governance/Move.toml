@@ -1,0 +1,13 @@
+[package]
+name = "governance"
+version = "0.0.0"
+
+[dependencies]
+# APTOS_FRAMEWORK_PATH is replaced at runtime by the test script.
+AptosFramework = { local = "APTOS_FRAMEWORK_PATH" }
+
+[addresses]
+aptos_framework = "0x1"
+aptos_std = "0x1"
+aptos_fungible_asset = "0xa"
+std = "0x1"
