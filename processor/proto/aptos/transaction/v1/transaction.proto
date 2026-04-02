@@ -1,0 +1,20 @@
+// Copyright © Aptos Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+// Minimal stub so protoc can resolve `aptos.transaction.v1.Event` when
+// compiling event_file.proto. The real Rust type comes from the aptos-protos
+// crate via prost-build's `extern_path`; no code is generated from this file.
+//
+// Third-party consumers compiling event_file.proto outside this repo should
+// use the full proto from https://github.com/aptos-labs/aptos-core/tree/main/protos/proto
+
+syntax = "proto3";
+
+package aptos.transaction.v1;
+
+message Event {
+  // Stub — only enough fields to prevent prost from inferring Copy (the real
+  // Event contains strings). Actual Rust type comes from aptos-protos via
+  // extern_path; no code is generated from this definition.
+  string type_str = 4;
+}

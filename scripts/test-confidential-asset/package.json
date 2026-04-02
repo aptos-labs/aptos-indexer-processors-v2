@@ -1,0 +1,24 @@
+{
+  "name": "test-confidential-asset-processor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx test-processor.ts"
+  },
+  "dependencies": {
+    "@aptos-labs/confidential-assets": "^0.8.0",
+    "@aptos-labs/forklift": "^1.1.1",
+    "@aptos-labs/ts-sdk": "^6.1.0",
+    "pg": "^8.13.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0"
+  }
+}

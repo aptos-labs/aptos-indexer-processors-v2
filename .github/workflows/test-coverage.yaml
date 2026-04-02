@@ -32,7 +32,7 @@ jobs:
 
       - name: rust setup
         run: |
-          sudo apt update && sudo apt install libdw-dev
+          sudo apt update && sudo apt install libdw-dev protobuf-compiler
         working-directory: .
 
       - run: rustup component add llvm-tools-preview

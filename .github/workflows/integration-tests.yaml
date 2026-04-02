@@ -57,7 +57,7 @@ jobs:
       # Ensure Cargo.lock is updated with the latest dependencies
       - name: rust setup
         run: |
-          sudo apt update && sudo apt install libdw-dev
+          sudo apt update && sudo apt install libdw-dev protobuf-compiler
           cargo update -p aptos-indexer-test-transactions
         working-directory: .
 

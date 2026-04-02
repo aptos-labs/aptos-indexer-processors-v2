@@ -4,7 +4,9 @@
 pub mod account_restoration;
 pub mod account_transactions;
 pub mod ans;
+pub mod confidential_asset;
 pub mod default;
+pub mod event_file;
 pub mod fungible_asset;
 pub mod gas_fees;
 pub mod monitoring;

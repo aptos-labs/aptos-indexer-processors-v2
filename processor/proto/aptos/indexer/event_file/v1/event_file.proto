@@ -1,0 +1,29 @@
+// Copyright © Aptos Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package aptos.indexer.event_file.v1;
+
+import "aptos/util/timestamp/timestamp.proto";
+import "aptos/transaction/v1/transaction.proto";
+
+// A single event with its transaction context inlined.
+//
+// Flat structure: version and timestamp are repeated per-event rather than
+// grouping events by transaction. There are generally not many events per
+// txn so it is not too wasteful to lay it out this way.
+//
+// NOTE: The `event` field contains event data serialized as per the node API's
+// Move data viewer. This means addresses inside the event payload are NOT
+// AIP-40 compliant (i.e. not zero-padded to 66 chars).
+message EventWithContext {
+  uint64 version = 1;
+  aptos.util.timestamp.Timestamp timestamp = 2;
+  aptos.transaction.v1.Event event = 3;
+}
+
+// Container for a file full of events.
+message EventFile {
+  repeated EventWithContext events = 1;
+}

@@ -26,6 +26,7 @@ use crate::{
             transactions::ParquetTransaction,
             write_set_changes::ParquetWriteSetChange,
         },
+        event_file::event_file_config::EventFileProcessorConfig,
         fungible_asset::fungible_asset_models::{
             v2_fungible_asset_activities::ParquetFungibleAssetActivity,
             v2_fungible_asset_balances::ParquetFungibleAssetBalance,
@@ -101,6 +102,7 @@ pub enum ProcessorConfig {
     AccountRestorationProcessor(DefaultProcessorConfig),
     AccountTransactionsProcessor(DefaultProcessorConfig),
     AnsProcessor(AnsProcessorConfig),
+    ConfidentialAssetProcessor(DefaultProcessorConfig),
     DefaultProcessor(DefaultProcessorConfig),
     FungibleAssetProcessor(DefaultProcessorConfig),
     UserTransactionProcessor(DefaultProcessorConfig),
@@ -109,6 +111,8 @@ pub enum ProcessorConfig {
     ObjectsProcessor(ObjectsProcessorConfig),
     MonitoringProcessor(DefaultProcessorConfig),
     GasFeeProcessor(DefaultProcessorConfig),
+    // Event file processor (GCS-based, no DB)
+    EventFileProcessor(EventFileProcessorConfig),
     // ParquetProcessor
     ParquetDefaultProcessor(ParquetDefaultProcessorConfig),
     ParquetObjectsProcessor(ParquetDefaultProcessorConfig),
