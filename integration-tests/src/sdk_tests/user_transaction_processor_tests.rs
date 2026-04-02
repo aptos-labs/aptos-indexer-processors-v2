@@ -60,6 +60,7 @@ mod sdk_user_txn_processor_tests {
         cli_parser::get_test_config, database::TestDatabase,
     };
     use aptos_indexer_test_transactions::json_transactions::generated_transactions::{
+        IMPORTED_DEVNET_TXNS_455382_ENCRYPTED_TRANSACTION,
         IMPORTED_MAINNET_TXNS_685_USER_TXN_ED25519,
         IMPORTED_MAINNET_TXNS_2175935_USER_TXN_MULTI_ED25519,
         IMPORTED_MAINNET_TXNS_103958588_MULTI_AGENTS,
@@ -170,6 +171,15 @@ mod sdk_user_txn_processor_tests {
         process_single_transactions(
             IMPORTED_TESTNET_TXNS_6616059810_ACCOUNT_ABSTRACTION_AUTHENTICATOR,
             Some("test_account_abstraction_authenticator".to_string()),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_encrypted_transaction() {
+        process_single_transactions(
+            IMPORTED_DEVNET_TXNS_455382_ENCRYPTED_TRANSACTION,
+            Some("test_encrypted_transaction".to_string()),
         )
         .await;
     }
