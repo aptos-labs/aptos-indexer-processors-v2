@@ -28,8 +28,8 @@ anyhow = "1.0.102"
 # in the integration-tests/Cargo.toml file.
 aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.3.0", features = [
     "postgres_partial",
-] }
-aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "5a42c96be3ac94ef85ab6e53b618390dd343852f" }
+] , rev = "b5747c2d8f3d3a1fe4ffb235d7ae565fbc8e4a09" }
+aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "28ecf06679cbb912e2109f51c80d6abe6722b3fa" }
 assert-json-diff = "2.0.2"
 async-trait = "0.1.89"
 backtrace = "0.3.76"
@@ -134,3 +134,12 @@ tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
 unescape = "0.1.0"
 url = { version = "2.5.8", features = ["serde"] }
 warp = { version = "0.3.5", features = ["tls"] }
+
+[workspace.dependencies.aptos-indexer-processor-sdk-server-framework]
+rev = "b5747c2d8f3d3a1fe4ffb235d7ae565fbc8e4a09"
+
+[workspace.dependencies.aptos-indexer-testing-framework]
+rev = "b5747c2d8f3d3a1fe4ffb235d7ae565fbc8e4a09"
+
+[workspace.dependencies.aptos-protos]
+rev = "28ecf06679cbb912e2109f51c80d6abe6722b3fa"
