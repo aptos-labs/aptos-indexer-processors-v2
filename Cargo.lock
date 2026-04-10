@@ -198,13 +198,13 @@ source = "git+https://github.com/aptos-labs/aptos-core.git?rev=5a42c96be3ac94ef8
 [[package]]
 name = "aptos-indexer-transaction-stream"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.3.0#d1c52f82b9f638195ff6917f1818c339e1f35ecb"
 dependencies = [
  "anyhow",
  "aptos-moving-average",
  "aptos-protos",
  "aptos-transaction-filter",
  "chrono",
+ "futures",
  "futures-util",
  "once_cell",
  "prometheus",
@@ -213,6 +213,7 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-retry",
+ "tokio-stream",
  "tonic 0.12.3",
  "tracing",
  "url",
@@ -221,7 +222,6 @@ dependencies = [
 [[package]]
 name = "aptos-moving-average"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.3.0#d1c52f82b9f638195ff6917f1818c339e1f35ecb"
 dependencies = [
  "chrono",
 ]
@@ -4558,7 +4558,6 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 [[package]]
 name = "sample"
 version = "0.1.0"
-source = "git+https://github.com/aptos-labs/aptos-indexer-processor-sdk.git?tag=aptos-indexer-processor-sdk-v2.3.0#d1c52f82b9f638195ff6917f1818c339e1f35ecb"
 dependencies = [
  "tracing",
 ]

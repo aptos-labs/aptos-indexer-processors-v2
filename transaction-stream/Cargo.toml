@@ -1,0 +1,32 @@
+[package]
+name = "aptos-indexer-transaction-stream"
+version = "0.1.0"
+authors = ["Aptos Labs <opensource@aptoslabs.com>"]
+edition = "2024"
+homepage = "https://aptoslabs.com"
+license = "Apache-2.0"
+publish = false
+repository = "https://github.com/aptos-labs/aptos-indexer-processor-sdk"
+rust-version = "1.93.1"
+
+[dependencies]
+anyhow = { workspace = true }
+aptos-moving-average = { workspace = true }
+aptos-protos = { workspace = true }
+aptos-transaction-filter = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+once_cell = { workspace = true }
+prometheus = { workspace = true }
+prost = { workspace = true }
+sample = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-retry = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+tokio-stream = { version = "0.1.16", features = ["net"] }
