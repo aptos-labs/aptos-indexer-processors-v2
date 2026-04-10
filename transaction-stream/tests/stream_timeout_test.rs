@@ -2,7 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use aptos_indexer_transaction_stream::{
-    config::{BackupCatchupConfig, ReconnectionConfig, TransactionStreamConfig},
+    config::{ReconnectionConfig, TransactionStreamConfig},
     transaction_stream::TransactionStream,
 };
 use aptos_protos::indexer::v1::{
@@ -177,7 +177,6 @@ async fn test_transaction_stream_reconnects_on_timeout() {
         },
         transaction_filter: None,
         backup_endpoints: vec![],
-        backup_catchup_config: BackupCatchupConfig::default(),
     };
 
     // Initialize the transaction stream (uses connection 1)

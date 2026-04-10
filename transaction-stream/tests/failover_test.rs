@@ -2,7 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use aptos_indexer_transaction_stream::{
-    config::{BackupCatchupConfig, Endpoint, ReconnectionConfig, TransactionStreamConfig},
+    config::{Endpoint, ReconnectionConfig, TransactionStreamConfig},
     transaction_stream::TransactionStream,
 };
 use aptos_protos::indexer::v1::{
@@ -109,10 +109,17 @@ impl RawData for WorkingMockGrpcServer {
 
     async fn get_transactions(
         &self,
-        _req: Request<GetTransactionsRequest>,
+        req: Request<GetTransactionsRequest>,
     ) -> Result<Response<Self::GetTransactionsStream>, Status> {
         self.connection_count.fetch_add(1, Ordering::SeqCst);
-        let stream = WorkingResponseStream::new(self.start_version, self.start_version + 99);
+        let inner = req.into_inner();
+        // Probe requests (no starting_version) get a high version so catchup checks pass.
+        let (start, end) = if inner.starting_version.is_none() {
+            (u64::MAX - 1, u64::MAX - 1)
+        } else {
+            (self.start_version, self.start_version + 99)
+        };
+        let stream = WorkingResponseStream::new(start, end);
         Ok(Response::new(Box::pin(stream)))
     }
 }
@@ -165,10 +172,6 @@ fn create_base_config(primary_port: u16) -> TransactionStreamConfig {
         },
         transaction_filter: None,
         backup_endpoints: vec![],
-        backup_catchup_config: BackupCatchupConfig {
-            max_wait_secs: 0,
-            poll_interval_secs: 1,
-        },
     }
 }
 
@@ -249,7 +252,6 @@ async fn test_config_endpoint_helpers() {
         indexer_grpc_response_item_timeout_secs: 60,
         reconnection_config: ReconnectionConfig::default(),
         transaction_filter: None,
-        backup_catchup_config: BackupCatchupConfig::default(),
         backup_endpoints: vec![
             Endpoint {
                 address: Url::parse("http://backup1.example.com").unwrap(),

@@ -162,9 +162,6 @@ pub struct TransactionStreamConfig {
     /// Backup gRPC endpoints for failover. Tried in order after primary fails.
     #[serde(default)]
     pub backup_endpoints: Vec<Endpoint>,
-    /// Configuration for waiting for backup endpoints to catch up to the needed version.
-    #[serde(default)]
-    pub backup_catchup_config: BackupCatchupConfig,
 }
 
 impl TransactionStreamConfig {

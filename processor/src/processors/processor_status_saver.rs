@@ -349,8 +349,7 @@ mod tests {
     use ahash::AHashMap;
     use aptos_indexer_processor_sdk::{
         aptos_indexer_transaction_stream::{
-            TransactionStreamConfig, config::BackupCatchupConfig,
-            utils::additional_headers::AdditionalHeaders,
+            TransactionStreamConfig, utils::additional_headers::AdditionalHeaders,
         },
         postgres::{
             models::processor_status::ProcessorStatus,
@@ -395,7 +394,6 @@ mod tests {
                 additional_headers: AdditionalHeaders::default(),
                 transaction_filter: None,
                 backup_endpoints: vec![],
-                backup_catchup_config: BackupCatchupConfig::default(),
             },
             progress_health_config: None,
         }

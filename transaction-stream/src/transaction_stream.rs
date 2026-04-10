@@ -2,7 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use crate::{
-    config::{Endpoint, TransactionStreamConfig, wait_for_next_retry},
+    config::{BackupCatchupConfig, Endpoint, TransactionStreamConfig, wait_for_next_retry},
     utils::{additional_headers::AdditionalHeaders, time::timestamp_to_iso},
 };
 use anyhow::{Result, anyhow};
@@ -464,7 +464,7 @@ async fn wait_for_endpoint_catchup(
     endpoint: &Endpoint,
     needed_version: u64,
 ) -> Result<()> {
-    let catchup = &transaction_stream_config.backup_catchup_config;
+    let catchup = BackupCatchupConfig::default();
     if catchup.max_wait_secs == 0 {
         return Ok(());
     }
