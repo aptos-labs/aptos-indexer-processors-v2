@@ -2,7 +2,7 @@
 
 resolver = "2"
 
-members = ["integration-tests", "processor", "transaction-stream", "moving-average", "sample"]
+members = ["integration-tests", "processor", "transaction-stream"]
 
 [workspace.package]
 authors = ["Aptos Labs <opensource@aptoslabs.com>"]
@@ -30,10 +30,10 @@ aptos-indexer-processor-sdk = { git = "https://github.com/aptos-labs/aptos-index
     "postgres_partial",
 ] }
 aptos-indexer-transaction-stream = { path = "transaction-stream" }
-aptos-moving-average = { path = "moving-average" }
+aptos-moving-average = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.3.0" }
 aptos-protos = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "a9d20cdaea4b30ded5f1eeebc328bda983be8749" }
 aptos-transaction-filter = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "a9d20cdaea4b30ded5f1eeebc328bda983be8749" }
-sample = { path = "sample" }
+sample = { git = "https://github.com/aptos-labs/aptos-indexer-processor-sdk.git", tag = "aptos-indexer-processor-sdk-v2.3.0" }
 aptos-indexer-test-transactions = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "5a42c96be3ac94ef85ab6e53b618390dd343852f" }
 assert-json-diff = "2.0.2"
 async-trait = "0.1.89"
@@ -143,5 +143,3 @@ warp = { version = "0.3.5", features = ["tls"] }
 
 [patch."https://github.com/aptos-labs/aptos-indexer-processor-sdk.git"]
 aptos-indexer-transaction-stream = { path = "transaction-stream" }
-aptos-moving-average = { path = "moving-average" }
-sample = { path = "sample" }
