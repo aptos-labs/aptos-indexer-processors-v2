@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::{
     config::{Endpoint, TransactionStreamConfig, wait_for_next_retry},
     utils::{additional_headers::AdditionalHeaders, time::timestamp_to_iso},

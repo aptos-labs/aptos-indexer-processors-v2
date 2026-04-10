@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use aptos_indexer_transaction_stream::{
     config::{BackupCatchupConfig, Endpoint, ReconnectionConfig, TransactionStreamConfig},
     transaction_stream::TransactionStream,

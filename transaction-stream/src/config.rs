@@ -1,3 +1,6 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
 use crate::utils::additional_headers::AdditionalHeaders;
 use aptos_transaction_filter::BooleanTransactionFilter;
 use serde::{Deserialize, Serialize};
