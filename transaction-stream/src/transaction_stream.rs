@@ -559,24 +559,22 @@ impl TransactionStream {
         let mut last_error = None;
         for endpoint in endpoints.iter() {
             // For non-primary endpoints, wait for catchup before connecting.
-            if !endpoint.is_primary {
-                if let Some(starting_version) = transaction_stream_config.starting_version {
-                    if let Err(e) = wait_for_endpoint_catchup(
-                        &transaction_stream_config,
-                        endpoint,
-                        starting_version,
-                    )
-                    .await
-                    {
-                        warn!(
-                            is_primary = endpoint.is_primary,
-                            error = ?e,
-                            "[Transaction Stream] Backup catchup failed, skipping endpoint"
-                        );
-                        last_error = Some(e);
-                        continue;
-                    }
-                }
+            if !endpoint.is_primary
+                && let Some(starting_version) = transaction_stream_config.starting_version
+                && let Err(e) = wait_for_endpoint_catchup(
+                    &transaction_stream_config,
+                    endpoint,
+                    starting_version,
+                )
+                .await
+            {
+                warn!(
+                    is_primary = endpoint.is_primary,
+                    error = ?e,
+                    "[Transaction Stream] Backup catchup failed, skipping endpoint"
+                );
+                last_error = Some(e);
+                continue;
             }
 
             match Self::init_stream(&transaction_stream_config, endpoint).await {
@@ -807,30 +805,30 @@ impl TransactionStream {
             let endpoint_address_str = endpoint.address.to_string();
 
             // For non-primary endpoints, wait for catchup before trying to reconnect.
-            if !endpoint.is_primary {
-                if let Some(needed_version) = self.last_fetched_version.map(|v| (v + 1) as u64) {
-                    match wait_for_endpoint_catchup(
-                        &self.transaction_stream_config,
-                        endpoint,
-                        needed_version,
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            info!(
-                                stream_address = endpoint_address_str,
-                                "[Transaction Stream] Backup caught up, proceeding to connect"
-                            );
-                        },
-                        Err(e) => {
-                            warn!(
-                                stream_address = endpoint_address_str,
-                                error = ?e,
-                                "[Transaction Stream] Backup catchup failed, skipping endpoint"
-                            );
-                            continue;
-                        },
-                    }
+            if !endpoint.is_primary
+                && let Some(needed_version) = self.last_fetched_version.map(|v| (v + 1) as u64)
+            {
+                match wait_for_endpoint_catchup(
+                    &self.transaction_stream_config,
+                    endpoint,
+                    needed_version,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        info!(
+                            stream_address = endpoint_address_str,
+                            "[Transaction Stream] Backup caught up, proceeding to connect"
+                        );
+                    },
+                    Err(e) => {
+                        warn!(
+                            stream_address = endpoint_address_str,
+                            error = ?e,
+                            "[Transaction Stream] Backup catchup failed, skipping endpoint"
+                        );
+                        continue;
+                    },
                 }
             }
 
