@@ -162,6 +162,38 @@
                 }
               }
             ],
+            "array_relationships": [
+              {
+                "name": "owner_aptos_names",
+                "using": {
+                  "manual_configuration": {
+                    "column_mapping": {
+                      "owner_address": "registered_address"
+                    },
+                    "insertion_order": null,
+                    "remote_table": {
+                      "name": "current_aptos_names",
+                      "schema": "public"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "counterparty_aptos_names",
+                "using": {
+                  "manual_configuration": {
+                    "column_mapping": {
+                      "counterparty_address": "registered_address"
+                    },
+                    "insertion_order": null,
+                    "remote_table": {
+                      "name": "current_aptos_names",
+                      "schema": "public"
+                    }
+                  }
+                }
+              }
+            ],
             "select_permissions": [
               {
                 "role": "anonymous",
