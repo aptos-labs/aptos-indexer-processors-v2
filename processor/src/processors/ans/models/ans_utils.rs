@@ -43,9 +43,9 @@ pub struct OptionalBigDecimal {
 pub fn get_token_name(domain_name: &str, subdomain_name: &str) -> String {
     let domain = truncate_str(domain_name, DOMAIN_LENGTH);
     let subdomain = truncate_str(subdomain_name, DOMAIN_LENGTH);
-    let mut token_name = format!("{}.apt", &domain);
+    let mut token_name = format!("{}.apt", domain);
     if !subdomain.is_empty() {
-        token_name = format!("{}.{}", &subdomain, token_name);
+        token_name = format!("{}.{}", subdomain, token_name);
     }
     token_name
 }
