@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub const PROMETHEUS_SINK_NAME: &str = "prometheus";
 const KNOWN_SINK_NAMES: &[&str] = &[PROMETHEUS_SINK_NAME];
@@ -25,6 +25,22 @@ const fn default_max_alert_age_secs() -> u64 {
     300
 }
 
+const fn default_webhook_timeout_ms() -> u64 {
+    5_000
+}
+
+const fn default_webhook_max_retries() -> u32 {
+    3
+}
+
+const fn default_webhook_buffer_size() -> usize {
+    1_024
+}
+
+const fn default_webhook_max_concurrency() -> usize {
+    8
+}
+
 fn default_instance_label() -> String {
     "live".to_string()
 }
@@ -34,6 +50,12 @@ fn default_instance_label() -> String {
 #[serde(deny_unknown_fields)]
 pub struct AlertingProcessorConfig {
     pub rules: Vec<AlertRule>,
+
+    /// Named sinks. The `prometheus` sink is always available implicitly;
+    /// an explicit entry here is only needed for non-prometheus sinks
+    /// (webhook today).
+    #[serde(default)]
+    pub sinks: HashMap<String, SinkConfig>,
 
     /// Drop matches older than this many seconds. Set to 0 in replay mode
     /// to disable.
@@ -95,14 +117,29 @@ impl AlertingProcessorConfig {
             }
 
             for sink_name in &rule.sinks {
-                if !KNOWN_SINK_NAMES.contains(&sink_name.as_str()) {
+                let is_known = KNOWN_SINK_NAMES.contains(&sink_name.as_str())
+                    || self.sinks.contains_key(sink_name);
+                if !is_known {
+                    let mut all_known: Vec<&str> = KNOWN_SINK_NAMES.iter().copied().collect();
+                    all_known.extend(self.sinks.keys().map(String::as_str));
+                    all_known.sort_unstable();
                     bail!(
                         "rule '{}': references unknown sink '{}' (known sinks: {:?})",
                         rule.name,
                         sink_name,
-                        KNOWN_SINK_NAMES,
+                        all_known,
                     );
                 }
+            }
+        }
+
+        for (name, sink) in &self.sinks {
+            let SinkConfig::Webhook(w) = sink;
+            if !w.url.starts_with("https://") {
+                bail!(
+                    "sink '{name}': webhook url must start with https:// (got '{}')",
+                    w.url,
+                );
             }
         }
 
@@ -173,6 +210,53 @@ fn default_sinks() -> Vec<String> {
     vec![PROMETHEUS_SINK_NAME.to_string()]
 }
 
+/// User-configurable sinks. Prometheus is always available without an entry.
+///
+/// One variant today; `#[serde(tag = "type")]` is kept so adding a second
+/// sink kind (Slack, PagerDuty, etc.) is a structural extension rather
+/// than a breaking YAML change.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SinkConfig {
+    Webhook(WebhookSinkConfig),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebhookSinkConfig {
+    pub url: String,
+
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+
+    #[serde(default = "default_webhook_timeout_ms")]
+    pub timeout_ms: u64,
+
+    #[serde(default = "default_webhook_max_retries")]
+    pub max_retries: u32,
+
+    /// Bounded `mpsc` buffer for in-flight alerts. Overflow drops are counted
+    /// in `event_sink_dropped_total`.
+    #[serde(default = "default_webhook_buffer_size")]
+    pub buffer_size: usize,
+
+    /// Maximum number of concurrent HTTP deliveries per sink. A single
+    /// stalled endpoint can't head-of-line block other queued alerts;
+    /// once the cap is hit, the channel reader awaits a free permit so
+    /// backpressure flows to `try_deliver` and overflow is recorded as
+    /// a drop.
+    #[serde(default = "default_webhook_max_concurrency")]
+    pub max_concurrency: usize,
+
+    /// Optional shared secret for payload signing. When set, every POST
+    /// body is hex-encoded HMAC-SHA256'd into the `X-Signature` header
+    /// so the receiver can authenticate that the alert originated from
+    /// this processor (not an attacker forging requests to the webhook
+    /// URL).
+    #[serde(default)]
+    pub signing_secret: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,6 +273,7 @@ mod tests {
                 emit_field_values: vec![],
                 sinks: vec![PROMETHEUS_SINK_NAME.to_string()],
             }],
+            sinks: HashMap::new(),
             max_alert_age_secs: 300,
             channel_size: 10,
             from_version: None,
@@ -315,6 +400,35 @@ mod tests {
             msg.contains("moduel_name") || msg.contains("unknown field"),
             "expected unknown-field error, got: {msg}"
         );
+    }
+
+    fn webhook_sink(url: &str) -> SinkConfig {
+        SinkConfig::Webhook(WebhookSinkConfig {
+            url: url.to_string(),
+            headers: HashMap::new(),
+            timeout_ms: default_webhook_timeout_ms(),
+            max_retries: default_webhook_max_retries(),
+            buffer_size: default_webhook_buffer_size(),
+            max_concurrency: default_webhook_max_concurrency(),
+            signing_secret: None,
+        })
+    }
+
+    #[test]
+    fn validate_rejects_http_webhook_url() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.sinks
+            .insert("ops".to_string(), webhook_sink("http://hooks.example/x"));
+        let err = cfg.validate().expect_err("http:// should be rejected");
+        assert!(err.to_string().contains("https://"));
+    }
+
+    #[test]
+    fn validate_accepts_https_webhook_url() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.sinks
+            .insert("ops".to_string(), webhook_sink("https://hooks.example/x"));
+        cfg.validate().expect("https:// should validate");
     }
 
     #[test]

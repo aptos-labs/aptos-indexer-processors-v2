@@ -76,11 +76,33 @@ server_config:
         sinks: [prometheus]
 
     # ---- Sinks --------------------------------------------------------------
-    # The built-in `prometheus` sink is always registered. Every rule
-    # increments `event_match_total{rule, event_type, instance}` and (if
-    # `emit_field_values:` is set) `event_field_value_total{rule, field,
-    # instance}` — Grafana does the windowed aggregation. Richer sink
-    # kinds (webhooks, etc.) ship in a follow-up PR.
+    # The built-in `prometheus` sink is always registered. To configure a
+    # webhook sink (e.g. for direct incident.io alert-source URLs),
+    # uncomment below and reference it from a rule's `sinks:` list.
+    # Webhook URLs MUST use https:// — startup validation rejects http://
+    # to prevent alert payloads from leaking onto the wire.
+    #
+    # Each webhook sink has its own bounded mpsc channel and a background
+    # task that fans deliveries out across up to `max_concurrency` parallel
+    # HTTP requests. Buffer overflow (e.g. a sustained outage of the
+    # downstream URL) is counted in event_sink_dropped_total; transient
+    # delivery failures retry with exponential backoff and end up in
+    # event_sink_delivery_errors_total if exhausted.
+    #
+    # If `signing_secret` is set, every POST body is hex-HMAC-SHA256'd into
+    # the `X-Signature` header so receivers can authenticate the source.
+    #
+    # sinks:
+    #   ops_webhook:
+    #     type: webhook
+    #     url: "https://hooks.example.com/your-endpoint"
+    #     headers:
+    #       Authorization: "Bearer REPLACE_ME"
+    #     timeout_ms: 5000
+    #     max_retries: 3
+    #     buffer_size: 1024
+    #     max_concurrency: 8
+    #     # signing_secret: "REPLACE_ME"
 
     # ---- Channel size between pipeline stages -------------------------------
     # Default: 10. Raise if you see backpressure logs from the extractor or
