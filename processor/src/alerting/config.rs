@@ -80,10 +80,8 @@ impl AlertingProcessorConfig {
     pub fn validate(&self) -> Result<()> {
         for rule in &self.rules {
             for cond in &rule.conditions {
-                let needs_numeric = matches!(
-                    cond.op,
-                    CondOp::Gt | CondOp::Gte | CondOp::Lt | CondOp::Lte
-                );
+                let needs_numeric =
+                    matches!(cond.op, CondOp::Gt | CondOp::Gte | CondOp::Lt | CondOp::Lte);
                 if needs_numeric && !is_u128_parseable(&cond.value) {
                     bail!(
                         "rule '{}': condition on path '{}' uses numeric op {:?} \

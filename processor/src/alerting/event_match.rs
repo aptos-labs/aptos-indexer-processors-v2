@@ -47,11 +47,7 @@ pub fn condition_matches(condition: &EventCondition, payload: &Value) -> Conditi
 
 /// Numeric op evaluation: both sides must parse as `u128` or this is a
 /// `ComparisonNonNumeric` (config-vs-payload mismatch surfaced as metric).
-fn numeric_compare(
-    lhs: &Value,
-    rhs: &Value,
-    op: impl FnOnce(u128, u128) -> bool,
-) -> ConditionEval {
+fn numeric_compare(lhs: &Value, rhs: &Value, op: impl FnOnce(u128, u128) -> bool) -> ConditionEval {
     let (Some(l), Some(r)) = (to_u128(lhs), to_u128(rhs)) else {
         return ConditionEval::ComparisonNonNumeric;
     };
@@ -189,7 +185,10 @@ mod tests {
             ConditionEval::Fail
         );
         assert_eq!(
-            condition_matches(&cond("withdraw_amount", CondOp::Gte, json!("100000000")), &p),
+            condition_matches(
+                &cond("withdraw_amount", CondOp::Gte, json!("100000000")),
+                &p
+            ),
             ConditionEval::Pass
         );
     }
@@ -254,7 +253,9 @@ mod tests {
     fn is_u128_parseable_accepts_string_and_number_forms() {
         assert!(is_u128_parseable(&json!("100")));
         assert!(is_u128_parseable(&json!(100)));
-        assert!(is_u128_parseable(&json!("340282366920938463463374607431768211455"))); // u128::MAX
+        assert!(is_u128_parseable(&json!(
+            "340282366920938463463374607431768211455"
+        ))); // u128::MAX
         assert!(!is_u128_parseable(&json!("not_a_number")));
         assert!(!is_u128_parseable(&json!(-1)));
         assert!(!is_u128_parseable(&json!(null)));

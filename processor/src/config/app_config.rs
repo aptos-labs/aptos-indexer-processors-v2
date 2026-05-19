@@ -183,6 +183,9 @@ mod tests {
                 "request_name_header": "test",
             },
         }));
-        assert!(result.is_err(), "expected parse failure for missing chain_id");
+        assert!(
+            result.is_err(),
+            "expected parse failure for missing chain_id"
+        );
     }
 }

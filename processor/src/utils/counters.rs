@@ -170,10 +170,7 @@ pub fn log_match_counter_summary(instance_label: &str) {
             if instance == instance_label && count > 0.0 {
                 info!(
                     instance,
-                    rule,
-                    event_type,
-                    count,
-                    "Final match-counter value at shutdown"
+                    rule, event_type, count, "Final match-counter value at shutdown"
                 );
             }
         }
@@ -188,7 +185,10 @@ mod tests {
     fn log_match_counter_summary_does_not_panic_when_no_metrics() {
         // Smoke test: the function must tolerate a label that has never
         // been emitted (i.e. zero series under the filter) without panicking.
-        let unique = format!("test_no_data_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap());
+        let unique = format!(
+            "test_no_data_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
         log_match_counter_summary(&unique);
     }
 
@@ -196,7 +196,10 @@ mod tests {
     fn log_match_counter_summary_walks_recorded_series() {
         // Bump a series under a distinct instance label so this test
         // doesn't race against other tests' counter values.
-        let unique = format!("test_walk_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap());
+        let unique = format!(
+            "test_walk_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
         EVENT_MATCH_TOTAL
             .with_label_values(&["test_rule", "test::type", &unique])
             .inc();

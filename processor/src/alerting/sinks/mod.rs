@@ -20,9 +20,7 @@ pub trait AlertSinkHandle: Send + Sync {
 /// Build all configured sink handles. The `prometheus` sink is always
 /// registered. This v1 only supports the prometheus sink; richer sink
 /// kinds (webhook, Slack, …) ship in a follow-up PR.
-pub fn build_sinks(
-    instance_label: &str,
-) -> Result<HashMap<String, Arc<dyn AlertSinkHandle>>> {
+pub fn build_sinks(instance_label: &str) -> Result<HashMap<String, Arc<dyn AlertSinkHandle>>> {
     let mut handles: HashMap<String, Arc<dyn AlertSinkHandle>> = HashMap::new();
     handles.insert(
         PROMETHEUS_SINK_NAME.to_string(),

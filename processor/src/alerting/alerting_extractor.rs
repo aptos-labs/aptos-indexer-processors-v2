@@ -224,10 +224,9 @@ mod tests {
         let rules = rules
             .into_iter()
             .map(|mut r| {
-                r.module_address =
-                    aptos_indexer_processor_sdk::utils::convert::standardize_address(
-                        &r.module_address,
-                    );
+                r.module_address = aptos_indexer_processor_sdk::utils::convert::standardize_address(
+                    &r.module_address,
+                );
                 r
             })
             .collect();
@@ -267,7 +266,10 @@ mod tests {
                 op: CondOp::Gt,
                 value: serde_json::json!("99999999"),
             }],
-            vec!["withdraw_amount".to_string(), "asset_from_paired".to_string()],
+            vec![
+                "withdraw_amount".to_string(),
+                "asset_from_paired".to_string(),
+            ],
         )]);
 
         let evt = event(serde_json::json!({
@@ -284,13 +286,10 @@ mod tests {
         assert_eq!(m.rule_name, "large_withdrawals");
         assert_eq!(m.version, 42);
         assert_eq!(m.timestamp_secs, 1_700_000_000);
-        assert_eq!(
-            m.field_values,
-            vec![
-                ("withdraw_amount".to_string(), 100_000_000),
-                ("asset_from_paired".to_string(), 100_000_000),
-            ]
-        );
+        assert_eq!(m.field_values, vec![
+            ("withdraw_amount".to_string(), 100_000_000),
+            ("asset_from_paired".to_string(), 100_000_000),
+        ]);
     }
 
     #[test]

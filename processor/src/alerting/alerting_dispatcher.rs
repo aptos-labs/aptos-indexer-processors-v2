@@ -2,9 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::{alerting_extractor::MatchedEvent, sinks::AlertSinkHandle};
-use crate::utils::counters::{
-    EVENT_STALE_DROPPED_TOTAL, EVENT_PIPELINE_LAG_SECONDS,
-};
+use crate::utils::counters::{EVENT_PIPELINE_LAG_SECONDS, EVENT_STALE_DROPPED_TOTAL};
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
@@ -156,12 +154,18 @@ mod tests {
         }
     }
 
-    fn dispatcher_with(sink_name: &str, max_alert_age_secs: u64) -> (AlertDispatcherStep, Arc<CaptureSink>) {
+    fn dispatcher_with(
+        sink_name: &str,
+        max_alert_age_secs: u64,
+    ) -> (AlertDispatcherStep, Arc<CaptureSink>) {
         let sink = Arc::new(CaptureSink {
             delivered: Mutex::new(vec![]),
         });
         let mut sinks: HashMap<String, Arc<dyn AlertSinkHandle>> = HashMap::new();
-        sinks.insert(sink_name.to_string(), sink.clone() as Arc<dyn AlertSinkHandle>);
+        sinks.insert(
+            sink_name.to_string(),
+            sink.clone() as Arc<dyn AlertSinkHandle>,
+        );
         (
             AlertDispatcherStep::new(sinks, max_alert_age_secs, "test".to_string()),
             sink,
@@ -176,7 +180,9 @@ mod tests {
     fn fresh_events_are_delivered_to_named_sink() {
         let (dispatcher, sink) = dispatcher_with("test_sink", 300);
         dispatcher.dispatch(&matched("r1", vec!["test_sink"], 0), now());
-        assert_eq!(sink.delivered.lock().unwrap().as_slice(), &["r1".to_string()]);
+        assert_eq!(sink.delivered.lock().unwrap().as_slice(), &[
+            "r1".to_string()
+        ]);
     }
 
     #[test]
@@ -195,17 +201,15 @@ mod tests {
 
     #[test]
     fn lag_gauge_reflects_now_minus_block_timestamp() {
-        use aptos_indexer_processor_sdk::aptos_protos::util::timestamp::Timestamp;
-        use aptos_indexer_processor_sdk::types::transaction_context::TransactionMetadata;
+        use aptos_indexer_processor_sdk::{
+            aptos_protos::util::timestamp::Timestamp,
+            types::transaction_context::TransactionMetadata,
+        };
 
         // Distinct instance so this test doesn't race against the other tests'
         // gauge values.
         let label = format!("lag_test_{}", Utc::now().timestamp_nanos_opt().unwrap());
-        let dispatcher = AlertDispatcherStep::new(
-            HashMap::new(),
-            0,
-            label.clone(),
-        );
+        let dispatcher = AlertDispatcherStep::new(HashMap::new(), 0, label.clone());
 
         let lag_secs = 42i64;
         let block_ts_secs = Utc::now().timestamp() - lag_secs;
@@ -238,7 +242,10 @@ mod tests {
     fn lag_gauge_skips_when_timestamp_missing() {
         use aptos_indexer_processor_sdk::types::transaction_context::TransactionMetadata;
 
-        let label = format!("lag_test_skip_{}", Utc::now().timestamp_nanos_opt().unwrap());
+        let label = format!(
+            "lag_test_skip_{}",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        );
         let dispatcher = AlertDispatcherStep::new(HashMap::new(), 0, label.clone());
 
         let batch = TransactionContext::<Vec<MatchedEvent>> {

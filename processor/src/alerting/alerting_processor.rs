@@ -2,18 +2,13 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::{
-    alerting_dispatcher::AlertDispatcherStep,
-    alerting_extractor::AlertingExtractorStep,
-    app_config::AlertingAppConfig,
-    filter_compiler::compile_transaction_filter,
-    sinks::build_sinks,
+    alerting_dispatcher::AlertDispatcherStep, alerting_extractor::AlertingExtractorStep,
+    app_config::AlertingAppConfig, filter_compiler::compile_transaction_filter, sinks::build_sinks,
 };
 use crate::utils::counters::log_match_counter_summary;
 use anyhow::{Result, bail};
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::{
-        TransactionStreamConfig, transaction_stream::get_chain_id,
-    },
+    aptos_indexer_transaction_stream::{TransactionStreamConfig, transaction_stream::get_chain_id},
     builder::ProcessorBuilder,
     common_steps::TransactionStreamStep,
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
@@ -105,7 +100,8 @@ impl ProcessorTrait for AlertingProcessor {
         })
         .await?;
 
-        let extractor = AlertingExtractorStep::new(canonical_rules, alerting.instance_label.clone());
+        let extractor =
+            AlertingExtractorStep::new(canonical_rules, alerting.instance_label.clone());
 
         let sink_handles = build_sinks(&alerting.instance_label)?;
         let dispatcher = AlertDispatcherStep::new(
