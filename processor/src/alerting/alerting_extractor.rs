@@ -18,46 +18,28 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
-use tracing::trace;
 
-/// A single rule firing on a single on-chain event. One transaction can
-/// produce many `MatchedEvent`s if multiple rules match or multiple events
-/// match different rules.
-///
-/// Payload is `Arc<Value>` so when N rules match the same event we share
-/// the parsed JSON instead of deep-cloning it N times.
+/// A single rule firing on a single on-chain event. Payload is `Arc<Value>`
+/// so N rules matching the same event share one parsed JSON.
 #[derive(Clone, Debug)]
 pub struct MatchedEvent {
     pub rule_name: String,
     pub event_type: String,
     pub version: u64,
-    /// Block timestamp in unix seconds. Used by the dispatcher's stale-event
-    /// guard and emitted in webhook payloads.
     pub timestamp_secs: i64,
-    /// Decoded event payload. `Null` if `event.data` was empty or unparseable.
     pub payload: Arc<Value>,
-    /// Pre-extracted numeric payload values declared in
-    /// `AlertRule::emit_field_values`. Pairs of `(field_path, value)`.
     pub field_values: Vec<(String, u128)>,
-    /// Names of sinks to deliver this match to (copy of the firing rule's
-    /// `sinks` list, so the dispatcher does not need to look up the rule).
     pub sinks: Vec<String>,
 }
 
-/// Walks transactions, tests each event against every rule, and produces
-/// `MatchedEvent`s with per-rule attribution. Server-side filtering already
-/// narrows the gRPC stream to candidate transactions — this step still does
-/// the finer match because one transaction can carry events of multiple
-/// types and we need to know *which* rule fired.
 pub struct AlertingExtractorStep {
     rules: Vec<AlertRule>,
     instance_label: String,
 }
 
 impl AlertingExtractorStep {
-    /// Assumes `rules` are already canonicalized (module addresses
-    /// standardized). The caller does this once so the server-side filter
-    /// compiler and this client-side matcher see the same addresses.
+    /// Assumes `rules` are already canonicalized — same form the server-side
+    /// filter compiler sees, or the two will disagree about which events match.
     pub fn new(rules: Vec<AlertRule>, instance_label: String) -> Self {
         Self {
             rules,
@@ -67,10 +49,6 @@ impl AlertingExtractorStep {
 
     fn evaluate(&self, event: &Event, version: u64, timestamp_secs: i64) -> Vec<MatchedEvent> {
         let mut matches = Vec::new();
-
-        // Parse payload at most once per event, only if at least one rule's
-        // type filter matches. Stored as `Arc<Value>` so subsequent matches
-        // for the same event share the parsed JSON.
         let mut parsed_payload: Option<Arc<Value>> = None;
 
         for rule in &self.rules {
@@ -78,8 +56,6 @@ impl AlertingExtractorStep {
                 continue;
             }
 
-            // Empty data is valid (some events carry no payload). Treat it as
-            // `Null` so conditions evaluate against a missing path.
             let payload = parsed_payload.get_or_insert_with(|| {
                 let value = if event.data.is_empty() {
                     Value::Null
@@ -89,10 +65,8 @@ impl AlertingExtractorStep {
                 Arc::new(value)
             });
 
-            // Pass = match; Fail = clean miss; ComparisonNonNumeric = event
-            // payload didn't fit the rule's numeric assumption (the worst
-            // case operationally — a rule that "never fires" by mistake),
-            // so surface it on a dedicated counter and skip the rule.
+            // ComparisonNonNumeric on a counter so a rule that silently never
+            // fires is visible — the worst alerting failure mode.
             let mut all_pass = true;
             for c in &rule.conditions {
                 match condition_matches(c, payload.as_ref()) {
@@ -154,19 +128,11 @@ impl Processable for AlertingExtractorStep {
         let mut out: Vec<MatchedEvent> = Vec::new();
 
         for txn in &batch.data {
-            // Server-side filter requests `success=true`; re-check defensively.
-            let is_success = txn.info.as_ref().is_some_and(|info| info.success);
-            if !is_success {
-                continue;
-            }
-
             let Some(timestamp) = txn.timestamp else {
                 continue;
             };
-            let timestamp_secs = timestamp.seconds;
-
             for event in events_of(txn) {
-                out.extend(self.evaluate(event, txn.version, timestamp_secs));
+                out.extend(self.evaluate(event, txn.version, timestamp.seconds));
             }
         }
 
@@ -177,30 +143,13 @@ impl Processable for AlertingExtractorStep {
     }
 }
 
-/// Return the events emitted by a transaction, regardless of which
-/// `TxnData` variant carries them. Genesis/User/BlockMetadata/Validator
-/// txns all expose `events`; other variants (state checkpoints etc.)
-/// have none.
-///
-/// A `tracing::trace!` fires on unhandled `Some(_)` variants so a future
-/// protobuf revision that introduces a new event-bearing variant doesn't
-/// silently degrade the matcher — operators running with
-/// `RUST_LOG=processor::alerting=trace` will see it immediately.
 fn events_of(txn: &Transaction) -> &[Event] {
     match txn.txn_data.as_ref() {
         Some(TxnData::User(inner)) => &inner.events,
         Some(TxnData::BlockMetadata(inner)) => &inner.events,
         Some(TxnData::Genesis(inner)) => &inner.events,
         Some(TxnData::Validator(inner)) => &inner.events,
-        Some(other) => {
-            trace!(
-                txn_data_variant = ?std::mem::discriminant(other),
-                version = txn.version,
-                "Unhandled TxnData variant; alerting matcher sees no events from this txn"
-            );
-            &[]
-        },
-        None => &[],
+        _ => &[],
     }
 }
 
@@ -219,8 +168,6 @@ mod tests {
     use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::Event;
 
     fn test_step(rules: Vec<AlertRule>) -> AlertingExtractorStep {
-        // Mirror what AlertingProcessor::run_processor does in production:
-        // canonicalize module addresses before handing rules to the step.
         let rules = rules
             .into_iter()
             .map(|mut r| {

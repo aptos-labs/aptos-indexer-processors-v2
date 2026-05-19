@@ -7,12 +7,9 @@ use super::{alerting_extractor::MatchedEvent, config::PROMETHEUS_SINK_NAME};
 use anyhow::Result;
 use std::{collections::HashMap, sync::Arc};
 
-/// A non-blocking, fire-and-forget delivery handle for one configured sink.
-///
-/// Implementations MUST NOT block the calling task. Future network-bound
-/// sinks (webhooks, etc.) will push onto a bounded channel consumed by a
-/// background task. The sink's name is the key in the `HashMap` returned
-/// by [`build_sinks`]; no per-handle `name()` accessor is needed.
+/// Non-blocking, fire-and-forget delivery handle for one configured sink.
+/// Network-bound sinks push onto a bounded channel and increment
+/// `event_sink_dropped_total` on overflow.
 pub trait AlertSinkHandle: Send + Sync {
     fn try_deliver(&self, event: &MatchedEvent);
 }

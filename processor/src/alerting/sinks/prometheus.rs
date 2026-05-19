@@ -26,9 +26,8 @@ impl AlertSinkHandle for PrometheusSink {
             .inc();
 
         for (field, value) in &event.field_values {
-            // IntCounter::inc_by takes u64. Saturate u128 → u64 and record
-            // each saturation so a plateaued counter is distinguishable from
-            // genuinely flat activity.
+            // IntCounter::inc_by takes u64; saturate and count saturations
+            // so a plateaued counter is visible.
             let to_add = match u64::try_from(*value) {
                 Ok(v) => v,
                 Err(_) => {

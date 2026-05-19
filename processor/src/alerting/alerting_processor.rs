@@ -16,12 +16,8 @@ use aptos_indexer_processor_sdk::{
 };
 use tracing::{debug, info};
 
-/// Live-first alerting application. Reads the transaction stream and
-/// fans matches out to configured sinks (Prometheus, webhooks). Owns no
-/// durable storage of its own: there is no checkpoint table and no
-/// `VersionTrackerStep` — extended downtime is handled by an
-/// operator-driven replay deploy, not by checkpoint resume (see
-/// `AlertingProcessorConfig::{from_version,to_version,instance_label}`).
+/// Live-first alerting application. No checkpoint table; extended downtime
+/// is handled by an operator-driven replay deploy.
 pub struct AlertingProcessor {
     config: AlertingAppConfig,
 }
@@ -45,9 +41,6 @@ impl ProcessorTrait for AlertingProcessor {
     async fn run_processor(&self) -> Result<()> {
         let alerting = &self.config.alerting_config;
 
-        // Verify the gRPC stream is on the chain this config is bound to.
-        // Catches misconfigured creds / endpoints before any alert metric
-        // gets a single tick under the wrong instance label.
         let actual_chain_id = get_chain_id(self.config.transaction_stream_config.clone()).await?;
         if actual_chain_id != alerting.chain_id {
             bail!(
@@ -57,30 +50,19 @@ impl ProcessorTrait for AlertingProcessor {
             );
         }
 
-        // Live mode: from_version=None -> server-side default (current
-        // tip on the Aptos data service, same path get_chain_id uses).
-        // The pipeline-lag gauge will reveal it immediately if the
-        // server lands far behind tip.
         let starting_version = alerting.from_version;
         let ending_version = alerting.to_version;
 
-        match starting_version {
-            None => info!(
-                instance = alerting.instance_label.as_str(),
-                "Alerting processor starting at chain tip (no from_version set)"
-            ),
-            Some(from) => info!(
-                instance = alerting.instance_label.as_str(),
-                from_version = from,
-                to_version = ending_version,
-                "Alerting processor starting in replay mode"
-            ),
-        }
+        info!(
+            instance = alerting.instance_label.as_str(),
+            from_version = ?starting_version,
+            to_version = ?ending_version,
+            "Alerting processor starting"
+        );
 
-        // Canonicalize module addresses once. Both the server-side filter
-        // compiler and the client-side extractor must see the same form,
-        // or the gRPC stream and the matcher will disagree about which
-        // events are interesting.
+        // Both the server-side filter compiler and the client-side extractor
+        // must see the same address form, or they disagree about which events
+        // match.
         let canonical_rules: Vec<_> = alerting
             .rules
             .iter()

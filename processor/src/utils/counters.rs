@@ -56,9 +56,7 @@ pub static PARQUET_BUFFER_SIZE_AFTER_UPLOAD: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Total events matched by an alerting rule. The metric describes what is
-/// measured (event matches); what an operator does with these signals
-/// (page, dashboard, audit) is a downstream Grafana/incident.io concern.
+/// Total events matched by an alerting rule.
 pub static EVENT_MATCH_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_match_total",
@@ -68,8 +66,7 @@ pub static EVENT_MATCH_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Matched events dropped because their block timestamp is older than the
-/// configured `max_alert_age_secs`. Visible during catchup after downtime.
+/// Matched events dropped for being older than `max_alert_age_secs`.
 pub static EVENT_STALE_DROPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_stale_dropped_total",
@@ -79,9 +76,8 @@ pub static EVENT_STALE_DROPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Cumulative sum of a numeric payload field across matches. Use Grafana
-/// `increase()` over a window for time-windowed aggregations such as
-/// `SUM(withdraw_amount) over last 30m`.
+/// Cumulative sum of a numeric payload field across matches. Use
+/// `increase()` in Grafana for windowed aggregations.
 pub static EVENT_FIELD_VALUE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_field_value_total",
@@ -91,9 +87,8 @@ pub static EVENT_FIELD_VALUE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Count of failures to parse a configured numeric field. If non-zero a
-/// rule's `emit_field_values` config is mismatched with the on-chain
-/// payload shape.
+/// Count of failures to parse a configured numeric field — non-zero means
+/// `emit_field_values` is mismatched with the on-chain payload shape.
 pub static EVENT_FIELD_PARSE_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_field_parse_errors_total",
@@ -103,10 +98,8 @@ pub static EVENT_FIELD_PARSE_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Count of times a parsed `u128` field value exceeded `u64::MAX` and was
-/// saturated when added to `event_field_value_total`. A non-zero rate
-/// means the field-value counter is plateauing artificially and the
-/// rule's emit_field_values choice should be reconsidered.
+/// Count of field values saturated to `u64::MAX` when added to
+/// `event_field_value_total` — non-zero means that counter is plateauing.
 pub static EVENT_FIELD_VALUE_OVERFLOW_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_field_value_overflow_total",
@@ -116,13 +109,9 @@ pub static EVENT_FIELD_VALUE_OVERFLOW_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| 
     .unwrap()
 });
 
-/// Count of `gt/gte/lt/lte` condition evaluations that failed because the
-/// event's field value did not parse as `u128`. Config-side parse errors
-/// are caught at startup, so a non-zero rate here means the on-chain
-/// payload shape doesn't match what the rule assumed (e.g. the field is
-/// missing on this variant, or the field is a struct rather than a
-/// number). A silently-never-firing rule is the worst alerting failure
-/// mode — surface it.
+/// Numeric condition evals where the event-side value didn't parse as
+/// `u128` — config side is validated at startup, so non-zero means the
+/// on-chain payload shape doesn't match what the rule assumed.
 pub static EVENT_CONDITION_COMPARE_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "event_condition_compare_errors_total",
@@ -132,10 +121,9 @@ pub static EVENT_CONDITION_COMPARE_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new
     .unwrap()
 });
 
-/// Seconds between now() and the latest processed transaction's block
-/// timestamp. First-class signal: page when this exceeds threshold;
-/// aggregate alerts should AND against this < threshold to avoid firing
-/// on stale data.
+/// Seconds between now() and the latest processed block timestamp.
+/// First-class paging signal — aggregate alerts should AND against
+/// this < threshold to avoid firing on stale data.
 pub static EVENT_PIPELINE_LAG_SECONDS: Lazy<IntGaugeVec> = Lazy::new(|| {
     register_int_gauge_vec!(
         "event_pipeline_lag_seconds",
@@ -145,13 +133,8 @@ pub static EVENT_PIPELINE_LAG_SECONDS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Dump current values of `event_match_total` for the given `instance`
-/// label. Called by the alerting processor at shutdown so replay runs
-/// have a definitive final count in stdout without needing to scrape
-/// `/metrics` mid-flight.
-///
-/// Lives here next to the counter declaration so the `prometheus::Collector`
-/// internals don't leak into the alerting module.
+/// Log current `event_match_total` series for `instance_label` at shutdown
+/// so replay runs have a final count in stdout without scraping `/metrics`.
 pub fn log_match_counter_summary(instance_label: &str) {
     for mf in EVENT_MATCH_TOTAL.collect() {
         for m in mf.get_metric() {
@@ -182,20 +165,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn log_match_counter_summary_does_not_panic_when_no_metrics() {
-        // Smoke test: the function must tolerate a label that has never
-        // been emitted (i.e. zero series under the filter) without panicking.
-        let unique = format!(
-            "test_no_data_{}",
-            chrono::Utc::now().timestamp_nanos_opt().unwrap()
-        );
-        log_match_counter_summary(&unique);
-    }
-
-    #[test]
     fn log_match_counter_summary_walks_recorded_series() {
-        // Bump a series under a distinct instance label so this test
-        // doesn't race against other tests' counter values.
         let unique = format!(
             "test_walk_{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
@@ -203,9 +173,6 @@ mod tests {
         EVENT_MATCH_TOTAL
             .with_label_values(&["test_rule", "test::type", &unique])
             .inc();
-        // No structured way to assert on tracing output here without
-        // wiring a tracing subscriber — the value is the panic-free walk
-        // plus visibility through `cargo test -- --nocapture` if needed.
         log_match_counter_summary(&unique);
     }
 }

@@ -8,13 +8,10 @@ use crate::{
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-// NOTE: `AlertRule` does NOT use `#[serde(flatten)]` to embed
-// `SingleEventFilter`. serde silently disables `deny_unknown_fields` when a
-// struct also has a flattened child, which would let a typo like
-// `moduel_name` deserialize to `None` — silently broadening the rule's
-// scope to every module at the address. For an alerting system that's a
-// recipe for alert storms or missed pages. We inline the fields here and
-// expose a `to_event_filter()` helper for the matcher.
+// AlertRule inlines the SingleEventFilter fields rather than using
+// #[serde(flatten)] — a flattened child silently disables
+// deny_unknown_fields, so a typo like `moduel_name` would deserialize to
+// None and broaden the rule's scope to every module at the address.
 
 const fn default_channel_size() -> usize {
     10
@@ -36,47 +33,34 @@ pub const PROMETHEUS_SINK_NAME: &str = "prometheus";
 pub struct AlertingProcessorConfig {
     pub rules: Vec<AlertRule>,
 
-    /// Drop matched events whose block timestamp is older than this many
-    /// seconds. Defensive guard: in live mode this should rarely trigger
-    /// because the processor starts at tip and pages near-real-time; in
-    /// replay mode operators typically set this to `0` to disable the
-    /// check.
+    /// Drop matches older than this many seconds. Set to 0 in replay mode
+    /// to disable.
     #[serde(default = "default_max_alert_age_secs")]
     pub max_alert_age_secs: u64,
 
     #[serde(default = "default_channel_size")]
     pub channel_size: usize,
 
-    /// Inclusive start version for the alerting stream. If `None`, the
-    /// processor starts at the chain's current tip (live mode). Set to a
-    /// concrete version for replay runs.
+    /// Inclusive start version. `None` = live mode (start at chain tip).
     #[serde(default)]
     pub from_version: Option<u64>,
 
-    /// Inclusive end version. If `None`, the processor runs forever (live
-    /// mode). Set to a concrete version for replay runs; the processor
-    /// terminates when the stream reaches this version.
+    /// Inclusive end version. `None` = run forever.
     #[serde(default)]
     pub to_version: Option<u64>,
 
-    /// Label attached to every alerting metric emitted by this deployment.
-    /// Defaults to `"live"`. Replay deployments should set this to a
-    /// distinct value (e.g. `"replay-2026-05-18"`) so PromQL can
-    /// distinguish replay activity from real-time signal.
+    /// Label on every alerting metric. Replay deployments should use a
+    /// distinct value so PromQL can separate replay from live signal.
     #[serde(default = "default_instance_label")]
     pub instance_label: String,
 
-    /// Chain ID this config is bound to. Bails at startup if the gRPC
-    /// stream reports a different value.
+    /// Chain ID this config is bound to. Bails at startup on mismatch.
     pub chain_id: u64,
 }
 
 impl AlertingProcessorConfig {
-    /// Reject configs that would silently never fire. Today this means:
-    /// `gt/gte/lt/lte` ops whose `value:` can't parse as `u128` — a typo
-    /// like `value: "abc"` or `value: -1` against a Move integer field.
-    /// Caught here so the operator sees the problem at startup instead
-    /// of staring at a flat metric line later.
+    /// Reject configs that would silently never fire — e.g. a numeric op
+    /// against a `value:` that can't parse as `u128`.
     pub fn validate(&self) -> Result<()> {
         for rule in &self.rules {
             for cond in &rule.conditions {
@@ -99,53 +83,34 @@ impl AlertingProcessorConfig {
     }
 }
 
-/// A single alerting rule. Matches on-chain events by Move struct tag,
-/// optionally narrows further with payload conditions, and fans out to
-/// one or more named sinks.
+/// A single alerting rule. Matches events by Move struct tag, optionally
+/// narrows further with payload conditions, and fans out to named sinks.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AlertRule {
-    /// Human-readable identifier used in metric labels and webhook payloads.
     pub name: String,
-
-    /// The account address that published the module, e.g. `"0x1"`.
     pub module_address: String,
-
-    /// If set, only match events from this module within the address.
     #[serde(default)]
     pub module_name: Option<String>,
-
-    /// If set, only match this specific event struct name.
     #[serde(default)]
     pub event_name: Option<String>,
 
-    /// Optional conditions on the event's JSON payload. All conditions must
-    /// pass (AND) for the rule to fire. Empty = match every event of the
-    /// configured type.
+    /// Conditions on the event's JSON payload (AND). Empty = match every
+    /// event of the configured type.
     #[serde(default)]
     pub conditions: Vec<EventCondition>,
 
-    /// Numeric payload fields (dot-paths) to expose to Prometheus as
-    /// value-accumulator counters. Each match increments
-    /// `event_field_value_total{rule, field}` by the parsed `u128` value
-    /// of the field. Use this to enable Grafana alerts like
-    /// `sum(increase(...{field="withdraw_amount"}[30m])) > T`. Fields that
-    /// fail to parse as `u128` are recorded in
-    /// `event_field_parse_errors_total{rule, field}` and skipped.
+    /// Numeric payload fields (dot-paths) summed into
+    /// `event_field_value_total{rule, field}`. Parse failures land in
+    /// `event_field_parse_errors_total`.
     #[serde(default)]
     pub emit_field_values: Vec<String>,
 
-    /// Names of sinks to deliver matches to. Defaults to `["prometheus"]`.
-    /// v1 only ships the prometheus sink; richer sink kinds arrive in a
-    /// follow-up.
     #[serde(default = "default_sinks")]
     pub sinks: Vec<String>,
 }
 
 impl AlertRule {
-    /// View the rule's address/module/event triple as a
-    /// `SingleEventFilter` so the existing `event_matches_filter` helper
-    /// can be reused without owning a flattened field.
     pub fn to_event_filter(&self) -> SingleEventFilter {
         SingleEventFilter {
             module_address: self.module_address.clone(),
@@ -155,19 +120,14 @@ impl AlertRule {
     }
 }
 
-/// A predicate over a field inside the event's decoded JSON payload.
-///
-/// Path is dot-notation against the payload root: `"withdraw_amount"`,
-/// `"asset_type.inner"`, `"__variant__"`.
+/// Predicate over a dot-path field in the event's JSON payload. For
+/// `gt/gte/lt/lte` both sides are parsed as `u128` (Move integers arrive
+/// as strings).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EventCondition {
     pub path: String,
     pub op: CondOp,
-    /// JSON literal for the comparison value. Strings are matched textually;
-    /// for `gt/gte/lt/lte` the field and value are both parsed as `u128`
-    /// (Move integers arrive as strings) so `"withdraw_amount" gt "100000000"`
-    /// works as expected.
     pub value: serde_json::Value,
 }
 
@@ -262,12 +222,7 @@ mod tests {
 
     #[test]
     fn alert_rule_rejects_unknown_top_level_fields() {
-        // Regression: previously `event_filter: SingleEventFilter` was
-        // flattened into AlertRule, which silently disables
-        // `deny_unknown_fields`. A typo like `moduel_name` would then
-        // deserialize to None and the rule would silently match every
-        // module at the address — alert-storm fuel. Now that the filter
-        // fields are inlined directly, serde catches the typo.
+        // Regression guard for the flatten-vs-deny_unknown_fields footgun.
         let err = serde_json::from_value::<AlertRule>(json!({
             "name": "rule",
             "module_address": "0x1",
@@ -284,8 +239,6 @@ mod tests {
 
     #[test]
     fn alert_rule_accepts_well_formed_flat_yaml() {
-        // The shape operators write is still flat: rule.name +
-        // module_address/module_name/event_name siblings.
         let r: AlertRule = serde_json::from_value(json!({
             "name": "rule",
             "module_address": "0x1",

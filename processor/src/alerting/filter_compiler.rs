@@ -8,17 +8,12 @@ use aptos_indexer_processor_sdk::aptos_transaction_filter::{
     TransactionRootFilterBuilder,
 };
 
-/// Compile alert rules into a single server-side gRPC filter so the
-/// transaction stream only emits matching transactions.
+/// Compile alert rules into a server-side gRPC filter:
+/// `success AND (rule_1 OR rule_2 OR ...)`. Payload-field conditions are
+/// evaluated client-side by the extractor.
 ///
-/// The shape is `success AND (rule_1_event_match OR rule_2_event_match OR ...)`.
-/// Payload-field conditions and `emit_field_values` are not expressible at the
-/// gRPC layer and are evaluated client-side by [`super::alerting_extractor`].
-///
-/// **Assumes `rules` is already canonicalized** (module addresses
-/// standardized at `AlertingProcessor::run_processor` before either the
-/// filter compiler or the extractor sees them). Re-normalizing here
-/// would risk drift between the server filter and the client matcher.
+/// Assumes `rules` is already canonicalized — re-normalizing here would
+/// risk drift between server filter and client matcher.
 pub fn compile_transaction_filter(rules: &[AlertRule]) -> Result<BooleanTransactionFilter> {
     if rules.is_empty() {
         return Err(anyhow!(

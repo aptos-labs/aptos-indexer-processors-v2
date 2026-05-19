@@ -10,12 +10,8 @@ use aptos_indexer_processor_sdk::{
 use serde::{Deserialize, Serialize};
 
 /// Top-level YAML shape for the alerting application. Peer to
-/// `IndexerProcessorConfig`: the alerting application reads the
-/// transaction stream and emits signals (Prometheus counters, webhooks)
-/// instead of writing data to storage. Consequently it has no
-/// `processor_mode`, no `db_config`, and no `progress_health_config` —
-/// it owns no schema, writes no checkpoint, and is exempt from
-/// progress-based health checking.
+/// `IndexerProcessorConfig`; emits signals instead of writing storage,
+/// so it has no `db_config` / `processor_mode` / `progress_health_config`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AlertingAppConfig {
