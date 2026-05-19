@@ -50,7 +50,7 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    fn matched(field_values: Vec<(String, u128)>, instance: &str) -> MatchedEvent {
+    fn matched(field_values: Vec<(String, u128)>) -> MatchedEvent {
         MatchedEvent {
             rule_name: "test_rule".to_string(),
             event_type: "test::type".to_string(),
@@ -74,7 +74,7 @@ mod tests {
         let field = "amount".to_string();
 
         // Prime the counter to a known non-zero value.
-        sink.try_deliver(&matched(vec![(field.clone(), 100u128)], &instance));
+        sink.try_deliver(&matched(vec![(field.clone(), 100u128)]));
         let before = EVENT_FIELD_VALUE_TOTAL
             .with_label_values(&["test_rule", "amount", &instance])
             .get();
@@ -83,7 +83,7 @@ mod tests {
         // Deliver a value above u64::MAX. The value counter must NOT change;
         // the overflow counter must increment by 1.
         let huge = u128::from(u64::MAX) + 1;
-        sink.try_deliver(&matched(vec![(field.clone(), huge)], &instance));
+        sink.try_deliver(&matched(vec![(field.clone(), huge)]));
 
         let after = EVENT_FIELD_VALUE_TOTAL
             .with_label_values(&["test_rule", "amount", &instance])
@@ -107,7 +107,7 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         );
         let sink = PrometheusSink::new(instance.clone());
-        sink.try_deliver(&matched(vec![("amount".to_string(), 42u128)], &instance));
+        sink.try_deliver(&matched(vec![("amount".to_string(), 42u128)]));
         let value = EVENT_FIELD_VALUE_TOTAL
             .with_label_values(&["test_rule", "amount", &instance])
             .get();
