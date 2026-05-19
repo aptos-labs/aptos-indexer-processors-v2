@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 // AlertRule inlines the SingleEventFilter fields rather than using
 // #[serde(flatten)] — a flattened child silently disables
@@ -59,8 +60,8 @@ pub struct AlertingProcessorConfig {
 }
 
 impl AlertingProcessorConfig {
-    /// Reject configs that would silently never fire — e.g. a numeric op
-    /// against a `value:` that can't parse as `u128`.
+    /// Catch configs that look fine but silently never fire: numeric ops
+    /// against non-`u128` values, and rules referencing unknown sink names.
     pub fn validate(&self) -> Result<()> {
         for rule in &self.rules {
             for cond in &rule.conditions {
@@ -79,7 +80,30 @@ impl AlertingProcessorConfig {
                 }
             }
         }
+
+        let known = self.known_sink_names();
+        for rule in &self.rules {
+            for sink_name in &rule.sinks {
+                if !known.contains(sink_name.as_str()) {
+                    let mut names: Vec<&str> = known.iter().copied().collect();
+                    names.sort_unstable();
+                    bail!(
+                        "rule '{}': references unknown sink '{}' (known sinks: {:?})",
+                        rule.name,
+                        sink_name,
+                        names,
+                    );
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    fn known_sink_names(&self) -> HashSet<&str> {
+        let mut names = HashSet::new();
+        names.insert(PROMETHEUS_SINK_NAME);
+        names
     }
 }
 
@@ -218,6 +242,25 @@ mod tests {
         cfg_with(vec![cond(CondOp::Ne, json!({"nested": "object"}))])
             .validate()
             .expect("Ne on a structured value should validate");
+    }
+
+    #[test]
+    fn validate_rejects_rule_referencing_unknown_sink() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.rules[0].sinks = vec!["prometehus".to_string()];
+        let err = cfg.validate().expect_err("typoed sink must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("prometehus") && msg.contains("unknown sink"),
+            "expected unknown-sink error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_prometheus_sink_reference() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.rules[0].sinks = vec![PROMETHEUS_SINK_NAME.to_string()];
+        cfg.validate().expect("prometheus is always a known sink");
     }
 
     #[test]
