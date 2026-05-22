@@ -23,11 +23,17 @@ pub struct AlertingProcessor {
 }
 
 impl AlertingProcessor {
-    pub async fn new(config: AlertingAppConfig) -> Result<Self> {
+    pub async fn new(mut config: AlertingAppConfig) -> Result<Self> {
         if config.alerting_config.rules.is_empty() {
             bail!("alerting processor requires at least one rule — `rules` is empty");
         }
         config.alerting_config.validate()?;
+        // Canonicalize module addresses so the server-side filter compiler
+        // and client-side extractor see the same form and exact-match doesn't
+        // drift between them.
+        for rule in &mut config.alerting_config.rules {
+            rule.module_address = standardize_address(&rule.module_address);
+        }
         Ok(Self { config })
     }
 }
@@ -60,20 +66,7 @@ impl ProcessorTrait for AlertingProcessor {
             "Alerting processor starting"
         );
 
-        // Both the server-side filter compiler and the client-side extractor
-        // must see the same address form, or they disagree about which events
-        // match.
-        let canonical_rules: Vec<_> = alerting
-            .rules
-            .iter()
-            .map(|r| {
-                let mut r = r.clone();
-                r.module_address = standardize_address(&r.module_address);
-                r
-            })
-            .collect();
-
-        let transaction_filter = Some(compile_transaction_filter(&canonical_rules)?);
+        let transaction_filter = Some(compile_transaction_filter(&alerting.rules)?);
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
             starting_version,
             request_ending_version: ending_version,
@@ -83,7 +76,7 @@ impl ProcessorTrait for AlertingProcessor {
         .await?;
 
         let extractor =
-            AlertingExtractorStep::new(canonical_rules, alerting.instance_label.clone());
+            AlertingExtractorStep::new(alerting.rules.clone(), alerting.instance_label.clone());
 
         let sink_handles = build_sinks(&alerting.instance_label)?;
         let dispatcher = AlertDispatcherStep::new(

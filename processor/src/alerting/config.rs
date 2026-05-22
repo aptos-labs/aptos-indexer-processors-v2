@@ -9,6 +9,9 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+pub const PROMETHEUS_SINK_NAME: &str = "prometheus";
+const KNOWN_SINK_NAMES: &[&str] = &[PROMETHEUS_SINK_NAME];
+
 // AlertRule inlines the SingleEventFilter fields rather than using
 // #[serde(flatten)] — a flattened child silently disables
 // deny_unknown_fields, so a typo like `moduel_name` would deserialize to
@@ -25,8 +28,6 @@ const fn default_max_alert_age_secs() -> u64 {
 fn default_instance_label() -> String {
     "live".to_string()
 }
-
-pub const PROMETHEUS_SINK_NAME: &str = "prometheus";
 
 /// Top-level config for the alerting processor.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -61,9 +62,15 @@ pub struct AlertingProcessorConfig {
 
 impl AlertingProcessorConfig {
     /// Catch configs that look fine but silently never fire: numeric ops
-    /// against non-`u128` values, and rules referencing unknown sink names.
+    /// against non-`u128` values, rules referencing unknown sink names, and
+    /// duplicate rule names (which would collide on metric labels).
     pub fn validate(&self) -> Result<()> {
+        let mut seen_names = HashSet::with_capacity(self.rules.len());
         for rule in &self.rules {
+            if !seen_names.insert(rule.name.as_str()) {
+                bail!("duplicate rule name '{}'", rule.name);
+            }
+
             for cond in &rule.conditions {
                 let needs_numeric =
                     matches!(cond.op, CondOp::Gt | CondOp::Gte | CondOp::Lt | CondOp::Lte);
@@ -79,31 +86,20 @@ impl AlertingProcessorConfig {
                     );
                 }
             }
-        }
 
-        let known = self.known_sink_names();
-        for rule in &self.rules {
             for sink_name in &rule.sinks {
-                if !known.contains(sink_name.as_str()) {
-                    let mut names: Vec<&str> = known.iter().copied().collect();
-                    names.sort_unstable();
+                if !KNOWN_SINK_NAMES.contains(&sink_name.as_str()) {
                     bail!(
                         "rule '{}': references unknown sink '{}' (known sinks: {:?})",
                         rule.name,
                         sink_name,
-                        names,
+                        KNOWN_SINK_NAMES,
                     );
                 }
             }
         }
 
         Ok(())
-    }
-
-    fn known_sink_names(&self) -> HashSet<&str> {
-        let mut names = HashSet::new();
-        names.insert(PROMETHEUS_SINK_NAME);
-        names
     }
 }
 
@@ -261,6 +257,16 @@ mod tests {
         let mut cfg = cfg_with(vec![]);
         cfg.rules[0].sinks = vec![PROMETHEUS_SINK_NAME.to_string()];
         cfg.validate().expect("prometheus is always a known sink");
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_rule_names() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.rules.push(cfg.rules[0].clone());
+        let err = cfg
+            .validate()
+            .expect_err("duplicate rule names must be rejected");
+        assert!(err.to_string().contains("duplicate rule name"));
     }
 
     #[test]

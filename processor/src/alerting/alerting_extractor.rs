@@ -88,17 +88,19 @@ impl AlertingExtractorStep {
                 continue;
             }
 
-            let mut field_values = Vec::with_capacity(rule.emit_field_values.len());
-            for field in &rule.emit_field_values {
-                match read_u128_field(payload.as_ref(), field) {
-                    Some(v) => field_values.push((field.clone(), v)),
+            let field_values: Vec<(String, u128)> = rule
+                .emit_field_values
+                .iter()
+                .filter_map(|field| match read_u128_field(payload.as_ref(), field) {
+                    Some(v) => Some((field.clone(), v)),
                     None => {
                         EVENT_FIELD_PARSE_ERRORS_TOTAL
                             .with_label_values(&[&rule.name, field, &self.instance_label])
                             .inc();
+                        None
                     },
-                }
-            }
+                })
+                .collect();
 
             matches.push(MatchedEvent {
                 rule_name: rule.name.clone(),
