@@ -62,9 +62,16 @@ pub struct AlertingProcessorConfig {
 
 impl AlertingProcessorConfig {
     /// Catch configs that look fine but silently never fire: numeric ops
-    /// against non-`u128` values, rules referencing unknown sink names, and
-    /// duplicate rule names (which would collide on metric labels).
+    /// against non-`u128` values, rules referencing unknown sink names,
+    /// duplicate rule names (which would collide on metric labels), and
+    /// inverted replay windows.
     pub fn validate(&self) -> Result<()> {
+        if let (Some(from), Some(to)) = (self.from_version, self.to_version)
+            && from > to
+        {
+            bail!("from_version ({from}) must be <= to_version ({to})");
+        }
+
         let mut seen_names = HashSet::with_capacity(self.rules.len());
         for rule in &self.rules {
             if !seen_names.insert(rule.name.as_str()) {
@@ -267,6 +274,29 @@ mod tests {
             .validate()
             .expect_err("duplicate rule names must be rejected");
         assert!(err.to_string().contains("duplicate rule name"));
+    }
+
+    #[test]
+    fn validate_rejects_inverted_replay_window() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.from_version = Some(200);
+        cfg.to_version = Some(100);
+        let err = cfg
+            .validate()
+            .expect_err("from_version > to_version must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("from_version") && msg.contains("to_version"),
+            "expected version-window error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_equal_from_and_to_version() {
+        let mut cfg = cfg_with(vec![]);
+        cfg.from_version = Some(100);
+        cfg.to_version = Some(100);
+        cfg.validate().expect("single-version replay should validate");
     }
 
     #[test]
