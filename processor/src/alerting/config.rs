@@ -120,7 +120,7 @@ impl AlertingProcessorConfig {
                 let is_known = KNOWN_SINK_NAMES.contains(&sink_name.as_str())
                     || self.sinks.contains_key(sink_name);
                 if !is_known {
-                    let mut all_known: Vec<&str> = KNOWN_SINK_NAMES.iter().copied().collect();
+                    let mut all_known: Vec<&str> = KNOWN_SINK_NAMES.to_vec();
                     all_known.extend(self.sinks.keys().map(String::as_str));
                     all_known.sort_unstable();
                     bail!(
