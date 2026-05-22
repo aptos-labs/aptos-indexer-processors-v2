@@ -10,7 +10,7 @@ use aptos_indexer_processor_sdk::{
     },
 };
 use clap::Parser;
-use processor::config::{app_config::AppConfig, db_config::DbConfig};
+use processor::config::app_config::AppConfig;
 use std::sync::Arc;
 
 #[cfg(unix)]
@@ -40,10 +40,10 @@ fn main() -> Result<()> {
 
             let mut health_checks: Vec<Arc<dyn HealthCheck>> = vec![];
             if let Some(progress_config) = config.server_config.progress_health_config() {
-                // Skip DB-based health checking for apps that don't write a processor_status row.
-                if let Some(db_config) = config.server_config.progress_health_db_config()
-                    && !matches!(db_config, DbConfig::NoneConfig)
-                {
+                // progress_health_db_config() already returns None for apps
+                // that don't write a processor_status row (alerting,
+                // NoneConfig), so a Some here is always a real DB config.
+                if let Some(db_config) = config.server_config.progress_health_db_config() {
                     let connection_string = db_config.connection_string();
                     let health_db_pool = new_db_pool(connection_string, Some(2))
                         .await
