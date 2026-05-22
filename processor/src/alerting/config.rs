@@ -296,7 +296,8 @@ mod tests {
         let mut cfg = cfg_with(vec![]);
         cfg.from_version = Some(100);
         cfg.to_version = Some(100);
-        cfg.validate().expect("single-version replay should validate");
+        cfg.validate()
+            .expect("single-version replay should validate");
     }
 
     #[test]
