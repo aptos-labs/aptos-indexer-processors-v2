@@ -53,6 +53,7 @@ pub trait FileStore: Send + Sync {
 #[enum_dispatch(FileStore)]
 pub enum EventFileStorage {
     Gcs(GcsFileStore),
+    Local(LocalFileStore),
 }
 
 // ---------------------------------------------------------------------------

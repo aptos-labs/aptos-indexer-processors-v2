@@ -2,6 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::{
+    event_file_config::EventFileStorageConfig,
     event_file_processor::recover_state,
     event_file_writer::EventFileWriterStep,
     metadata::{
@@ -18,6 +19,28 @@ use super::{
 use aptos_indexer_processor_sdk::traits::Processable;
 use prost::Message;
 use std::{path::PathBuf, sync::Arc};
+
+#[test]
+fn test_local_storage_config_deserializes_without_gcs_fields() {
+    let config: super::event_file_config::EventFileProcessorConfig =
+        serde_json::from_value(serde_json::json!({
+            "event_filter_config": {
+                "filters": [{ "module_address": "0x1" }]
+            },
+            "storage_config": {
+                "type": "local",
+                "directory": "/tmp/event-files"
+            }
+        }))
+        .unwrap();
+
+    match config.storage_config.unwrap() {
+        EventFileStorageConfig::Local { directory } => {
+            assert_eq!(directory, PathBuf::from("/tmp/event-files"));
+        },
+        other => panic!("expected local storage config, got {other:?}"),
+    }
+}
 
 /// Verify that root metadata is NOT written when nothing has been flushed.
 /// `latest_committed_version` in root metadata only reflects flushed data.

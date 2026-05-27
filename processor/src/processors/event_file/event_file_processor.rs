@@ -2,11 +2,11 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::{
-    event_file_config::EventFileProcessorConfig,
+    event_file_config::{EventFileProcessorConfig, EventFileStorageConfig},
     event_file_extractor::EventFileExtractorStep,
     event_file_writer::EventFileWriterStep,
     metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata},
-    storage::{EventFileStorage, FileStore, GcsFileStore},
+    storage::{EventFileStorage, FileStore, GcsFileStore, LocalFileStore},
 };
 use crate::config::{
     indexer_processor_config::IndexerProcessorConfig, processor_config::ProcessorConfig,
@@ -86,7 +86,7 @@ pub async fn recover_state(
                     "Immutable config mismatch between running config and stored metadata.\n\
                      Stored:  {stored}\n\
                      Current: {current}\n\
-                     If you intentionally changed these fields you must use a fresh GCS prefix.",
+                     If you intentionally changed these fields you must use a fresh storage prefix or directory.",
                     stored = serde_json::to_string_pretty(&root.config)?,
                     current = serde_json::to_string_pretty(&expected)?,
                 );
@@ -254,7 +254,43 @@ impl EventFileProcessor {
         }
     }
 
-    /// Recover from GCS metadata to determine the starting version, current
+    fn resolved_storage_config(&self) -> Result<EventFileStorageConfig> {
+        if let Some(storage_config) = &self.event_file_config.storage_config {
+            return Ok(storage_config.clone());
+        }
+
+        if self.event_file_config.bucket_name.is_empty() {
+            bail!(
+                "event file processor requires either storage_config or bucket_name for legacy GCS storage"
+            );
+        }
+
+        Ok(EventFileStorageConfig::Gcs {
+            bucket_name: self.event_file_config.bucket_name.clone(),
+            bucket_root: self.event_file_config.bucket_root.clone(),
+            google_application_credentials: self
+                .event_file_config
+                .google_application_credentials
+                .clone(),
+        })
+    }
+
+    async fn build_store(&self) -> Result<EventFileStorage> {
+        match self.resolved_storage_config()? {
+            EventFileStorageConfig::Gcs {
+                bucket_name,
+                bucket_root,
+                google_application_credentials,
+            } => Ok(EventFileStorage::Gcs(
+                GcsFileStore::new(bucket_name, bucket_root, google_application_credentials).await?,
+            )),
+            EventFileStorageConfig::Local { directory } => {
+                Ok(EventFileStorage::Local(LocalFileStore::new(directory)))
+            },
+        }
+    }
+
+    /// Recover from storage metadata to determine the starting version, current
     /// folder state, and chain_id. If no metadata exists yet this is a fresh
     /// start and we return defaults without writing anything — the root metadata
     /// is only written once we know the chain_id (from the gRPC stream).
@@ -275,16 +311,7 @@ impl ProcessorTrait for EventFileProcessor {
     }
 
     async fn run_processor(&self) -> Result<()> {
-        let store = Arc::new(EventFileStorage::from(
-            GcsFileStore::new(
-                self.event_file_config.bucket_name.clone(),
-                self.event_file_config.bucket_root.clone(),
-                self.event_file_config
-                    .google_application_credentials
-                    .clone(),
-            )
-            .await?,
-        ));
+        let store = Arc::new(self.build_store().await?);
 
         let recovered_state = self.recover_or_initialize(&store).await?;
 
@@ -300,7 +327,7 @@ impl ProcessorTrait for EventFileProcessor {
             bail!(
                 "Chain ID mismatch: stored metadata has chain_id={stored_chain_id} but \
                  the transaction stream reports chain_id={stream_chain_id}. \
-                 If you intentionally switched chains you must use a fresh GCS prefix."
+                 If you intentionally switched chains you must use a fresh storage prefix or directory."
             );
         }
 

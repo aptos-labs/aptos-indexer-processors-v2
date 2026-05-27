@@ -2,6 +2,7 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 const fn default_max_file_size_bytes() -> usize {
     50 * 1024 * 1024 // 50 MiB
@@ -26,7 +27,11 @@ pub struct EventFileProcessorConfig {
     pub event_filter_config: EventFileFilterConfig,
 
     // Storage
+    #[serde(default)]
+    pub storage_config: Option<EventFileStorageConfig>,
+    #[serde(default)]
     pub bucket_name: String,
+    #[serde(default)]
     pub bucket_root: String,
     #[serde(default)]
     pub google_application_credentials: Option<String>,
@@ -47,6 +52,20 @@ pub struct EventFileProcessorConfig {
 
     #[serde(default = "default_channel_size")]
     pub channel_size: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EventFileStorageConfig {
+    Gcs {
+        bucket_name: String,
+        bucket_root: String,
+        #[serde(default)]
+        google_application_credentials: Option<String>,
+    },
+    Local {
+        directory: PathBuf,
+    },
 }
 
 impl EventFileProcessorConfig {

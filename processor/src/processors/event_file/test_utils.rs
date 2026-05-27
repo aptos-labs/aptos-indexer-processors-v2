@@ -29,6 +29,7 @@ pub fn test_config() -> EventFileProcessorConfig {
                 event_name: None,
             }],
         },
+        storage_config: None,
         bucket_name: "test".to_string(),
         bucket_root: "test".to_string(),
         google_application_credentials: None,
