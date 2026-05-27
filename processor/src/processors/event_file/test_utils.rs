@@ -111,7 +111,7 @@ pub async fn do_recovery(
 
 /// Process events with batch range derived from the events themselves.
 /// Suitable for most tests that don't care about the scanned range.
-pub async fn process_batch<S: FileStore>(
+pub async fn process_batch<S: FileStore + 'static>(
     writer: &mut EventFileWriterStep<S>,
     events: Vec<EventWithContext>,
 ) -> anyhow::Result<()> {
@@ -123,7 +123,7 @@ pub async fn process_batch<S: FileStore>(
 /// Process events with an explicit scanned range (`start_version..=end_version`,
 /// both inclusive). Use when the test needs the batch to represent a wider scan
 /// than just the matching events (e.g. to test `processed_version` semantics).
-pub async fn process_batch_with_range<S: FileStore>(
+pub async fn process_batch_with_range<S: FileStore + 'static>(
     writer: &mut EventFileWriterStep<S>,
     events: Vec<EventWithContext>,
     start_version: u64,
