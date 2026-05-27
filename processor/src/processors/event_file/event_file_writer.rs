@@ -18,7 +18,7 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use tokio::time::Instant;
 use tracing::info;
 
@@ -48,8 +48,8 @@ impl std::fmt::Display for FlushReason {
 // let it be cached indefinitely because it will never change.
 const METADATA_CACHE_CONTROL: &str = "no-store";
 
-pub struct EventFileWriterStep {
-    store: Arc<dyn FileStore>,
+pub struct EventFileWriterStep<S> {
+    store: S,
     config: EventFileProcessorConfig,
     file_extension: &'static str,
     chain_id: u64,
@@ -95,9 +95,12 @@ pub struct EventFileWriterStep {
     last_root_metadata_update: Instant,
 }
 
-impl EventFileWriterStep {
+impl<S> EventFileWriterStep<S>
+where
+    S: FileStore,
+{
     pub fn new(
-        store: Arc<dyn FileStore>,
+        store: S,
         config: EventFileProcessorConfig,
         chain_id: u64,
         initial_starting_version: u64,
@@ -333,7 +336,10 @@ impl EventFileWriterStep {
 }
 
 #[async_trait]
-impl Processable for EventFileWriterStep {
+impl<S> Processable for EventFileWriterStep<S>
+where
+    S: FileStore + 'static,
+{
     type Input = Vec<EventWithContext>;
     type Output = ();
     type RunType = AsyncRunType;
@@ -423,9 +429,12 @@ impl Processable for EventFileWriterStep {
     }
 }
 
-impl AsyncStep for EventFileWriterStep {}
+impl<S> AsyncStep for EventFileWriterStep<S> where S: FileStore + 'static {}
 
-impl NamedStep for EventFileWriterStep {
+impl<S> NamedStep for EventFileWriterStep<S>
+where
+    S: FileStore,
+{
     fn name(&self) -> String {
         "EventFileWriterStep".to_string()
     }

@@ -4,6 +4,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
+use enum_dispatch::enum_dispatch;
 use google_cloud_storage::{
     client::{Client as GCSClient, ClientConfig as GcsClientConfig},
     http::{
@@ -28,8 +29,9 @@ const GOOGLE_APPLICATION_CREDENTIALS: &str = "GOOGLE_APPLICATION_CREDENTIALS";
 const MAX_RETRIES: usize = 3;
 const INITIAL_RETRY_DELAY: Duration = Duration::from_millis(500);
 
-/// Abstraction over GCS / local filesystem for writing and reading files.
+/// Abstraction over storage backends for writing and reading event files.
 #[async_trait]
+#[enum_dispatch]
 pub trait FileStore: Send + Sync {
     /// Write `data` to `path`, optionally setting Cache-Control metadata on the
     /// object. When `cache_control` is `None` the store's default applies (for
@@ -46,10 +48,18 @@ pub trait FileStore: Send + Sync {
     fn max_update_frequency(&self) -> Duration;
 }
 
+/// Storage backends available to the event file processor.
+#[derive(Clone)]
+#[enum_dispatch(FileStore)]
+pub enum EventFileStorage {
+    Gcs(GcsFileStore),
+}
+
 // ---------------------------------------------------------------------------
 // GCS implementation
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct GcsFileStore {
     client: Arc<GCSClient>,
     bucket_name: String,
@@ -176,10 +186,34 @@ impl FileStore for GcsFileStore {
     }
 }
 
+#[async_trait]
+impl<T> FileStore for Arc<T>
+where
+    T: FileStore + ?Sized,
+{
+    async fn save_file(
+        &self,
+        path: PathBuf,
+        data: Vec<u8>,
+        cache_control: Option<&str>,
+    ) -> Result<()> {
+        (**self).save_file(path, data, cache_control).await
+    }
+
+    async fn get_file(&self, path: PathBuf) -> Result<Option<Vec<u8>>> {
+        (**self).get_file(path).await
+    }
+
+    fn max_update_frequency(&self) -> Duration {
+        (**self).max_update_frequency()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Local filesystem implementation (for testing / development)
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct LocalFileStore {
     root: PathBuf,
 }

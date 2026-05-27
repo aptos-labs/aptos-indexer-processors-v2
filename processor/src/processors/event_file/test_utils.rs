@@ -19,7 +19,6 @@ use aptos_indexer_processor_sdk::{
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
 };
-use std::sync::Arc;
 
 pub fn test_config() -> EventFileProcessorConfig {
     EventFileProcessorConfig {
@@ -104,7 +103,7 @@ pub fn make_batch(
 }
 
 pub async fn do_recovery(
-    store: &Arc<dyn FileStore>,
+    store: &impl FileStore,
     config: &EventFileProcessorConfig,
 ) -> RecoveredState {
     recover_state(store, config, 0).await.unwrap()
@@ -112,8 +111,8 @@ pub async fn do_recovery(
 
 /// Process events with batch range derived from the events themselves.
 /// Suitable for most tests that don't care about the scanned range.
-pub async fn process_batch(
-    writer: &mut EventFileWriterStep,
+pub async fn process_batch<S: FileStore>(
+    writer: &mut EventFileWriterStep<S>,
     events: Vec<EventWithContext>,
 ) -> anyhow::Result<()> {
     let start = events.first().map_or(0, |e| e.version);
@@ -124,8 +123,8 @@ pub async fn process_batch(
 /// Process events with an explicit scanned range (`start_version..=end_version`,
 /// both inclusive). Use when the test needs the batch to represent a wider scan
 /// than just the matching events (e.g. to test `processed_version` semantics).
-pub async fn process_batch_with_range(
-    writer: &mut EventFileWriterStep,
+pub async fn process_batch_with_range<S: FileStore>(
+    writer: &mut EventFileWriterStep<S>,
     events: Vec<EventWithContext>,
     start_version: u64,
     end_version: u64,
@@ -139,12 +138,12 @@ pub async fn process_batch_with_range(
 }
 
 /// Helper to create a fresh writer for tests.
-pub fn new_writer(
-    store: Arc<dyn FileStore>,
+pub fn new_writer<S: FileStore>(
+    store: S,
     config: EventFileProcessorConfig,
     folder_state: InternalFolderState,
     flushed_version: Option<u64>,
-) -> EventFileWriterStep {
+) -> EventFileWriterStep<S> {
     EventFileWriterStep::new(
         store,
         config,

@@ -24,7 +24,7 @@ use std::{path::PathBuf, sync::Arc};
 #[tokio::test]
 async fn test_recovery_after_buffered_events_not_flushed() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
     let mut writer = new_writer(
@@ -89,7 +89,7 @@ async fn test_recovery_after_buffered_events_not_flushed() {
 #[tokio::test]
 async fn test_recovery_after_flush_then_more_buffered() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -141,7 +141,7 @@ async fn test_recovery_after_flush_then_more_buffered() {
 #[tokio::test]
 async fn test_folder_txn_count_consistent_across_recovery() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 1000;
     config.max_seconds_between_flushes = 0;
@@ -187,7 +187,7 @@ async fn test_folder_txn_count_consistent_across_recovery() {
 #[tokio::test]
 async fn test_recovery_advances_past_completed_folder() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -264,7 +264,7 @@ async fn test_recovery_advances_past_completed_folder() {
 #[tokio::test]
 async fn test_completed_folder_crash_new_events_go_to_next_folder() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -376,7 +376,7 @@ async fn test_completed_folder_crash_new_events_go_to_next_folder() {
 #[tokio::test]
 async fn test_recovery_prefers_folder_metadata_over_stale_root() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
     // Simulate a crash between writing folder metadata and root metadata.
@@ -460,7 +460,7 @@ async fn test_recovery_prefers_folder_metadata_over_stale_root() {
 #[tokio::test]
 async fn test_complete_transactions_multi_event_txn_not_split() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
@@ -529,7 +529,7 @@ async fn test_complete_transactions_multi_event_txn_not_split() {
 #[tokio::test]
 async fn test_config_mismatch_rejected_on_recovery() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
     // Write root metadata with the original config. Note:
@@ -582,7 +582,7 @@ async fn test_config_mismatch_rejected_on_recovery() {
 #[tokio::test]
 async fn test_initial_starting_version_mismatch_rejected_on_recovery() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
     // Root metadata was written with initial_starting_version=0.
@@ -636,7 +636,7 @@ async fn test_initial_starting_version_mismatch_rejected_on_recovery() {
 #[tokio::test]
 async fn test_version_semantics_and_filename_encoding() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -718,7 +718,7 @@ async fn test_version_semantics_and_filename_encoding() {
 #[tokio::test]
 async fn test_data_file_content_matches_after_flush() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
@@ -764,7 +764,7 @@ async fn test_data_file_content_matches_after_flush() {
 #[tokio::test]
 async fn test_file_metadata_size_and_counts_match_actual_file() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -834,7 +834,7 @@ async fn test_file_metadata_size_and_counts_match_actual_file() {
 #[tokio::test]
 async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 2;
 
@@ -907,7 +907,7 @@ async fn test_sealed_folder_metadata_not_modified_by_subsequent_writes() {
 #[tokio::test]
 async fn test_no_double_counting_after_partial_flush_and_recovery() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 10;
     config.max_seconds_between_flushes = 0;
@@ -1001,7 +1001,7 @@ async fn test_no_double_counting_after_partial_flush_and_recovery() {
 #[tokio::test]
 async fn test_size_trigger_flush() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_file_size_bytes = 1;
     // Keep other triggers high so only the size trigger fires.
@@ -1082,7 +1082,7 @@ async fn test_size_trigger_flush() {
 #[tokio::test]
 async fn test_multiple_files_per_folder() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_txns_per_folder = 100;
     config.max_seconds_between_flushes = 5;
@@ -1199,7 +1199,7 @@ async fn test_multiple_files_per_folder() {
 #[tokio::test]
 async fn test_empty_batch_advances_processed_version() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_seconds_between_flushes = 0;
 
@@ -1263,7 +1263,7 @@ async fn test_empty_batch_advances_processed_version() {
 #[tokio::test]
 async fn test_processed_version_reflects_batch_range() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let mut config = test_config();
     config.max_seconds_between_flushes = 0;
 
@@ -1329,7 +1329,7 @@ async fn test_processed_version_reflects_batch_range() {
 #[tokio::test]
 async fn test_recovery_fresh_start_uses_default_starting_version() {
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: Arc<LocalFileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
     let config = test_config();
 
     // Recover with default_starting_version = 42. No metadata exists on disk.
