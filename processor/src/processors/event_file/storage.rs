@@ -4,6 +4,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
+use enum_dispatch::enum_dispatch;
 use google_cloud_storage::{
     client::{Client as GCSClient, ClientConfig as GcsClientConfig},
     http::{
@@ -30,6 +31,7 @@ const INITIAL_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 /// Abstraction over GCS / local filesystem for writing and reading files.
 #[async_trait]
+#[enum_dispatch]
 pub trait FileStore: Send + Sync {
     /// Write `data` to `path`, optionally setting Cache-Control metadata on the
     /// object. When `cache_control` is `None` the store's default applies (for
@@ -46,10 +48,26 @@ pub trait FileStore: Send + Sync {
     fn max_update_frequency(&self) -> Duration;
 }
 
+/// Statically-dispatched `FileStore` over the concrete backends. Used in place
+/// of `Arc<dyn FileStore>` so callers avoid the vtable indirection of dynamic
+/// dispatch while still supporting either backend at runtime.
+///
+/// Cheaply `Clone`: both backends only hold immutable config plus (for GCS) an
+/// `Arc`-shared client, so clones share the underlying client/connection pool
+/// rather than re-authenticating. This lets callers pass an owned, cloneable
+/// value instead of wrapping it in an `Arc`.
+#[derive(Clone)]
+#[enum_dispatch(FileStore)]
+pub enum FileStoreEnum {
+    Gcs(GcsFileStore),
+    Local(LocalFileStore),
+}
+
 // ---------------------------------------------------------------------------
 // GCS implementation
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct GcsFileStore {
     client: Arc<GCSClient>,
     bucket_name: String,
@@ -180,6 +198,7 @@ impl FileStore for GcsFileStore {
 // Local filesystem implementation (for testing / development)
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct LocalFileStore {
     root: PathBuf,
 }

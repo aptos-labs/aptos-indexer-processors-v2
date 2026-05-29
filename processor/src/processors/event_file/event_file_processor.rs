@@ -6,7 +6,7 @@ use super::{
     event_file_extractor::EventFileExtractorStep,
     event_file_writer::EventFileWriterStep,
     metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata},
-    storage::{FileStore, GcsFileStore},
+    storage::{FileStore, FileStoreEnum},
 };
 use crate::config::{
     indexer_processor_config::IndexerProcessorConfig, processor_config::ProcessorConfig,
@@ -24,7 +24,7 @@ use aptos_indexer_processor_sdk::{
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::convert::standardize_address,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use tracing::info;
 
 /// State recovered from on-disk metadata, used to initialize the writer.
@@ -45,7 +45,7 @@ pub struct RecoveredState {
 /// Exposed as a free function so crash-recovery tests can call it directly
 /// without constructing a full `EventFileProcessor`.
 pub async fn recover_state(
-    store: &Arc<dyn FileStore>,
+    store: &FileStoreEnum,
     config: &EventFileProcessorConfig,
     default_starting_version: u64,
 ) -> Result<RecoveredState> {
@@ -258,7 +258,7 @@ impl EventFileProcessor {
     /// folder state, and chain_id. If no metadata exists yet this is a fresh
     /// start and we return defaults without writing anything — the root metadata
     /// is only written once we know the chain_id (from the gRPC stream).
-    async fn recover_or_initialize(&self, store: &Arc<dyn FileStore>) -> Result<RecoveredState> {
+    async fn recover_or_initialize(&self, store: &FileStoreEnum) -> Result<RecoveredState> {
         recover_state(
             store,
             &self.event_file_config,
@@ -275,16 +275,7 @@ impl ProcessorTrait for EventFileProcessor {
     }
 
     async fn run_processor(&self) -> Result<()> {
-        let store: Arc<dyn FileStore> = Arc::new(
-            GcsFileStore::new(
-                self.event_file_config.bucket_name.clone(),
-                self.event_file_config.bucket_root.clone(),
-                self.event_file_config
-                    .google_application_credentials
-                    .clone(),
-            )
-            .await?,
-        );
+        let store = self.event_file_config.storage.build_file_store().await?;
 
         let recovered_state = self.recover_or_initialize(&store).await?;
 
