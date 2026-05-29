@@ -50,7 +50,7 @@ impl AlertDispatcherStep {
                 .inc();
             return;
         }
-        info!(
+        debug!(
             instance = self.instance_label.as_str(),
             rule = event.rule_name.as_str(),
             event_type = event.event_type.as_str(),
@@ -165,9 +165,10 @@ mod tests {
     fn fresh_events_are_delivered_to_named_sink() {
         let (dispatcher, sink) = dispatcher_with("test_sink", 300);
         dispatcher.dispatch(&matched("r1", vec!["test_sink"], 0), now());
-        assert_eq!(sink.delivered.lock().unwrap().as_slice(), &[
-            "r1".to_string()
-        ]);
+        assert_eq!(
+            sink.delivered.lock().unwrap().as_slice(),
+            &["r1".to_string()]
+        );
     }
 
     #[test]
