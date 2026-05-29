@@ -10,7 +10,7 @@ use aptos_indexer_processor_sdk::{
     },
 };
 use clap::Parser;
-use processor::config::{db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig};
+use processor::config::app_config::AppConfig;
 use std::sync::Arc;
 
 #[cfg(unix)]
@@ -35,18 +35,20 @@ fn main() -> Result<()> {
             setup_logging();
             setup_panic_handler();
 
-            let config = load::<GenericConfig<IndexerProcessorConfig>>(&args.config_path)?;
+            let config = load::<GenericConfig<AppConfig>>(&args.config_path)?;
             let handle = tokio::runtime::Handle::current();
 
             let mut health_checks: Vec<Arc<dyn HealthCheck>> = vec![];
-            if let Some(ref progress_config) = config.server_config.progress_health_config {
-                // Skip DB-based health checking for processors that don't use a database.
-                if !matches!(config.server_config.db_config, DbConfig::NoneConfig) {
-                    let connection_string = config.server_config.db_config.connection_string();
+            if let Some(progress_config) = config.server_config.progress_health_config() {
+                // progress_health_db_config() already returns None for apps
+                // that don't write a processor_status row (alerting,
+                // NoneConfig), so a Some here is always a real DB config.
+                if let Some(db_config) = config.server_config.progress_health_db_config() {
+                    let connection_string = db_config.connection_string();
                     let health_db_pool = new_db_pool(connection_string, Some(2))
                         .await
                         .context("Failed to create health check DB pool")?;
-                    let processor_name = config.server_config.processor_config.name().to_string();
+                    let processor_name = config.server_config.processor_name();
                     let status_provider =
                         PostgresProgressStatusProvider::new(processor_name.clone(), health_db_pool);
                     let progress_checker = ProgressHealthChecker::new(

@@ -4,6 +4,12 @@ build
 node_modules/
 lcov.info
 
+# Claude Code local state
+.claude/
+
+# Local processor configs (may contain auth tokens; example-*.yaml are committed)
+processor/local-*.yaml
+
 # Rust specific ignores
 # Please follow https://help.github.com/en/articles/ignoring-files to create a global
 # .gitignore file locally for IDE/Emacs/Vim generated files.

@@ -57,7 +57,7 @@ impl EventFileExtractorStep {
 ///
 /// `event_name` is checked independently of `module_name` — you can filter by
 /// just address + event_name without specifying the module.
-fn event_matches_filter(event: &Event, filter: &SingleEventFilter) -> bool {
+pub fn event_matches_filter(event: &Event, filter: &SingleEventFilter) -> bool {
     let type_str = &event.type_str;
 
     if type_str.is_empty() {

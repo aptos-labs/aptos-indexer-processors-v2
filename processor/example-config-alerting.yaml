@@ -1,0 +1,95 @@
+health_check_port: 8085
+server_config:
+  alerting_config:
+    # ---- Chain binding ------------------------------------------------------
+    # Required. The processor fetches the chain ID from the gRPC stream at
+    # startup and bails on mismatch — guards against pointing testnet creds
+    # at a mainnet config (or vice versa). Mainnet=1, testnet=2.
+    chain_id: 1
+
+    # ---- Identity & metric labeling -----------------------------------------
+    # Every alerting metric is labeled with `instance`. Use distinct values
+    # per deployment so PromQL can distinguish live traffic from replay runs,
+    # canary deploys, etc.
+    # Default: "live" (set when omitted).
+    instance_label: live
+
+    # ---- Run shape: live (default) vs replay --------------------------------
+    # `from_version` / `to_version` are both optional. Unset means LIVE mode:
+    # the processor starts at the chain's current tip and runs forever.
+    #
+    # For a bounded REPLAY run (e.g. "what would have fired during the outage
+    # last Tuesday?"), set both. The processor sweeps that range and exits.
+    # Replay runs typically also set `max_alert_age_secs: 0` (below) and a
+    # `sinks:` map that omits paging sinks, so old matches don't page.
+    #
+    # from_version: 123456789
+    # to_version:   123466789
+
+    # ---- Stale-event guard --------------------------------------------------
+    # Drop matches whose block timestamp is older than this many seconds.
+    # Defensive: in live mode the pipeline runs at tip and this rarely fires;
+    # in replay mode set this to 0 so historical matches aren't silently
+    # dropped.
+    # Default: 300.
+    max_alert_age_secs: 60
+
+    # ---- Rules --------------------------------------------------------------
+    # Each rule fires on events matching its (module_address, module_name,
+    # event_name) tuple, optionally narrowed by `conditions` on the payload.
+    # Replace these with the events you actually care about.
+    rules:
+      # Example 1: existence-based alert. No conditions — every event of
+      # this type that arrives increments event_match_total{rule=...}
+      # so you can page on "any occurrence in the last 30m".
+      - name: example_existence_alert
+        module_address: "0xREPLACE_WITH_MODULE_ADDRESS"
+        module_name: replace_with_module_name
+        event_name: ReplaceWithEventName
+        sinks: [prometheus]
+
+      # Example 2: payload-conditioned alert. The `conditions` array is
+      # AND-combined; all must match. Supported ops: eq, ne, gt, gte, lt,
+      # lte. Move u64/u128 values arrive as strings — the processor
+      # compares them numerically.
+      - name: example_conditioned_alert
+        module_address: "0xREPLACE_WITH_MODULE_ADDRESS"
+        module_name: replace_with_module_name
+        event_name: ReplaceWithEventName
+        conditions:
+          - { path: "some_field",          op: gt, value: "1000000000" }
+          - { path: "nested.path.example", op: eq, value: "expected_value" }
+        sinks: [prometheus]
+
+      # Example 3: SUM-over-window aggregate. `emit_field_values` lists
+      # numeric payload fields the processor should accumulate into
+      # event_field_value_total{field=...}. Use Grafana
+      # `sum(increase(...{field="..."}[30m]))` to do the windowing — no
+      # in-process accumulator. Field paths support dot-notation; values
+      # that fail to parse as u128 are counted in
+      # event_field_parse_errors_total.
+      - name: example_aggregate_alert
+        module_address: "0xREPLACE_WITH_MODULE_ADDRESS"
+        module_name: replace_with_module_name
+        event_name: ReplaceWithEventName
+        emit_field_values: [numeric_field_a, numeric_field_b]
+        sinks: [prometheus]
+
+    # ---- Sinks --------------------------------------------------------------
+    # The built-in `prometheus` sink is always registered. Every rule
+    # increments `event_match_total{rule, event_type, instance}` and (if
+    # `emit_field_values:` is set) `event_field_value_total{rule, field,
+    # instance}` — Grafana does the windowed aggregation. Richer sink
+    # kinds (webhooks, etc.) ship in a follow-up PR.
+
+    # ---- Channel size between pipeline stages -------------------------------
+    # Default: 10. Raise if you see backpressure logs from the extractor or
+    # dispatcher under high event rates.
+    # channel_size: 10
+
+  transaction_stream_config:
+    indexer_grpc_data_service_address: "https://grpc.mainnet.aptoslabs.com:443"
+    auth_token: "REPLACE_WITH_YOUR_TOKEN"
+    # Free-form identifier sent as the `x-aptos-request-name` gRPC header.
+    # Used server-side for rate-limit attribution and request logging.
+    request_name_header: "alerting"
