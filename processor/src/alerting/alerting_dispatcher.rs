@@ -12,7 +12,7 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use chrono::Utc;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 /// Routes matched events to configured sinks. Drops matches older than
 /// `max_alert_age_secs` (set to 0 in replay mode to disable). Each batch
@@ -165,10 +165,9 @@ mod tests {
     fn fresh_events_are_delivered_to_named_sink() {
         let (dispatcher, sink) = dispatcher_with("test_sink", 300);
         dispatcher.dispatch(&matched("r1", vec!["test_sink"], 0), now());
-        assert_eq!(
-            sink.delivered.lock().unwrap().as_slice(),
-            &["r1".to_string()]
-        );
+        assert_eq!(sink.delivered.lock().unwrap().as_slice(), &[
+            "r1".to_string()
+        ]);
     }
 
     #[test]
