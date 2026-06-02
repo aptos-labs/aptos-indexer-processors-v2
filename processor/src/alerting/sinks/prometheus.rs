@@ -8,6 +8,54 @@ use crate::{
         EVENT_FIELD_VALUE_OVERFLOW_TOTAL, EVENT_FIELD_VALUE_TOTAL, EVENT_MATCH_TOTAL,
     },
 };
+use anyhow::Result;
+use hyper::{
+    Body, Method, Request, Response, Server, StatusCode,
+    service::{make_service_fn, service_fn},
+};
+use prometheus::{Encoder, TextEncoder};
+use std::{convert::Infallible, net::SocketAddr};
+use tracing::info;
+
+/// Encode the global `prometheus` (tikv) registry — where the alerting
+/// counters in `counters.rs` register — into the text exposition format.
+/// The SDK's server only serves its own (autometrics/prometheus-client)
+/// registry, so these metrics would otherwise never be scraped.
+fn render_metrics() -> Vec<u8> {
+    let mut buf = Vec::new();
+    // encode() only fails on a broken io::Write; a Vec never errors.
+    let _ = TextEncoder::new().encode(&prometheus::gather(), &mut buf);
+    buf
+}
+
+async fn handle(req: Request<Body>) -> std::result::Result<Response<Body>, Infallible> {
+    if req.method() == Method::GET && req.uri().path() == "/metrics" {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", TextEncoder::new().format_type())
+            .body(Body::from(render_metrics()))
+            .expect("building /metrics response is infallible"))
+    } else {
+        Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .expect("building 404 response is infallible"))
+    }
+}
+
+/// Serve the alerting Prometheus counters on `0.0.0.0:port` at `/metrics`.
+/// Runs until the process exits; intended to be `tokio::spawn`ed alongside
+/// the pipeline.
+pub async fn serve_metrics(port: u16) -> Result<()> {
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
+    info!(
+        port,
+        "Prometheus sink metrics endpoint listening on /metrics"
+    );
+    Server::bind(&addr).serve(make_svc).await?;
+    Ok(())
+}
 
 pub struct PrometheusSink {
     instance_label: String,
@@ -112,5 +160,28 @@ mod tests {
             .with_label_values(&["test_rule", "amount", &instance])
             .get();
         assert_eq!(value, 42);
+    }
+
+    // The whole point of the sink's endpoint: counters registered in the
+    // global `prometheus` registry must show up in the rendered exposition.
+    #[test]
+    fn render_metrics_includes_alerting_counters() {
+        let instance = format!(
+            "render_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
+        EVENT_MATCH_TOTAL
+            .with_label_values(&["render_rule", "render::type", &instance])
+            .inc();
+
+        let body = String::from_utf8(render_metrics()).unwrap();
+        assert!(
+            body.contains("event_match_total"),
+            "rendered metrics missing event_match_total:\n{body}"
+        );
+        assert!(
+            body.contains(&instance),
+            "rendered metrics missing the just-incremented series (instance={instance})"
+        );
     }
 }
