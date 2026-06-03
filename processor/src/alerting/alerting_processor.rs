@@ -2,8 +2,11 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use super::{
-    alerting_dispatcher::AlertDispatcherStep, alerting_extractor::AlertingExtractorStep,
-    app_config::AlertingAppConfig, filter_compiler::compile_transaction_filter, sinks::build_sinks,
+    alerting_dispatcher::AlertDispatcherStep,
+    alerting_extractor::AlertingExtractorStep,
+    app_config::AlertingAppConfig,
+    filter_compiler::compile_transaction_filter,
+    sinks::{build_sinks, prometheus::serve_metrics},
 };
 use crate::utils::counters::log_match_counter_summary;
 use anyhow::{Result, bail};
@@ -14,7 +17,7 @@ use aptos_indexer_processor_sdk::{
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::convert::standardize_address,
 };
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// Live-first alerting application. No checkpoint table; extended downtime
 /// is handled by an operator-driven replay deploy.
@@ -58,6 +61,16 @@ impl ProcessorTrait for AlertingProcessor {
 
         let starting_version = alerting.from_version;
         let ending_version = alerting.to_version;
+
+        // Expose the alerting counters (registered in the global `prometheus`
+        // registry) on their own endpoint — the SDK's /metrics serves a
+        // different registry and won't include them.
+        let metrics_port = alerting.metrics_port;
+        tokio::spawn(async move {
+            if let Err(e) = serve_metrics(metrics_port).await {
+                error!(error = ?e, port = metrics_port, "alerting metrics endpoint exited");
+            }
+        });
 
         info!(
             instance = alerting.instance_label.as_str(),
