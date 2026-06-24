@@ -183,7 +183,13 @@ impl FileStore for GcsFileStore {
             .await
         {
             Ok(data) => Ok(Some(data)),
+            // A 404 means the object is absent -> `Ok(None)`. Media downloads can
+            // surface it as either error variant depending on whether the JSON
+            // error body parsed, so match both.
             Err(GcsError::Response(ref resp)) if resp.code == 404 => Ok(None),
+            Err(GcsError::HttpClient(ref e)) if e.status().map(|s| s.as_u16()) == Some(404) => {
+                Ok(None)
+            },
             Err(e) => Err(e).context(format!("Failed to download {object_name}")),
         }
     }
