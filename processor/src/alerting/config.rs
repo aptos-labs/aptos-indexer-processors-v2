@@ -45,6 +45,10 @@ fn default_instance_label() -> String {
     "live".to_string()
 }
 
+const fn default_metrics_port() -> u16 {
+    9101
+}
+
 /// Top-level config for the alerting processor.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +81,14 @@ pub struct AlertingProcessorConfig {
     /// distinct value so PromQL can separate replay from live signal.
     #[serde(default = "default_instance_label")]
     pub instance_label: String,
+
+    /// Port for the Prometheus scrape endpoint exposing the alerting counters
+    /// (event_match_total, event_pipeline_lag_seconds, ...). These register
+    /// into the `prometheus` crate's global registry, which the SDK's own
+    /// /metrics (health_check_port) does not serve — so the prometheus sink
+    /// hosts its own endpoint here.
+    #[serde(default = "default_metrics_port")]
+    pub metrics_port: u16,
 
     /// Chain ID this config is bound to. Bails at startup on mismatch.
     pub chain_id: u64,
@@ -279,6 +291,7 @@ mod tests {
             from_version: None,
             to_version: None,
             instance_label: "test".to_string(),
+            metrics_port: default_metrics_port(),
             chain_id: 1,
         }
     }

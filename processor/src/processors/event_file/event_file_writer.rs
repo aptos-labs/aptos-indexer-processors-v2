@@ -7,7 +7,7 @@ use super::{
         FileMetadata, InternalFolderState, METADATA_FILE_NAME, RootMetadata, VersionTracking,
     },
     models::{EventFile, EventWithContext},
-    storage::FileStore,
+    storage::{FileStore, FileStoreEnum},
 };
 use anyhow::{Context, Result};
 use aptos_indexer_processor_sdk::{
@@ -18,7 +18,7 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use tokio::time::Instant;
 use tracing::info;
 
@@ -49,7 +49,7 @@ impl std::fmt::Display for FlushReason {
 const METADATA_CACHE_CONTROL: &str = "no-store";
 
 pub struct EventFileWriterStep {
-    store: Arc<dyn FileStore>,
+    store: FileStoreEnum,
     config: EventFileProcessorConfig,
     file_extension: &'static str,
     chain_id: u64,
@@ -97,7 +97,7 @@ pub struct EventFileWriterStep {
 
 impl EventFileWriterStep {
     pub fn new(
-        store: Arc<dyn FileStore>,
+        store: FileStoreEnum,
         config: EventFileProcessorConfig,
         chain_id: u64,
         initial_starting_version: u64,

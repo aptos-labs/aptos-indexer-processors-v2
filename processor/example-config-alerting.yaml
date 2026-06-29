@@ -14,6 +14,16 @@ server_config:
     # Default: "live" (set when omitted).
     instance_label: live
 
+    # ---- Metrics endpoint ---------------------------------------------------
+    # The alerting counters (event_match_total, event_field_value_total,
+    # event_pipeline_lag_seconds, ...) register into the `prometheus` crate's
+    # global registry, which the server-framework's own /metrics
+    # (health_check_port, above) does NOT serve. The prometheus sink therefore
+    # hosts its own scrape endpoint at `/metrics` on this port — point your
+    # scraper here.
+    # Default: 9101 (set when omitted).
+    metrics_port: 9101
+
     # ---- Run shape: live (default) vs replay --------------------------------
     # `from_version` / `to_version` are both optional. Unset means LIVE mode:
     # the processor starts at the chain's current tip and runs forever.

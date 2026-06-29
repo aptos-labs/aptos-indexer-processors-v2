@@ -12,7 +12,7 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use chrono::Utc;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 /// Routes matched events to configured sinks. Drops matches older than
 /// `max_alert_age_secs` (set to 0 in replay mode to disable). Each batch
@@ -50,7 +50,7 @@ impl AlertDispatcherStep {
                 .inc();
             return;
         }
-        info!(
+        debug!(
             instance = self.instance_label.as_str(),
             rule = event.rule_name.as_str(),
             event_type = event.event_type.as_str(),

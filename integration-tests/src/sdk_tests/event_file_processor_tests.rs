@@ -23,10 +23,10 @@ use aptos_indexer_processor_sdk::traits::Processable;
 use failpoints::FailScenario;
 use processor::processors::event_file::{
     metadata::{InternalFolderState, METADATA_FILE_NAME, RootMetadata, VersionTracking},
-    storage::{FileStore, LocalFileStore},
+    storage::{FileStore, FileStoreEnum, LocalFileStore},
     test_utils::{do_recovery, make_events, new_writer, process_batch, test_config},
 };
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 /// Crash after writing the data file but before updating folder or root
 /// metadata. Recovery should restart from the pre-file version (no metadata
@@ -35,7 +35,7 @@ use std::{path::PathBuf, sync::Arc};
 async fn crash_after_file_write_before_metadata() {
     let scenario = FailScenario::setup();
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: FileStoreEnum = LocalFileStore::new(dir.path().to_path_buf()).into();
     let mut config = test_config();
     config.max_seconds_between_flushes = 0;
 
@@ -78,7 +78,7 @@ async fn crash_after_file_write_before_metadata() {
 async fn crash_after_folder_metadata_before_root() {
     let scenario = FailScenario::setup();
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: FileStoreEnum = LocalFileStore::new(dir.path().to_path_buf()).into();
     let mut config = test_config();
     config.max_seconds_between_flushes = 0;
 
@@ -140,7 +140,7 @@ async fn crash_after_folder_metadata_before_root() {
 async fn crash_with_flushed_and_buffered_events() {
     let scenario = FailScenario::setup();
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: FileStoreEnum = LocalFileStore::new(dir.path().to_path_buf()).into();
     let mut config = test_config();
     config.max_txns_per_folder = 3;
 
@@ -193,7 +193,7 @@ async fn crash_with_flushed_and_buffered_events() {
 async fn repeated_crash_recovery_no_drift() {
     let scenario = FailScenario::setup();
     let dir = tempfile::tempdir().unwrap();
-    let store: Arc<dyn FileStore> = Arc::new(LocalFileStore::new(dir.path().to_path_buf()));
+    let store: FileStoreEnum = LocalFileStore::new(dir.path().to_path_buf()).into();
     let mut config = test_config();
     config.max_txns_per_folder = 1000;
     // With max_seconds_between_flushes=0 the time trigger fires on every new
