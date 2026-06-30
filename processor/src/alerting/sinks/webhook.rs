@@ -72,7 +72,8 @@ impl WebhookSink {
     ) -> anyhow::Result<Self> {
         let client = build_client(&cfg)
             .with_context(|| format!("webhook sink '{name}': failed to build HTTP client"))?;
-        let (tx, rx) = mpsc::channel::<WebhookPayload>(cfg.buffer_size);
+        // `mpsc::channel` panics on a 0 capacity; clamp like `max_concurrency`.
+        let (tx, rx) = mpsc::channel::<WebhookPayload>(cfg.buffer_size.max(1));
         tokio::spawn(run_delivery_loop(
             name.clone(),
             cfg,
@@ -170,6 +171,9 @@ fn build_client(cfg: &WebhookSinkConfig) -> anyhow::Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .timeout(Duration::from_millis(cfg.timeout_ms))
         .default_headers(headers)
+        // Don't follow redirects: a 30x to http:// would push alert bodies
+        // (and X-Signature) onto plaintext, defeating the https-only check.
+        .redirect(reqwest::redirect::Policy::none())
         .build()?)
 }
 
@@ -202,7 +206,17 @@ async fn deliver_with_retry(
         match req.send().await {
             Ok(resp) if resp.status().is_success() => return Ok(()),
             Ok(resp) => {
-                last_err = anyhow::anyhow!("webhook returned HTTP {}", resp.status().as_u16());
+                let status = resp.status();
+                // Permanent 4xx (auth, bad URL, ...) never succeed on retry,
+                // so fail fast instead of holding a concurrency permit through
+                // the full backoff and starving other queued alerts.
+                if !is_retriable_status(status) {
+                    return Err(anyhow::anyhow!(
+                        "webhook returned non-retriable HTTP {}",
+                        status.as_u16()
+                    ));
+                }
+                last_err = anyhow::anyhow!("webhook returned HTTP {}", status.as_u16());
             },
             Err(e) => {
                 last_err = anyhow::Error::from(e);
@@ -218,6 +232,14 @@ async fn deliver_with_retry(
         }
     }
     Err(last_err)
+}
+
+/// Transient statuses worth retrying: 408 (Request Timeout), 429 (Too Many
+/// Requests), and any 5xx. Other 4xx are permanent and fail fast.
+fn is_retriable_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
 }
 
 /// Hex-encoded HMAC-SHA256 over `body` using `secret` as the key. Result is
@@ -252,5 +274,26 @@ mod tests {
     fn hmac_changes_when_body_changes() {
         let key = b"secret";
         assert_ne!(hmac_sha256_hex(key, b"a"), hmac_sha256_hex(key, b"b"));
+    }
+
+    #[test]
+    fn only_transient_statuses_are_retriable() {
+        use reqwest::StatusCode;
+        for s in [
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+        ] {
+            assert!(is_retriable_status(s), "{s} should retry");
+        }
+        for s in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+        ] {
+            assert!(!is_retriable_status(s), "{s} should not retry");
+        }
     }
 }

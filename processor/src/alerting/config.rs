@@ -147,10 +147,16 @@ impl AlertingProcessorConfig {
 
         for (name, sink) in &self.sinks {
             let SinkConfig::Webhook(w) = sink;
-            if !w.url.starts_with("https://") {
+            // Parse rather than prefix-match so malformed URLs are caught and
+            // the scheme check is case-insensitive (HTTPS:// is valid).
+            let url = match reqwest::Url::parse(&w.url) {
+                Ok(u) => u,
+                Err(e) => bail!("sink '{name}': invalid webhook url '{}': {e}", w.url),
+            };
+            if url.scheme() != "https" {
                 bail!(
-                    "sink '{name}': webhook url must start with https:// (got '{}')",
-                    w.url,
+                    "sink '{name}': webhook url must use https:// (got scheme '{}')",
+                    url.scheme(),
                 );
             }
         }
