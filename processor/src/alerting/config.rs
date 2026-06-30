@@ -159,6 +159,14 @@ impl AlertingProcessorConfig {
                     url.scheme(),
                 );
             }
+            // Reject a nonsensical 0 up front — a fail-fast config error is
+            // clearer than silently coercing to 1 at runtime.
+            if w.buffer_size == 0 {
+                bail!("sink '{name}': buffer_size must be >= 1");
+            }
+            if w.max_concurrency == 0 {
+                bail!("sink '{name}': max_concurrency must be >= 1");
+            }
         }
 
         Ok(())
@@ -448,6 +456,21 @@ mod tests {
         cfg.sinks
             .insert("ops".to_string(), webhook_sink("https://hooks.example/x"));
         cfg.validate().expect("https:// should validate");
+    }
+
+    #[test]
+    fn validate_rejects_zero_sizing() {
+        for mutate in [
+            (|w: &mut WebhookSinkConfig| w.buffer_size = 0) as fn(&mut WebhookSinkConfig),
+            |w: &mut WebhookSinkConfig| w.max_concurrency = 0,
+        ] {
+            let mut cfg = cfg_with(vec![]);
+            let SinkConfig::Webhook(mut w) = webhook_sink("https://hooks.example/x");
+            mutate(&mut w);
+            cfg.sinks.insert("ops".to_string(), SinkConfig::Webhook(w));
+            let err = cfg.validate().expect_err("0 sizing must be rejected");
+            assert!(err.to_string().contains(">= 1"), "got: {err}");
+        }
     }
 
     #[test]
