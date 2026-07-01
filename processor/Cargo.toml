@@ -46,11 +46,13 @@ google-cloud-googleapis = { workspace = true }
 google-cloud-pubsub = { workspace = true }
 google-cloud-storage = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 lz4_flex = { workspace = true }
+reqwest = { workspace = true }
 
 # Postgres SSL support
 native-tls = { workspace = true }

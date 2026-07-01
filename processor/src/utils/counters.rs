@@ -121,6 +121,28 @@ pub static EVENT_CONDITION_COMPARE_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new
     .unwrap()
 });
 
+/// Matches dropped because a sink's bounded buffer was full. A sustained
+/// non-zero rate indicates the sink can't keep up.
+pub static EVENT_SINK_DROPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "event_sink_dropped_total",
+        "Count of matches dropped due to a full sink buffer",
+        &["rule", "sink", "instance"]
+    )
+    .unwrap()
+});
+
+/// Sink delivery errors (HTTP failures, timeouts, etc.) after retries are
+/// exhausted.
+pub static EVENT_SINK_DELIVERY_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "event_sink_delivery_errors_total",
+        "Count of sink delivery failures after retries",
+        &["rule", "sink", "instance"]
+    )
+    .unwrap()
+});
+
 /// Seconds between now() and the latest processed block timestamp.
 /// First-class paging signal — aggregate alerts should AND against
 /// this < threshold to avoid firing on stale data.
