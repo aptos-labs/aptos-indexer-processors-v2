@@ -92,10 +92,26 @@ impl WebhookSink {
 impl AlertSinkHandle for WebhookSink {
     fn try_deliver(&self, event: &MatchedEvent) {
         let payload = WebhookPayload::from(event);
-        if self.tx.try_send(payload).is_err() {
+        let dropped = || {
             EVENT_SINK_DROPPED_TOTAL
                 .with_label_values(&[&event.rule_name, &self.name, &self.instance_label])
                 .inc();
+        };
+        match self.tx.try_send(payload) {
+            Ok(()) => {},
+            // Backpressure: the bounded buffer is full.
+            Err(mpsc::error::TrySendError::Full(_)) => dropped(),
+            // Receiver gone means the delivery loop died — a bug, not
+            // backpressure. Count the lost alert but log loudly so operators
+            // don't misread the drops as "raise buffer_size".
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                dropped();
+                warn!(
+                    sink = self.name.as_str(),
+                    rule = event.rule_name.as_str(),
+                    "webhook delivery loop is gone; alert dropped"
+                );
+            },
         }
     }
 }
