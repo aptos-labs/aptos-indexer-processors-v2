@@ -91,7 +91,7 @@ impl ProcessorTrait for AlertingProcessor {
         let extractor =
             AlertingExtractorStep::new(alerting.rules.clone(), alerting.instance_label.clone());
 
-        let sink_handles = build_sinks(&alerting.instance_label)?;
+        let sink_handles = build_sinks(&alerting.sinks, &alerting.instance_label)?;
         let dispatcher = AlertDispatcherStep::new(
             sink_handles,
             alerting.max_alert_age_secs,
