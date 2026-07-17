@@ -6,6 +6,7 @@ DROP INDEX IF EXISTS o_object_skh_idx;
 DROP INDEX IF EXISTS o_insat_idx;
 DROP INDEX IF EXISTS faa_insat_idx;
 DROP INDEX IF EXISTS cufab_insat_index;
+DROP INDEX IF EXISTS co_object_skh_idx;
 
 -- Orphaned invalid indexes left by the v1->v2 migration (never valid).
 DROP INDEX IF EXISTS lm1_ccb_ct_a_cfaab_index;
