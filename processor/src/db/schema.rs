@@ -96,12 +96,12 @@ diesel::table! {
         #[max_length = 66]
         transaction_hash -> Varchar,
         event_type -> Text,
-        event_index -> Numeric,
+        event_index -> Int8,
         uid -> Numeric,
         object_name -> Text,
         #[max_length = 66]
         owner -> Nullable<Varchar>,
-        transaction_version -> Numeric,
+        transaction_version -> Int8,
         timestamp -> Timestamp,
         inserted_at -> Timestamp,
     }

@@ -18,7 +18,7 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use diesel::{
-    ExpressionMethods,
+    ExpressionMethods, QueryableByName,
     pg::{Pg, upsert::excluded},
     query_builder::{QueryFragment, QueryId},
     query_dsl::methods::FilterDsl,
@@ -26,6 +26,16 @@ use diesel::{
 };
 use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
+use tracing::warn;
+
+/// Bounds the array size of a single partial-update statement.
+const BLOB_UPDATE_CHUNK_SIZE: usize = 1000;
+
+#[derive(QueryableByName)]
+struct MissingUid {
+    #[diesel(sql_type = Numeric)]
+    uid: BigDecimal,
+}
 
 pub struct ShelbyBlobsStorer
 where
@@ -123,9 +133,22 @@ impl Processable for ShelbyBlobsStorer {
 }
 
 impl ShelbyBlobsStorer {
-    /// One guarded statement: `COALESCE` preserves unset columns, the version
-    /// guard keeps latest-version-wins.
+    /// Partial updates go through raw SQL because `COALESCE(new, existing)` per
+    /// column isn't expressible in diesel's DSL. Values are passed as arrays, so
+    /// the statement uses ten bind parameters regardless of batch size and can't
+    /// hit diesel's u16 limit; we still chunk to bound the size of any one
+    /// statement, mirroring what `execute_in_chunks` does for the insert paths.
     async fn apply_blob_updates(
+        &self,
+        updates: &[BlobUpdate],
+    ) -> Result<(), diesel::result::Error> {
+        for chunk in updates.chunks(BLOB_UPDATE_CHUNK_SIZE) {
+            self.apply_blob_update_chunk(chunk).await?;
+        }
+        Ok(())
+    }
+
+    async fn apply_blob_update_chunk(
         &self,
         updates: &[BlobUpdate],
     ) -> Result<(), diesel::result::Error> {
@@ -171,8 +194,8 @@ impl ShelbyBlobsStorer {
             diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
         })?;
 
-        diesel::sql_query(SQL)
-            .bind::<Array<Numeric>, _>(uids)
+        let updated = diesel::sql_query(SQL)
+            .bind::<Array<Numeric>, _>(uids.clone())
             .bind::<Array<BigInt>, _>(ltvs)
             .bind::<Array<Nullable<Numeric>>, _>(updated_at)
             .bind::<Array<Nullable<Numeric>>, _>(expires_at)
@@ -184,6 +207,30 @@ impl ShelbyBlobsStorer {
             .bind::<Array<Nullable<Numeric>>, _>(is_deleted)
             .execute(&mut conn)
             .await?;
+
+        // A short count is either the version guard rejecting a stale update
+        // (expected) or a blob whose registration fell outside the indexed
+        // range, which silently drops state. Only the latter is worth flagging.
+        if updated < updates.len() {
+            let missing: Vec<MissingUid> = diesel::sql_query(
+                "SELECT u AS uid FROM unnest($1) AS u \
+                 WHERE NOT EXISTS (SELECT 1 FROM blobs b WHERE b.uid = u)",
+            )
+            .bind::<Array<Numeric>, _>(uids)
+            .load(&mut conn)
+            .await?;
+
+            if !missing.is_empty() {
+                let sample: Vec<String> =
+                    missing.iter().take(10).map(|m| m.uid.to_string()).collect();
+                warn!(
+                    missing_count = missing.len(),
+                    sample = ?sample,
+                    "Dropped blob updates for uids with no registered row; the \
+                     BlobRegisteredEvent is likely before this run's starting version"
+                );
+            }
+        }
 
         Ok(())
     }
@@ -223,8 +270,13 @@ where
     by_key.into_values().collect()
 }
 
-/// Merges same-`uid` updates within a batch; later (higher-version) `Some` wins.
-fn merge_blob_updates(updates: Vec<BlobUpdate>) -> Vec<BlobUpdate> {
+/// Merges same-`uid` updates within a batch; the higher-version `Some` wins.
+fn merge_blob_updates(mut updates: Vec<BlobUpdate>) -> Vec<BlobUpdate> {
+    // Sorting first makes "last write wins" equal "highest version wins" without
+    // depending on the caller's ordering. The sort is stable, so events sharing a
+    // version keep their in-transaction order.
+    updates.sort_by_key(|u| u.last_transaction_version);
+
     let mut by_uid: HashMap<String, BlobUpdate> = HashMap::new();
     for u in updates {
         let key = u.uid.to_string();

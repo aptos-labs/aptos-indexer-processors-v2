@@ -81,11 +81,11 @@ fn activity(uid: u64, hash: &str, event_type: &str, version: i64) -> BlobActivit
     BlobActivity {
         transaction_hash: hash.into(),
         event_type: event_type.into(),
-        event_index: bd(0),
+        event_index: 0,
         uid: bd(uid),
         object_name: format!("@a/{uid}"),
         owner: Some("0x1".into()),
-        transaction_version: bd(version as u64),
+        transaction_version: version,
         timestamp: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
     }
 }
@@ -367,4 +367,37 @@ async fn within_batch_dedup_and_merge() {
     assert_eq!(s.is_persisted, bd(1));
     assert_eq!(s.etag.as_deref(), Some("0xetag"));
     assert_eq!(s.last_transaction_version, 140);
+
+    // Same column set twice in one batch, fed newest-first: the higher version
+    // must still win.
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                blob_updates: vec![
+                    BlobUpdate {
+                        etag: Some("0xnewer".into()),
+                        ..BlobUpdate {
+                            uid: bd(1),
+                            last_transaction_version: 160,
+                            ..Default::default()
+                        }
+                    },
+                    BlobUpdate {
+                        etag: Some("0xolder".into()),
+                        ..BlobUpdate {
+                            uid: bd(1),
+                            last_transaction_version: 150,
+                            ..Default::default()
+                        }
+                    },
+                ],
+                ..Default::default()
+            },
+            160,
+        ))
+        .await
+        .unwrap();
+    let s = blob_state(&pool, 1).await;
+    assert_eq!(s.etag.as_deref(), Some("0xnewer"));
+    assert_eq!(s.last_transaction_version, 160);
 }

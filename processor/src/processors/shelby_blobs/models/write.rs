@@ -54,11 +54,11 @@ pub struct NewBlob {
 pub struct BlobActivity {
     pub transaction_hash: String,
     pub event_type: String,
-    pub event_index: BigDecimal,
+    pub event_index: i64,
     pub uid: BigDecimal,
     pub object_name: String,
     pub owner: Option<String>,
-    pub transaction_version: BigDecimal,
+    pub transaction_version: i64,
     pub timestamp: NaiveDateTime,
 }
 
@@ -115,7 +115,6 @@ impl ShelbyBlobData {
             None => return data,
         };
         let txn_version = transaction.version as i64;
-        let txn_version_bd = BigDecimal::from(transaction.version);
         let info = transaction.info.as_ref().expect("Transaction info missing");
         let txn_hash = format!("0x{}", hex::encode(&info.hash));
         let txn_timestamp = parse_timestamp(
@@ -145,9 +144,8 @@ impl ShelbyBlobData {
                     event,
                     &txn_hash,
                     txn_version,
-                    &txn_version_bd,
                     txn_timestamp,
-                    idx as u64,
+                    idx as i64,
                 );
             } else if let Some(short) = event.type_str.strip_prefix(&pg_prefix) {
                 data.handle_pg_event(short, event, txn_version);
@@ -163,9 +161,8 @@ impl ShelbyBlobData {
         event: &Event,
         txn_hash: &str,
         txn_version: i64,
-        txn_version_bd: &BigDecimal,
         txn_timestamp: NaiveDateTime,
-        event_index: u64,
+        event_index: i64,
     ) -> Option<()> {
         // (uid, object_name, owner) for the blob_activities row.
         let activity: (u64, String, Option<String>) = match short {
@@ -266,11 +263,11 @@ impl ShelbyBlobData {
         self.activities.push(BlobActivity {
             transaction_hash: txn_hash.to_string(),
             event_type: event.type_str.clone(),
-            event_index: BigDecimal::from(event_index),
+            event_index,
             uid: BigDecimal::from(uid),
             object_name,
             owner,
-            transaction_version: txn_version_bd.clone(),
+            transaction_version: txn_version,
             timestamp: txn_timestamp,
         });
         Some(())

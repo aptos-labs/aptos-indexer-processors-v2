@@ -40,11 +40,11 @@ CREATE INDEX idx_blobs_current_objects ON blobs (owner, object_name)
 CREATE TABLE blob_activities (
     transaction_hash    VARCHAR(66) NOT NULL,
     event_type          TEXT NOT NULL,
-    event_index         NUMERIC NOT NULL,
+    event_index         BIGINT NOT NULL,
     uid                 NUMERIC NOT NULL,
     object_name         TEXT NOT NULL,
     owner               VARCHAR(66),
-    transaction_version NUMERIC NOT NULL,
+    transaction_version BIGINT NOT NULL,
     timestamp           TIMESTAMP NOT NULL,
     inserted_at         TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (transaction_hash, event_type, event_index)
