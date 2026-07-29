@@ -92,6 +92,65 @@ diesel::table! {
 }
 
 diesel::table! {
+    blob_activities (transaction_hash, event_type, event_index) {
+        #[max_length = 66]
+        transaction_hash -> Varchar,
+        event_type -> Text,
+        event_index -> Int8,
+        uid -> Numeric,
+        object_name -> Text,
+        #[max_length = 66]
+        owner -> Nullable<Varchar>,
+        transaction_version -> Int8,
+        timestamp -> Timestamp,
+        inserted_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    blobs (uid) {
+        uid -> Numeric,
+        object_name -> Text,
+        #[max_length = 66]
+        owner -> Varchar,
+        blob_commitment -> Text,
+        encoding -> Text,
+        encryption -> Text,
+        #[max_length = 66]
+        slice_address -> Varchar,
+        #[max_length = 66]
+        placement_group -> Varchar,
+        created_at -> Numeric,
+        updated_at -> Numeric,
+        expires_at -> Numeric,
+        size -> Numeric,
+        num_chunksets -> Numeric,
+        payment_amount -> Numeric,
+        is_persisted -> Numeric,
+        is_committed -> Numeric,
+        is_deleted -> Numeric,
+        etag -> Nullable<Text>,
+        deletion_reason -> Nullable<Text>,
+        last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    placement_group_slots (placement_group, slot_index) {
+        #[max_length = 66]
+        placement_group -> Varchar,
+        slot_index -> Numeric,
+        #[max_length = 66]
+        storage_provider -> Varchar,
+        status -> Text,
+        updated_at -> Numeric,
+        last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     confidential_asset_activities (transaction_version, event_index) {
         transaction_version -> Int8,
         event_index -> Int8,
@@ -945,6 +1004,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     ans_primary_name_v2,
     auth_key_account_addresses,
     backfill_processor_status,
+    blob_activities,
+    blobs,
     block_metadata_transactions,
     collections_v2,
     confidential_asset_activities,
@@ -979,6 +1040,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     move_modules,
     nft_points,
     objects,
+    placement_group_slots,
     processor_status,
     proposal_votes,
     public_key_auth_keys,
