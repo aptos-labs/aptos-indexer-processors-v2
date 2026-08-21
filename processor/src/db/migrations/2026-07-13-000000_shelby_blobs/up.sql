@@ -13,6 +13,7 @@ CREATE TABLE blobs (
     placement_group          VARCHAR(66) NOT NULL,
     created_at               NUMERIC NOT NULL,
     updated_at               NUMERIC NOT NULL,
+    expires_at               NUMERIC NOT NULL,
     size                     NUMERIC NOT NULL,
     num_chunksets            NUMERIC NOT NULL,
     payment_amount           NUMERIC NOT NULL,
