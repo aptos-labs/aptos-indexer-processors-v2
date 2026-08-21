@@ -27,8 +27,6 @@ pub(super) struct BlobRegisteredEvent {
     pub chunkset_count: u32,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub creation_micros: u64,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub expiration_micros: u64,
     pub slice_address: String,
     pub placement_group_address: String,
     pub encoding: MoveVariant,
@@ -72,17 +70,6 @@ pub(super) struct ObjectDeletedEvent {
     pub object_name: String,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub deleted_at_micros: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub(super) struct BlobExpirationExtendedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub new_expiration_micros: u64,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub updated_at_micros: u64,
 }
 
 #[derive(Debug, Deserialize)]

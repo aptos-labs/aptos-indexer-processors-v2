@@ -135,7 +135,7 @@ impl Processable for ShelbyBlobsStorer {
 impl ShelbyBlobsStorer {
     /// Partial updates go through raw SQL because `COALESCE(new, existing)` per
     /// column isn't expressible in diesel's DSL. Values are passed as arrays, so
-    /// the statement uses ten bind parameters regardless of batch size and can't
+    /// the statement uses nine bind parameters regardless of batch size and can't
     /// hit diesel's u16 limit; we still chunk to bound the size of any one
     /// statement, mirroring what `execute_in_chunks` does for the insert paths.
     async fn apply_blob_updates(
@@ -160,8 +160,6 @@ impl ShelbyBlobsStorer {
         let ltvs: Vec<i64> = updates.iter().map(|u| u.last_transaction_version).collect();
         let updated_at: Vec<Option<BigDecimal>> =
             updates.iter().map(|u| u.updated_at.clone()).collect();
-        let expires_at: Vec<Option<BigDecimal>> =
-            updates.iter().map(|u| u.expires_at.clone()).collect();
         let owner: Vec<Option<String>> = updates.iter().map(|u| u.owner.clone()).collect();
         let etag: Vec<Option<String>> = updates.iter().map(|u| u.etag.clone()).collect();
         let deletion_reason: Vec<Option<String>> =
@@ -176,7 +174,6 @@ impl ShelbyBlobsStorer {
         const SQL: &str = "
             UPDATE blobs AS b SET
                 updated_at = COALESCE(v.updated_at, b.updated_at),
-                expires_at = COALESCE(v.expires_at, b.expires_at),
                 owner = COALESCE(v.owner, b.owner),
                 etag = COALESCE(v.etag, b.etag),
                 deletion_reason = COALESCE(v.deletion_reason, b.deletion_reason),
@@ -184,8 +181,8 @@ impl ShelbyBlobsStorer {
                 is_committed = COALESCE(v.is_committed, b.is_committed),
                 is_deleted = COALESCE(v.is_deleted, b.is_deleted),
                 last_transaction_version = v.ltv
-            FROM unnest($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                AS v(uid, ltv, updated_at, expires_at, owner, etag,
+            FROM unnest($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                AS v(uid, ltv, updated_at, owner, etag,
                       deletion_reason, is_persisted, is_committed, is_deleted)
             WHERE b.uid = v.uid AND b.last_transaction_version <= v.ltv
         ";
@@ -198,7 +195,6 @@ impl ShelbyBlobsStorer {
             .bind::<Array<Numeric>, _>(uids.clone())
             .bind::<Array<BigInt>, _>(ltvs)
             .bind::<Array<Nullable<Numeric>>, _>(updated_at)
-            .bind::<Array<Nullable<Numeric>>, _>(expires_at)
             .bind::<Array<Nullable<Text>>, _>(owner)
             .bind::<Array<Nullable<Text>>, _>(etag)
             .bind::<Array<Nullable<Text>>, _>(deletion_reason)
@@ -287,9 +283,6 @@ fn merge_blob_updates(mut updates: Vec<BlobUpdate>) -> Vec<BlobUpdate> {
                 if u.updated_at.is_some() {
                     m.updated_at = u.updated_at;
                 }
-                if u.expires_at.is_some() {
-                    m.expires_at = u.expires_at;
-                }
                 if u.owner.is_some() {
                     m.owner = u.owner;
                 }
@@ -333,7 +326,6 @@ fn insert_blobs_query(items: Vec<NewBlob>) -> impl QueryFragment<Pg> + QueryId +
             placement_group.eq(excluded(placement_group)),
             created_at.eq(excluded(created_at)),
             updated_at.eq(excluded(updated_at)),
-            expires_at.eq(excluded(expires_at)),
             size.eq(excluded(size)),
             num_chunksets.eq(excluded(num_chunksets)),
             payment_amount.eq(excluded(payment_amount)),
