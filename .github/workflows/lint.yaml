@@ -33,9 +33,7 @@ jobs:
           sudo apt update && sudo apt install libdw-dev protobuf-compiler
           cargo install cargo-sort
           rustup update
-          rustup toolchain install nightly
-          rustup component add clippy --toolchain nightly
-          rustup component add rustfmt --toolchain nightly
+          rustup toolchain install "$(cat rust-nightly-version)" --profile minimal --component clippy,rustfmt
           scripts/rust_lint.sh --check
       - name: Ensure the --no-default-features build passes too
         run: cargo build --all-targets --no-default-features

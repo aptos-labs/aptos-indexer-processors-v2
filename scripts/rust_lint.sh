@@ -28,14 +28,18 @@ fi
 set -e
 set -x
 
+# Clippy and rustfmt run on nightly, which lints and formats more strictly than
+# the stable toolchain in rust-toolchain.toml. The version is pinned so results
+# are reproducible and upstream nightly regressions cannot break the build
+# without a deliberate bump.
+NIGHTLY="$(cat rust-nightly-version)"
+
 # Ensure all source files have the correct license header.
 python3 scripts/check_license.py $CHECK_ARG
 
-cargo +nightly xclippy
+cargo +"$NIGHTLY" xclippy
 
-# We require the nightly build of cargo fmt
-# to provide stricter rust formatting.
-cargo +nightly fmt $CHECK_ARG
+cargo +"$NIGHTLY" fmt $CHECK_ARG
 
 # Once cargo-sort correctly handles workspace dependencies,
 # we can move to cleaner workspace dependency notation.
