@@ -122,7 +122,6 @@ diesel::table! {
         placement_group -> Varchar,
         created_at -> Numeric,
         updated_at -> Numeric,
-        expires_at -> Numeric,
         size -> Numeric,
         num_chunksets -> Numeric,
         payment_amount -> Numeric,

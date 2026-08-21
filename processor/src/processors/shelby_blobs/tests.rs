@@ -64,7 +64,6 @@ fn reg(uid: u64, version: i64) -> NewBlob {
         placement_group: "0x3".into(),
         created_at: bd(100),
         updated_at: bd(100),
-        expires_at: bd(999),
         size: bd(64),
         num_chunksets: bd(1),
         payment_amount: bd(10),

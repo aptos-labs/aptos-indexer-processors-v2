@@ -37,7 +37,6 @@ pub struct NewBlob {
     pub placement_group: String,
     pub created_at: BigDecimal,
     pub updated_at: BigDecimal,
-    pub expires_at: BigDecimal,
     pub size: BigDecimal,
     pub num_chunksets: BigDecimal,
     pub payment_amount: BigDecimal,
@@ -79,7 +78,6 @@ pub struct BlobUpdate {
     pub uid: BigDecimal,
     pub last_transaction_version: i64,
     pub updated_at: Option<BigDecimal>,
-    pub expires_at: Option<BigDecimal>,
     pub owner: Option<String>,
     pub etag: Option<String>,
     pub deletion_reason: Option<String>,
@@ -180,7 +178,6 @@ impl ShelbyBlobData {
                     placement_group: standardize_address(&e.placement_group_address),
                     created_at: BigDecimal::from(e.creation_micros),
                     updated_at: BigDecimal::from(e.creation_micros),
-                    expires_at: BigDecimal::from(e.expiration_micros),
                     size: BigDecimal::from(e.blob_size),
                     num_chunksets: BigDecimal::from(e.chunkset_count),
                     payment_amount: BigDecimal::from(e.payment_amount),
@@ -236,17 +233,6 @@ impl ShelbyBlobData {
                     uid: BigDecimal::from(e.uid),
                     last_transaction_version: txn_version,
                     updated_at: Some(BigDecimal::from(e.deleted_at_micros)),
-                    ..Default::default()
-                });
-                (e.uid, e.object_name, None)
-            },
-            "BlobExpirationExtendedEvent" => {
-                let e = deser::<BlobExpirationExtendedEvent>(short, &event.data);
-                self.blob_updates.push(BlobUpdate {
-                    uid: BigDecimal::from(e.uid),
-                    last_transaction_version: txn_version,
-                    updated_at: Some(BigDecimal::from(e.updated_at_micros)),
-                    expires_at: Some(BigDecimal::from(e.new_expiration_micros)),
                     ..Default::default()
                 });
                 (e.uid, e.object_name, None)
