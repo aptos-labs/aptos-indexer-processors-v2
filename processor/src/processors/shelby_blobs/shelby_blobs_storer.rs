@@ -296,11 +296,10 @@ fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + Qu
             owner.eq(excluded(owner)),
             etag.eq(excluded(etag)),
             encryption.eq(excluded(encryption)),
+            plaintext_size.eq(excluded(plaintext_size)),
             blob_uid.eq(excluded(blob_uid)),
-            stored_size.eq(excluded(stored_size)),
             multipart_uid.eq(excluded(multipart_uid)),
             part_count.eq(excluded(part_count)),
-            total_size.eq(excluded(total_size)),
             committed_at_micros.eq(excluded(committed_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
         ))

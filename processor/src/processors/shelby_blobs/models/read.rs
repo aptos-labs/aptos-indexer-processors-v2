@@ -22,9 +22,8 @@ pub(super) struct MoveVariant {
 
 /// What an object's name resolves to, and how big it is.
 ///
-/// The two variants measure different things: a blob reports the bytes it
-/// stores, container included, while a multipart record reports the plaintext
-/// total its parts declared.
+/// Both variants report the same measurement: the object's plaintext bytes,
+/// encryption container excluded.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "__variant__")]
 pub(super) enum ObjectContent {
@@ -32,7 +31,7 @@ pub(super) enum ObjectContent {
         #[serde(deserialize_with = "deserialize_from_string")]
         blob_uid: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
-        stored_size: u64,
+        plaintext_size: u64,
     },
     Multipart {
         #[serde(deserialize_with = "deserialize_from_string")]
@@ -40,7 +39,7 @@ pub(super) enum ObjectContent {
         #[serde(deserialize_with = "deserialize_from_string")]
         part_count: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
-        total_size: u64,
+        plaintext_size: u64,
     },
 }
 
@@ -62,8 +61,8 @@ pub(super) enum ObjectRef {
 /// A name started resolving to something.
 ///
 /// `V1` predates multipart objects and is skipped rather than stored: it
-/// reports neither the stored size nor the encryption an object row needs, and
-/// both live on the registration that minted the blob. Replaying history
+/// reports neither the size nor the encryption an object row needs, and both
+/// live on the registration that minted the blob. Replaying history
 /// therefore yields objects only from the contract upgrade onward. It is named
 /// explicitly so that a variant this processor has never seen still fails
 /// loudly instead of being dropped.

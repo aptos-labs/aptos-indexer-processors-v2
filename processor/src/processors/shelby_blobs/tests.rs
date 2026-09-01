@@ -80,8 +80,8 @@ fn parse(short_type: &str, data: &str) -> ShelbyBlobData {
 // ─── Parsing tests ──────────────────────────────────────────────────────────
 
 /// The shapes the contract emitted before multipart still appear when history
-/// is replayed. They carry neither the stored size nor the encryption an object
-/// row needs, so they are skipped -- but skipped is not the same as unparsed,
+/// is replayed. They carry neither the size nor the encryption an object row
+/// needs, so they are skipped -- but skipped is not the same as unparsed,
 /// and getting that wrong halts the processor on its first replayed commit.
 #[test]
 fn retired_event_shapes_are_skipped_rather_than_fatal() {
@@ -129,7 +129,7 @@ fn a_commit_reports_the_content_it_bound() {
         "object_name": "@0x1/a.txt",
         "owner": "0x1",
         "etag": "0xabcd",
-        "content": { "__variant__": "Blob", "blob_uid": "7", "stored_size": "2048" },
+        "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
         "encryption": { "__variant__": "AES_GCM_V1" },
         "previous": { "vec": [] },
         "previous_etag": { "vec": [] },
@@ -141,9 +141,9 @@ fn a_commit_reports_the_content_it_bound() {
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.encryption, "AES_GCM_V1");
     assert_eq!(o.blob_uid, Some(BigDecimal::from(7u64)));
-    assert_eq!(o.stored_size, Some(BigDecimal::from(2048u64)));
+    assert_eq!(o.plaintext_size, BigDecimal::from(2048u64));
     assert_eq!(o.multipart_uid, None);
-    assert_eq!(o.total_size, None);
+    assert_eq!(o.part_count, None);
     // A single blob is not an upload, so nothing is retired.
     assert!(data.retired_uploads.is_empty());
     assert_eq!(data.activities.len(), 1);
@@ -157,7 +157,7 @@ fn a_commit_reports_the_content_it_bound() {
             "__variant__": "Multipart",
             "multipart_uid": "9",
             "part_count": "3",
-            "total_size": "300"
+            "plaintext_size": "300"
         },
         "encryption": { "__variant__": "Unencrypted" },
         "previous": { "vec": [] },
@@ -168,9 +168,8 @@ fn a_commit_reports_the_content_it_bound() {
     let o = &data.objects[0];
     assert_eq!(o.multipart_uid, Some(BigDecimal::from(9u64)));
     assert_eq!(o.part_count, Some(BigDecimal::from(3u64)));
-    assert_eq!(o.total_size, Some(BigDecimal::from(300u64)));
+    assert_eq!(o.plaintext_size, BigDecimal::from(300u64));
     assert_eq!(o.blob_uid, None);
-    assert_eq!(o.stored_size, None);
     // Sealing the upload ends it.
     assert_eq!(data.retired_uploads.len(), 1);
     assert_eq!(
@@ -232,11 +231,10 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         owner: "0x1".into(),
         etag: etag.into(),
         encryption: "Unencrypted".into(),
+        plaintext_size: bd(64),
         blob_uid: Some(bd(7)),
-        stored_size: Some(bd(64)),
         multipart_uid: None,
         part_count: None,
-        total_size: None,
         committed_at_micros: bd(100),
         last_transaction_version: version,
     }
@@ -248,11 +246,10 @@ fn multipart_object(name: &str, multipart_uid: u64, version: i64) -> ShelbyObjec
         owner: "0x1".into(),
         etag: "0xbeef".into(),
         encryption: "Unencrypted".into(),
+        plaintext_size: bd(200),
         blob_uid: None,
-        stored_size: None,
         multipart_uid: Some(bd(multipart_uid)),
         part_count: Some(bd(2)),
-        total_size: Some(bd(200)),
         committed_at_micros: bd(100),
         last_transaction_version: version,
     }
@@ -301,6 +298,8 @@ struct ObjectRow {
     etag: String,
     #[diesel(sql_type = Nullable<Text>)]
     kind: Option<String>,
+    #[diesel(sql_type = Numeric)]
+    plaintext_size: BigDecimal,
     #[diesel(sql_type = BigInt)]
     last_transaction_version: i64,
 }
@@ -314,7 +313,7 @@ struct Scalar {
 async fn object_row(pool: &ArcDbPool, name: &str) -> Option<ObjectRow> {
     let mut conn = pool.get().await.unwrap();
     diesel::sql_query(
-        "SELECT etag, kind, last_transaction_version FROM shelby_objects WHERE name = $1",
+        "SELECT etag, kind, plaintext_size, last_transaction_version FROM shelby_objects WHERE name = $1",
     )
     .bind::<Text, _>(name)
     .get_result(&mut conn)
@@ -486,10 +485,9 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
         .await
         .unwrap();
 
-    assert_eq!(
-        object_row(&pool, "@0x1/big.mp4").await.unwrap().kind,
-        Some("multipart".to_string())
-    );
+    let row = object_row(&pool, "@0x1/big.mp4").await.unwrap();
+    assert_eq!(row.kind, Some("multipart".to_string()));
+    assert_eq!(row.plaintext_size, bd(200));
     assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
     assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
 }

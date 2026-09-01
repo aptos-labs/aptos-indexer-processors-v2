@@ -40,11 +40,10 @@ pub struct ShelbyObject {
     pub owner: String,
     pub etag: String,
     pub encryption: String,
+    pub plaintext_size: BigDecimal,
     pub blob_uid: Option<BigDecimal>,
-    pub stored_size: Option<BigDecimal>,
     pub multipart_uid: Option<BigDecimal>,
     pub part_count: Option<BigDecimal>,
-    pub total_size: Option<BigDecimal>,
     pub committed_at_micros: BigDecimal,
     pub last_transaction_version: i64,
 }
@@ -210,11 +209,16 @@ impl ShelbyBlobData {
                         committed_at_micros,
                     } => {
                         let owner = standardize_address(&owner);
-                        let (blob_uid, multipart_uid) = match &content {
-                            ObjectContent::Blob { blob_uid, .. } => (Some(*blob_uid), None),
-                            ObjectContent::Multipart { multipart_uid, .. } => {
-                                (None, Some(*multipart_uid))
-                            },
+                        let (blob_uid, multipart_uid, part_count, plaintext_size) = match content {
+                            ObjectContent::Blob {
+                                blob_uid,
+                                plaintext_size,
+                            } => (Some(blob_uid), None, None, plaintext_size),
+                            ObjectContent::Multipart {
+                                multipart_uid,
+                                part_count,
+                                plaintext_size,
+                            } => (None, Some(multipart_uid), Some(part_count), plaintext_size),
                         };
                         // Sealing an upload ends it: its staging rows go, and
                         // the object row below is what the name resolves to.
@@ -229,26 +233,10 @@ impl ShelbyBlobData {
                             owner: owner.clone(),
                             etag,
                             encryption: encryption.variant,
+                            plaintext_size: BigDecimal::from(plaintext_size),
                             blob_uid: blob_uid.map(BigDecimal::from),
-                            stored_size: match &content {
-                                ObjectContent::Blob { stored_size, .. } => {
-                                    Some(BigDecimal::from(*stored_size))
-                                },
-                                ObjectContent::Multipart { .. } => None,
-                            },
                             multipart_uid: multipart_uid.map(BigDecimal::from),
-                            part_count: match &content {
-                                ObjectContent::Multipart { part_count, .. } => {
-                                    Some(BigDecimal::from(*part_count))
-                                },
-                                ObjectContent::Blob { .. } => None,
-                            },
-                            total_size: match &content {
-                                ObjectContent::Multipart { total_size, .. } => {
-                                    Some(BigDecimal::from(*total_size))
-                                },
-                                ObjectContent::Blob { .. } => None,
-                            },
+                            part_count: part_count.map(BigDecimal::from),
                             committed_at_micros: BigDecimal::from(committed_at_micros),
                             last_transaction_version: txn_version,
                         });

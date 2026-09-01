@@ -28,22 +28,20 @@ CREATE TABLE shelby_objects (
     name                     TEXT NOT NULL,
     owner                    VARCHAR(66) NOT NULL,
     etag                     TEXT NOT NULL,
-    -- How the object's bytes are encrypted, which is what turns the stored
-    -- length below into the plaintext length a listing reports.
+    -- How the object's bytes are encrypted, which a reader needs in order to
+    -- interpret the bytes it downloads.
     encryption               TEXT NOT NULL,
+    -- Bytes the object carries, encryption container excluded. The same
+    -- measurement whichever variant below is populated: the chain derives it
+    -- from the blob's stored length, or sums it over the parts.
+    plaintext_size           NUMERIC NOT NULL,
 
     -- ObjectContent::Blob -- the object resolves to one blob.
     blob_uid                 NUMERIC,
-    -- Bytes stored for that blob, encryption container included.
-    stored_size              NUMERIC,
 
     -- ObjectContent::Multipart -- the object resolves to a record's parts.
     multipart_uid            NUMERIC,
     part_count               NUMERIC,
-    -- Sum of the parts' plaintext sizes. A multipart object reports plaintext
-    -- directly because its parts declared it, while a single blob reports
-    -- stored bytes, which is why these are two columns and not one.
-    total_size               NUMERIC,
 
     -- Derived by the database so it cannot drift from the columns it describes.
     kind                     TEXT GENERATED ALWAYS AS (
@@ -65,11 +63,9 @@ CREATE TABLE shelby_objects (
     -- The row is one ObjectContent variant or the other, never a mixture and
     -- never neither.
     CONSTRAINT shelby_objects_content_variant CHECK (
-        (blob_uid      IS NOT NULL AND stored_size IS NOT NULL
-         AND multipart_uid IS NULL AND part_count IS NULL AND total_size IS NULL)
+        (blob_uid IS NOT NULL AND multipart_uid IS NULL AND part_count IS NULL)
         OR
-        (multipart_uid IS NOT NULL AND part_count IS NOT NULL AND total_size IS NOT NULL
-         AND blob_uid IS NULL AND stored_size IS NULL)
+        (blob_uid IS NULL AND multipart_uid IS NOT NULL AND part_count IS NOT NULL)
     )
 );
 
