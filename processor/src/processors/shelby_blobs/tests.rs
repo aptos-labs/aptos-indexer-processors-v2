@@ -1,8 +1,14 @@
 // Copyright (c) Aptos Foundation
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
-//! Storer tests against a real Postgres (SDK `PostgresTestDatabase`, needs Docker).
-//! Build `ShelbyBlobData` directly to exercise the upsert/guard logic.
+//! Two kinds of test.
+//!
+//! Parsing tests build a protobuf transaction carrying one event and check what
+//! it turns into, which is where retired event shapes are covered.
+//!
+//! Storer tests run against a real Postgres (SDK `PostgresTestDatabase`, needs
+//! Docker) and build `ShelbyBlobData` directly to exercise the upserts, the
+//! version guards and the removals.
 
 // `QueryableByName` test structs are populated by diesel from SQL results, never
 // via struct literals; nightly clippy's `redundant_field_names` misfires on the
@@ -12,12 +18,21 @@
 use crate::{
     MIGRATIONS,
     processors::shelby_blobs::{
-        models::{BlobActivity, BlobUpdate, NewBlob, PlacementGroupSlot, ShelbyBlobData},
+        models::{
+            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, ShelbyBlobData,
+            ShelbyObject, UploadRetirement,
+        },
         shelby_blobs_storer::ShelbyBlobsStorer,
     },
 };
 use ahash::AHashMap;
 use aptos_indexer_processor_sdk::{
+    aptos_protos::{
+        transaction::v1::{
+            Event, Transaction, TransactionInfo, UserTransaction, transaction::TxnData,
+        },
+        util::timestamp::Timestamp,
+    },
     postgres::utils::database::{ArcDbPool, new_db_pool, run_migrations},
     testing_framework::database::{PostgresTestDatabase, TestDatabase},
     traits::Processable,
@@ -29,6 +44,161 @@ use diesel::{
     sql_types::{BigInt, Nullable, Numeric, Text},
 };
 use diesel_async::RunQueryDsl;
+
+const DEPLOYER: &str = "0xdeadbeef";
+
+// ─── Parsing helpers ────────────────────────────────────────────────────────
+
+/// A transaction carrying one `blob_metadata` event with the given JSON.
+fn txn_with_event(short_type: &str, data: &str, version: u64) -> Transaction {
+    Transaction {
+        version,
+        info: Some(TransactionInfo {
+            hash: vec![0xAB; 32],
+            ..Default::default()
+        }),
+        timestamp: Some(Timestamp {
+            seconds: 1,
+            nanos: 0,
+        }),
+        txn_data: Some(TxnData::User(UserTransaction {
+            events: vec![Event {
+                type_str: format!("{DEPLOYER}::blob_metadata::{short_type}"),
+                data: data.to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })),
+        ..Default::default()
+    }
+}
+
+fn parse(short_type: &str, data: &str) -> ShelbyBlobData {
+    ShelbyBlobData::from_transaction(&txn_with_event(short_type, data, 1), DEPLOYER)
+}
+
+// ─── Parsing tests ──────────────────────────────────────────────────────────
+
+/// The shapes the contract emitted before multipart still appear when history
+/// is replayed. They carry neither the stored size nor the encryption an object
+/// row needs, so they are skipped -- but skipped is not the same as unparsed,
+/// and getting that wrong halts the processor on its first replayed commit.
+#[test]
+fn retired_event_shapes_are_skipped_rather_than_fatal() {
+    let committed_v1 = r#"{
+        "__variant__": "V1",
+        "uid": "7",
+        "object_name": "@0x1/a.txt",
+        "owner": "0x1",
+        "etag": "0xabcd",
+        "previous_blob_uid": { "vec": [] },
+        "previous_etag": { "vec": [] },
+        "committed_at_micros": "500"
+    }"#;
+    let data = parse("ObjectCommittedEvent", committed_v1);
+    assert!(data.objects.is_empty());
+    assert!(data.activities.is_empty());
+
+    let deleted_v1 = r#"{
+        "__variant__": "V1",
+        "uid": "7",
+        "object_name": "@0x1/a.txt",
+        "reason": { "__variant__": "DeletedByOwner" },
+        "deleted_at_micros": "600"
+    }"#;
+    let data = parse("ObjectDeletedEvent", deleted_v1);
+    assert!(data.object_deletions.is_empty());
+    assert!(data.activities.is_empty());
+}
+
+/// The counterpart guarantee: a shape this processor has never seen is a
+/// contract change it cannot represent, and is loud rather than dropped.
+#[test]
+#[should_panic(expected = "Failed to deserialize shelby event 'ObjectCommittedEvent'")]
+fn an_unknown_event_shape_is_fatal() {
+    parse(
+        "ObjectCommittedEvent",
+        r#"{"__variant__": "V3", "whatever": 1}"#,
+    );
+}
+
+#[test]
+fn a_commit_reports_the_content_it_bound() {
+    let blob = r#"{
+        "__variant__": "V2",
+        "object_name": "@0x1/a.txt",
+        "owner": "0x1",
+        "etag": "0xabcd",
+        "content": { "__variant__": "Blob", "blob_uid": "7", "stored_size": "2048" },
+        "encryption": { "__variant__": "AES_GCM_V1" },
+        "previous": { "vec": [] },
+        "previous_etag": { "vec": [] },
+        "committed_at_micros": "500"
+    }"#;
+    let data = parse("ObjectCommittedEvent", blob);
+    assert_eq!(data.objects.len(), 1);
+    let o = &data.objects[0];
+    assert_eq!(o.name, "@0x1/a.txt");
+    assert_eq!(o.encryption, "AES_GCM_V1");
+    assert_eq!(o.blob_uid, Some(BigDecimal::from(7u64)));
+    assert_eq!(o.stored_size, Some(BigDecimal::from(2048u64)));
+    assert_eq!(o.multipart_uid, None);
+    assert_eq!(o.total_size, None);
+    // A single blob is not an upload, so nothing is retired.
+    assert!(data.retired_uploads.is_empty());
+    assert_eq!(data.activities.len(), 1);
+
+    let multipart = r#"{
+        "__variant__": "V2",
+        "object_name": "@0x1/big.mp4",
+        "owner": "0x1",
+        "etag": "0xbeef",
+        "content": {
+            "__variant__": "Multipart",
+            "multipart_uid": "9",
+            "part_count": "3",
+            "total_size": "300"
+        },
+        "encryption": { "__variant__": "Unencrypted" },
+        "previous": { "vec": [] },
+        "previous_etag": { "vec": [] },
+        "committed_at_micros": "700"
+    }"#;
+    let data = parse("ObjectCommittedEvent", multipart);
+    let o = &data.objects[0];
+    assert_eq!(o.multipart_uid, Some(BigDecimal::from(9u64)));
+    assert_eq!(o.part_count, Some(BigDecimal::from(3u64)));
+    assert_eq!(o.total_size, Some(BigDecimal::from(300u64)));
+    assert_eq!(o.blob_uid, None);
+    assert_eq!(o.stored_size, None);
+    // Sealing the upload ends it.
+    assert_eq!(data.retired_uploads.len(), 1);
+    assert_eq!(
+        data.retired_uploads[0].multipart_uid,
+        BigDecimal::from(9u64)
+    );
+}
+
+/// Blobs are the storage providers' concern and reach them from the chain, so
+/// nothing about them is recorded here.
+#[test]
+fn blob_layer_events_are_not_indexed() {
+    let persisted = r#"{
+        "__variant__": "V2",
+        "uid": "7",
+        "owner": "0x1",
+        "slice_address": "0x2",
+        "placement_group_address": "0x3",
+        "persisted_at_micros": "500",
+        "ack_bits": 65535
+    }"#;
+    let data = parse("BlobPersistedEvent", persisted);
+    assert!(data.objects.is_empty());
+    assert!(data.activities.is_empty());
+    assert!(data.parts.is_empty());
+}
+
+// ─── Storer helpers ─────────────────────────────────────────────────────────
 
 async fn setup() -> (PostgresTestDatabase, ArcDbPool) {
     let mut db = PostgresTestDatabase::new();
@@ -56,54 +226,81 @@ fn bd(n: u64) -> BigDecimal {
     BigDecimal::from(n)
 }
 
-/// A register event's full-snapshot row.
-fn reg(uid: u64, version: i64) -> NewBlob {
-    NewBlob {
-        uid: bd(uid),
-        object_name: format!("@a/{uid}"),
+fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
+    ShelbyObject {
+        name: name.into(),
         owner: "0x1".into(),
-        blob_commitment: "0xcommit".into(),
-        encoding: "ClayCode".into(),
-        encryption: "None".into(),
-        slice_address: "0x2".into(),
-        placement_group: "0x3".into(),
-        created_at: bd(100),
-        updated_at: bd(100),
-        size: bd(64),
-        num_chunksets: bd(1),
-        payment_amount: bd(10),
-        is_persisted: bd(0),
-        is_committed: bd(0),
-        is_deleted: bd(0),
-        etag: None,
-        deletion_reason: None,
+        etag: etag.into(),
+        encryption: "Unencrypted".into(),
+        blob_uid: Some(bd(7)),
+        stored_size: Some(bd(64)),
+        multipart_uid: None,
+        part_count: None,
+        total_size: None,
+        committed_at_micros: bd(100),
         last_transaction_version: version,
     }
 }
 
-fn activity(uid: u64, hash: &str, event_type: &str, version: i64) -> BlobActivity {
-    BlobActivity {
-        transaction_hash: hash.into(),
-        event_type: event_type.into(),
-        event_index: 0,
-        uid: bd(uid),
-        object_name: format!("@a/{uid}"),
-        owner: Some("0x1".into()),
+fn multipart_object(name: &str, multipart_uid: u64, version: i64) -> ShelbyObject {
+    ShelbyObject {
+        name: name.into(),
+        owner: "0x1".into(),
+        etag: "0xbeef".into(),
+        encryption: "Unencrypted".into(),
+        blob_uid: None,
+        stored_size: None,
+        multipart_uid: Some(bd(multipart_uid)),
+        part_count: Some(bd(2)),
+        total_size: Some(bd(200)),
+        committed_at_micros: bd(100),
+        last_transaction_version: version,
+    }
+}
+
+fn upload(multipart_uid: u64, version: i64) -> OpenMultipartUpload {
+    OpenMultipartUpload {
+        multipart_uid: bd(multipart_uid),
+        object_name: "@0x1/big.mp4".into(),
+        owner: "0x1".into(),
+        encryption: "Unencrypted".into(),
+        created_at_micros: bd(50),
+        last_transaction_version: version,
+    }
+}
+
+fn part(multipart_uid: u64, part_number: u64, version: i64) -> OpenMultipartPart {
+    OpenMultipartPart {
+        multipart_uid: bd(multipart_uid),
+        part_number: bd(part_number),
+        blob_uid: bd(1000 + part_number),
+        plaintext_size: bd(100),
+        etag: format!("0x{part_number:02x}"),
+        committed_at_micros: bd(60),
+        last_transaction_version: version,
+    }
+}
+
+fn activity(name: &str, version: i64) -> ObjectActivity {
+    ObjectActivity {
         transaction_version: version,
+        event_index: 0,
+        event_type: "ObjectCommittedEvent".into(),
+        transaction_hash: "0xh".into(),
+        object_name: name.into(),
+        owner: "0x1".into(),
+        blob_uid: Some(bd(7)),
+        multipart_uid: None,
         timestamp: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
     }
 }
 
 #[derive(QueryableByName)]
-struct BlobState {
-    #[diesel(sql_type = Numeric)]
-    is_deleted: BigDecimal,
-    #[diesel(sql_type = Numeric)]
-    is_persisted: BigDecimal,
+struct ObjectRow {
     #[diesel(sql_type = Text)]
-    blob_commitment: String,
+    etag: String,
     #[diesel(sql_type = Nullable<Text>)]
-    etag: Option<String>,
+    kind: Option<String>,
     #[diesel(sql_type = BigInt)]
     last_transaction_version: i64,
 }
@@ -114,24 +311,30 @@ struct Scalar {
     n: i64,
 }
 
-#[derive(QueryableByName)]
-struct PgState {
-    #[diesel(sql_type = Text)]
-    status: String,
-    #[diesel(sql_type = BigInt)]
-    last_transaction_version: i64,
-}
-
-async fn blob_state(pool: &ArcDbPool, uid: u64) -> BlobState {
+async fn object_row(pool: &ArcDbPool, name: &str) -> Option<ObjectRow> {
     let mut conn = pool.get().await.unwrap();
     diesel::sql_query(
-        "SELECT is_deleted, is_persisted, blob_commitment, etag, last_transaction_version \
-         FROM blobs WHERE uid = $1",
+        "SELECT etag, kind, last_transaction_version FROM shelby_objects WHERE name = $1",
     )
-    .bind::<Numeric, _>(bd(uid))
+    .bind::<Text, _>(name)
     .get_result(&mut conn)
     .await
-    .unwrap()
+    .optional_row()
+}
+
+/// `get_result` errors rather than returning `None` when nothing matches.
+trait OptionalRow<T> {
+    fn optional_row(self) -> Option<T>;
+}
+
+impl<T> OptionalRow<T> for Result<T, diesel::result::Error> {
+    fn optional_row(self) -> Option<T> {
+        match self {
+            Ok(v) => Some(v),
+            Err(diesel::result::Error::NotFound) => None,
+            Err(e) => panic!("query failed: {e}"),
+        }
+    }
 }
 
 async fn count(pool: &ArcDbPool, table: &str) -> i64 {
@@ -143,41 +346,102 @@ async fn count(pool: &ArcDbPool, table: &str) -> i64 {
         .n
 }
 
+// ─── Storer tests ───────────────────────────────────────────────────────────
+
 #[tokio::test]
-async fn blobs_lifecycle_and_undelete_guard() {
+async fn an_object_is_overwritten_in_place_and_removed_on_deletion() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
 
-    // Register @ v100.
     storer
         .process(ctx(
             ShelbyBlobData {
-                new_blobs: vec![reg(1, 100)],
-                activities: vec![activity(1, "0xh1", "BlobRegisteredEvent", 100)],
+                objects: vec![blob_object("@0x1/a.txt", "0xaaaa", 100)],
+                activities: vec![activity("@0x1/a.txt", 100)],
                 ..Default::default()
             },
             100,
         ))
         .await
         .unwrap();
-    let s = blob_state(&pool, 1).await;
-    assert_eq!(s.is_deleted, bd(0));
-    assert_eq!(s.last_transaction_version, 100);
-    assert_eq!(count(&pool, "blobs").await, 1);
-    assert_eq!(count(&pool, "blob_activities").await, 1);
+    assert_eq!(
+        object_row(&pool, "@0x1/a.txt").await.unwrap().etag,
+        "0xaaaa"
+    );
 
-    // Persist @ v150: partial update.
+    // An overwrite updates the one row rather than leaving a dead one behind.
     storer
         .process(ctx(
             ShelbyBlobData {
-                blob_updates: vec![BlobUpdate {
-                    is_persisted: Some(bd(1)),
-                    updated_at: Some(bd(150)),
-                    ..BlobUpdate {
-                        uid: bd(1),
-                        last_transaction_version: 150,
-                        ..Default::default()
-                    }
+                objects: vec![blob_object("@0x1/a.txt", "0xbbbb", 200)],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, "shelby_objects").await, 1);
+    assert_eq!(
+        object_row(&pool, "@0x1/a.txt").await.unwrap().etag,
+        "0xbbbb"
+    );
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                object_deletions: vec![ObjectDeletion {
+                    name: "@0x1/a.txt".into(),
+                    last_transaction_version: 300,
+                }],
+                ..Default::default()
+            },
+            300,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, "shelby_objects").await, 0);
+}
+
+/// Reprocessing replays transactions already applied. A commit that has been
+/// superseded must not come back, in either direction.
+#[tokio::test]
+async fn replaying_a_superseded_write_changes_nothing() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![blob_object("@0x1/a.txt", "0xbbbb", 200)],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    // An older commit replayed after a newer one leaves the newer one standing.
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![blob_object("@0x1/a.txt", "0xaaaa", 100)],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+    let row = object_row(&pool, "@0x1/a.txt").await.unwrap();
+    assert_eq!(row.etag, "0xbbbb");
+    assert_eq!(row.last_transaction_version, 200);
+
+    // And an older deletion does not remove a row written after it.
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                object_deletions: vec![ObjectDeletion {
+                    name: "@0x1/a.txt".into(),
+                    last_transaction_version: 150,
                 }],
                 ..Default::default()
             },
@@ -185,25 +449,35 @@ async fn blobs_lifecycle_and_undelete_guard() {
         ))
         .await
         .unwrap();
-    let s = blob_state(&pool, 1).await;
-    assert_eq!(s.is_persisted, bd(1));
-    assert_eq!(
-        s.blob_commitment, "0xcommit",
-        "COALESCE must preserve unset column"
-    );
-    assert_eq!(s.last_transaction_version, 150);
+    assert_eq!(count(&pool, "shelby_objects").await, 1);
+}
 
-    // Delete @ v200.
+#[tokio::test]
+async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
     storer
         .process(ctx(
             ShelbyBlobData {
-                blob_updates: vec![BlobUpdate {
-                    is_deleted: Some(bd(1)),
-                    ..BlobUpdate {
-                        uid: bd(1),
-                        last_transaction_version: 200,
-                        ..Default::default()
-                    }
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110), part(9, 2, 120)],
+                ..Default::default()
+            },
+            120,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 1);
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 2);
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: bd(9),
+                    last_transaction_version: 200,
                 }],
                 ..Default::default()
             },
@@ -211,197 +485,109 @@ async fn blobs_lifecycle_and_undelete_guard() {
         ))
         .await
         .unwrap();
-    assert_eq!(blob_state(&pool, 1).await.is_deleted, bd(1));
 
-    // Replayed old register @ v100; the guard must block it.
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                new_blobs: vec![reg(1, 100)],
-                ..Default::default()
-            },
-            100,
-        ))
-        .await
-        .unwrap();
-    let s = blob_state(&pool, 1).await;
     assert_eq!(
-        s.is_deleted,
-        bd(1),
-        "replayed old register must not undelete"
+        object_row(&pool, "@0x1/big.mp4").await.unwrap().kind,
+        Some("multipart".to_string())
     );
-    assert_eq!(s.last_transaction_version, 200);
-
-    // A genuinely newer register @ v300 SHOULD undelete.
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                new_blobs: vec![reg(1, 300)],
-                ..Default::default()
-            },
-            300,
-        ))
-        .await
-        .unwrap();
-    let s = blob_state(&pool, 1).await;
-    assert_eq!(s.is_deleted, bd(0), "newer register must undelete");
-    assert_eq!(s.last_transaction_version, 300);
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
 }
 
+/// A batch can hold both a part commit and the completion that consumes it.
+/// The removal has to see the row to take it away, so writes are applied first;
+/// the other order leaves a part nothing ever collects.
 #[tokio::test]
-async fn placement_group_status_and_guard() {
+async fn a_part_and_the_completion_that_consumes_it_can_share_a_batch() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
 
-    let slot = |status: &str, updated_at: u64, version: i64| PlacementGroupSlot {
-        placement_group: "0xpg".into(),
-        slot_index: bd(7),
-        storage_provider: "0xsp".into(),
-        status: status.into(),
-        updated_at: bd(updated_at),
-        last_transaction_version: version,
-    };
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110), part(9, 2, 120)],
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 130)],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: bd(9),
+                    last_transaction_version: 130,
+                }],
+                ..Default::default()
+            },
+            130,
+        ))
+        .await
+        .unwrap();
 
-    // assigned @ v10 -> activated @ v20.
+    assert_eq!(count(&pool, "shelby_objects").await, 1);
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+}
+
+#[tokio::test]
+async fn aborting_an_upload_removes_it_and_its_parts() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
     storer
         .process(ctx(
             ShelbyBlobData {
-                pg_slots: vec![slot("joining", 10, 10)],
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110)],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: bd(9),
+                    last_transaction_version: 200,
+                }],
                 ..Default::default()
             },
-            10,
+            200,
         ))
         .await
         .unwrap();
+
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
+    // An abandoned upload never became an object.
+    assert_eq!(count(&pool, "shelby_objects").await, 0);
+}
+
+/// Re-uploading a part number replaces it rather than adding a second row.
+#[tokio::test]
+async fn a_replaced_part_overwrites_its_predecessor() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let mut replacement = part(9, 1, 150);
+    replacement.etag = "0xfeed".into();
+
     storer
         .process(ctx(
             ShelbyBlobData {
-                pg_slots: vec![slot("active", 20, 20)],
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110), replacement],
                 ..Default::default()
             },
-            20,
+            150,
         ))
         .await
         .unwrap();
+
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 1);
     let mut conn = pool.get().await.unwrap();
-    let s: PgState = diesel::sql_query(
-        "SELECT status, last_transaction_version FROM placement_group_slots \
-         WHERE placement_group = '0xpg' AND slot_index = 7",
+    let etag: String = diesel::sql_query(
+        "SELECT etag FROM shelby_open_multipart_parts WHERE multipart_uid = $1 AND part_number = $2",
     )
-    .get_result(&mut conn)
+    .bind::<Numeric, _>(bd(9))
+    .bind::<Numeric, _>(bd(1))
+    .get_result::<PartEtag>(&mut conn)
     .await
-    .unwrap();
-    assert_eq!(s.status, "active");
-    assert_eq!(s.last_transaction_version, 20);
-
-    // Stale "joining" @ v15 must not overwrite the newer "active".
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                pg_slots: vec![slot("joining", 15, 15)],
-                ..Default::default()
-            },
-            15,
-        ))
-        .await
-        .unwrap();
-    let s: PgState = diesel::sql_query(
-        "SELECT status, last_transaction_version FROM placement_group_slots \
-         WHERE placement_group = '0xpg' AND slot_index = 7",
-    )
-    .get_result(&mut conn)
-    .await
-    .unwrap();
-    assert_eq!(
-        s.status, "active",
-        "stale event must not overwrite newer state"
-    );
-    assert_eq!(s.last_transaction_version, 20);
+    .unwrap()
+    .etag;
+    assert_eq!(etag, "0xfeed");
 }
 
-#[tokio::test]
-async fn within_batch_dedup_and_merge() {
-    let (_db, pool) = setup().await;
-    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
-
-    // Two registers for uid=1 in one batch; highest version wins, single row.
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                new_blobs: vec![reg(1, 100), reg(1, 120)],
-                ..Default::default()
-            },
-            120,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(count(&pool, "blobs").await, 1);
-    assert_eq!(blob_state(&pool, 1).await.last_transaction_version, 120);
-
-    // Persist + commit for uid=1 in one batch merge into one update.
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                blob_updates: vec![
-                    BlobUpdate {
-                        is_persisted: Some(bd(1)),
-                        ..BlobUpdate {
-                            uid: bd(1),
-                            last_transaction_version: 130,
-                            ..Default::default()
-                        }
-                    },
-                    BlobUpdate {
-                        is_committed: Some(bd(1)),
-                        etag: Some("0xetag".into()),
-                        ..BlobUpdate {
-                            uid: bd(1),
-                            last_transaction_version: 140,
-                            ..Default::default()
-                        }
-                    },
-                ],
-                ..Default::default()
-            },
-            140,
-        ))
-        .await
-        .unwrap();
-    let s = blob_state(&pool, 1).await;
-    assert_eq!(s.is_persisted, bd(1));
-    assert_eq!(s.etag.as_deref(), Some("0xetag"));
-    assert_eq!(s.last_transaction_version, 140);
-
-    // Same column set twice in one batch, fed newest-first: the higher version
-    // must still win.
-    storer
-        .process(ctx(
-            ShelbyBlobData {
-                blob_updates: vec![
-                    BlobUpdate {
-                        etag: Some("0xnewer".into()),
-                        ..BlobUpdate {
-                            uid: bd(1),
-                            last_transaction_version: 160,
-                            ..Default::default()
-                        }
-                    },
-                    BlobUpdate {
-                        etag: Some("0xolder".into()),
-                        ..BlobUpdate {
-                            uid: bd(1),
-                            last_transaction_version: 150,
-                            ..Default::default()
-                        }
-                    },
-                ],
-                ..Default::default()
-            },
-            160,
-        ))
-        .await
-        .unwrap();
-    let s = blob_state(&pool, 1).await;
-    assert_eq!(s.etag.as_deref(), Some("0xnewer"));
-    assert_eq!(s.last_transaction_version, 160);
+#[derive(QueryableByName)]
+struct PartEtag {
+    #[diesel(sql_type = Text)]
+    etag: String,
 }

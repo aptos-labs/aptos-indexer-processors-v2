@@ -4,6 +4,9 @@
 //! Move JSON deserialization types for the Shelby `blob_metadata` and
 //! `placement_group` events. Aptos serializes u64 as JSON strings and
 //! u8/u16/u32 as JSON numbers; enums carry a `__variant__` tag.
+//!
+//! Only the fields this processor stores are declared. Serde ignores the rest,
+//! so an event may carry more than appears here.
 
 use aptos_indexer_processor_sdk::utils::convert::deserialize_from_string;
 use serde::Deserialize;
@@ -15,70 +18,133 @@ pub(super) struct MoveVariant {
     pub variant: String,
 }
 
+// ─── Object layer ───────────────────────────────────────────────────────────
+
+/// What an object's name resolves to, and how big it is.
+///
+/// The two variants measure different things: a blob reports the bytes it
+/// stores, container included, while a multipart record reports the plaintext
+/// total its parts declared.
 #[derive(Debug, Deserialize)]
-pub(super) struct BlobRegisteredEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    pub owner: String,
-    pub blob_commitment: String,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub blob_size: u64,
-    pub chunkset_count: u32,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub creation_micros: u64,
-    pub slice_address: String,
-    pub placement_group_address: String,
-    pub encoding: MoveVariant,
-    pub encryption: MoveVariant,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub payment_amount: u64,
+#[serde(tag = "__variant__")]
+pub(super) enum ObjectContent {
+    Blob {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        blob_uid: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        stored_size: u64,
+    },
+    Multipart {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        part_count: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        total_size: u64,
+    },
 }
 
+/// What a name resolved to, without its size. The deletion counterpart of
+/// [`ObjectContent`].
 #[derive(Debug, Deserialize)]
-pub(super) struct BlobPersistedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub persisted_at_micros: u64,
+#[serde(tag = "__variant__")]
+pub(super) enum ObjectRef {
+    Blob {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        blob_uid: u64,
+    },
+    Multipart {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+    },
 }
 
+/// A name started resolving to something.
+///
+/// `V1` predates multipart objects and is skipped rather than stored: it
+/// reports neither the stored size nor the encryption an object row needs, and
+/// both live on the registration that minted the blob. Replaying history
+/// therefore yields objects only from the contract upgrade onward. It is named
+/// explicitly so that a variant this processor has never seen still fails
+/// loudly instead of being dropped.
 #[derive(Debug, Deserialize)]
-pub(super) struct ObjectCommittedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    pub owner: String,
-    pub etag: String,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub committed_at_micros: u64,
+#[serde(tag = "__variant__")]
+pub(super) enum ObjectCommittedEvent {
+    V1 {},
+    V2 {
+        object_name: String,
+        owner: String,
+        etag: String,
+        content: ObjectContent,
+        encryption: MoveVariant,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        committed_at_micros: u64,
+    },
 }
 
+/// A name stopped resolving. `V1` is skipped for the same reason as
+/// [`ObjectCommittedEvent::V1`]: it names no binding, so there is nothing to
+/// remove that a V1 commit could have created.
 #[derive(Debug, Deserialize)]
-pub(super) struct BlobDeletedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    pub reason: MoveVariant,
+#[serde(tag = "__variant__")]
+pub(super) enum ObjectDeletedEvent {
+    V1 {},
+    V2 {
+        object_name: String,
+        owner: String,
+        binding: ObjectRef,
+    },
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct ObjectDeletedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub deleted_at_micros: u64,
-}
+// ─── Multipart layer ────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub(super) struct ObjectCommitRejectedEvent {
-    #[serde(deserialize_with = "deserialize_from_string")]
-    pub uid: u64,
-    pub object_name: String,
-    pub owner: String,
+#[serde(tag = "__variant__")]
+pub(super) enum MultipartUploadCreatedEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+        object_name: String,
+        owner: String,
+        encryption: MoveVariant,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        created_at_micros: u64,
+    },
 }
+
+/// A part's bytes are durable and it now belongs to its upload.
+///
+/// `replaced_uid` is not read: a part number that was already taken is an
+/// overwrite of the same primary key, which the upsert handles on its own.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "__variant__")]
+pub(super) enum PartCommittedEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+        part_number: u16,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        plaintext_size: u64,
+        etag: String,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        committed_at_micros: u64,
+    },
+}
+
+/// An upload was abandoned. Only its id is needed: the upload and its parts
+/// are removed, and nothing about them is kept.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "__variant__")]
+pub(super) enum MultipartUploadAbortedEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+    },
+}
+
+// ─── Placement groups ───────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub(super) struct StorageProviderSlotEvent {

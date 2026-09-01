@@ -8,7 +8,8 @@
 
 use crate::{
     processors::shelby_blobs::models::{
-        BlobActivity, BlobUpdate, NewBlob, PlacementGroupSlot, ShelbyBlobData,
+        ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PlacementGroupSlot,
+        ShelbyBlobData, ShelbyObject, UploadRetirement,
     },
     schema,
 };
@@ -23,24 +24,17 @@ use aptos_indexer_processor_sdk::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use diesel::{
-    ExpressionMethods, QueryableByName,
+    ExpressionMethods,
     pg::{Pg, upsert::excluded},
     query_builder::{QueryFragment, QueryId},
     query_dsl::methods::FilterDsl,
-    sql_types::{Array, BigInt, Nullable, Numeric, Text},
+    sql_types::{Array, BigInt, Numeric, Text},
 };
 use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
-use tracing::warn;
 
-/// Bounds the array size of a single partial-update statement.
-const BLOB_UPDATE_CHUNK_SIZE: usize = 1000;
-
-#[derive(QueryableByName)]
-struct MissingUid {
-    #[diesel(sql_type = Numeric)]
-    uid: BigDecimal,
-}
+/// Bounds the array size of a single delete statement.
+const DELETE_CHUNK_SIZE: usize = 1000;
 
 pub struct ShelbyBlobsStorer
 where
@@ -70,39 +64,84 @@ impl Processable for ShelbyBlobsStorer {
         input: TransactionContext<ShelbyBlobData>,
     ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
         let ShelbyBlobData {
-            new_blobs,
-            blob_updates,
+            objects,
+            object_deletions,
+            uploads,
+            parts,
+            retired_uploads,
             activities,
             pg_slots,
         } = input.data;
 
         // Postgres rejects a conflict target touched twice in one do_update statement.
-        let new_blobs = dedup_by_max_version(
-            new_blobs,
-            |b| b.uid.to_string(),
-            |b| b.last_transaction_version,
+        let objects =
+            dedup_by_max_version(objects, |o| o.name.clone(), |o| o.last_transaction_version);
+        let uploads = dedup_by_max_version(
+            uploads,
+            |u| u.multipart_uid.to_string(),
+            |u| u.last_transaction_version,
+        );
+        let parts = dedup_by_max_version(
+            parts,
+            |p| format!("{}:{}", p.multipart_uid, p.part_number),
+            |p| p.last_transaction_version,
         );
         let pg_slots = dedup_by_max_version(
             pg_slots,
             |s| format!("{}:{}", s.placement_group, s.slot_index),
             |s| s.last_transaction_version,
         );
-        let blob_updates = merge_blob_updates(blob_updates);
 
         let (start_version, end_version) =
             (input.metadata.start_version, input.metadata.end_version);
 
-        // Register creates the row; it must land before partial updates targeting it.
+        // Writes before removals. A batch can hold both a part commit and the
+        // completion that consumes it, and the removal has to see the row to
+        // take it away; the other order would leave a part nothing collects.
+        // Ordering alone is not what makes this correct -- each removal is
+        // guarded on the stored version, so a row written by a later
+        // transaction than the removal survives it.
         execute_in_chunks(
             self.conn_pool.clone(),
-            insert_blobs_query,
-            &new_blobs,
-            get_config_table_chunk_size::<NewBlob>("blobs", &self.per_table_chunk_sizes),
+            insert_objects_query,
+            &objects,
+            get_config_table_chunk_size::<ShelbyObject>(
+                "shelby_objects",
+                &self.per_table_chunk_sizes,
+            ),
         )
         .await
         .map_err(|e| store_error(start_version, end_version, &e))?;
 
-        self.apply_blob_updates(&blob_updates)
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_uploads_query,
+            &uploads,
+            get_config_table_chunk_size::<OpenMultipartUpload>(
+                "shelby_open_multipart_uploads",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_parts_query,
+            &parts,
+            get_config_table_chunk_size::<OpenMultipartPart>(
+                "shelby_open_multipart_parts",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        self.delete_objects(&object_deletions)
+            .await
+            .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        self.retire_uploads(&retired_uploads)
             .await
             .map_err(|e| store_error(start_version, end_version, &e))?;
 
@@ -122,8 +161,8 @@ impl Processable for ShelbyBlobsStorer {
             self.conn_pool.clone(),
             insert_activities_query,
             &activities,
-            get_config_table_chunk_size::<BlobActivity>(
-                "blob_activities",
+            get_config_table_chunk_size::<ObjectActivity>(
+                "shelby_object_activities",
                 &self.per_table_chunk_sizes,
             ),
         )
@@ -138,101 +177,77 @@ impl Processable for ShelbyBlobsStorer {
 }
 
 impl ShelbyBlobsStorer {
-    /// Partial updates go through raw SQL because `COALESCE(new, existing)` per
-    /// column isn't expressible in diesel's DSL. Values are passed as arrays, so
-    /// the statement uses nine bind parameters regardless of batch size and can't
-    /// hit diesel's u16 limit; we still chunk to bound the size of any one
-    /// statement, mirroring what `execute_in_chunks` does for the insert paths.
-    async fn apply_blob_updates(
+    /// Remove the objects whose names stopped resolving.
+    ///
+    /// Raw SQL because the guard compares against the stored row rather than
+    /// the incoming value, which diesel's delete DSL cannot express. Values are
+    /// passed as arrays, so the statement uses two bind parameters regardless
+    /// of batch size; chunking bounds the size of any one statement.
+    async fn delete_objects(
         &self,
-        updates: &[BlobUpdate],
+        deletions: &[ObjectDeletion],
     ) -> Result<(), diesel::result::Error> {
-        for chunk in updates.chunks(BLOB_UPDATE_CHUNK_SIZE) {
-            self.apply_blob_update_chunk(chunk).await?;
+        const SQL: &str = "
+            DELETE FROM shelby_objects AS o
+            USING unnest($1, $2) AS v(name, ltv)
+            WHERE o.name = v.name AND o.last_transaction_version <= v.ltv
+        ";
+
+        for chunk in deletions.chunks(DELETE_CHUNK_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let names: Vec<String> = chunk.iter().map(|d| d.name.clone()).collect();
+            let ltvs: Vec<i64> = chunk.iter().map(|d| d.last_transaction_version).collect();
+
+            let mut conn = self.conn_pool.get().await.map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
+            })?;
+            diesel::sql_query(SQL)
+                .bind::<Array<Text>, _>(names)
+                .bind::<Array<BigInt>, _>(ltvs)
+                .execute(&mut conn)
+                .await?;
         }
         Ok(())
     }
 
-    async fn apply_blob_update_chunk(
+    /// Drop the staging rows of uploads that completed or were abandoned, parts
+    /// included. An upload that ended answers no question a client can ask, so
+    /// nothing about it is kept.
+    async fn retire_uploads(
         &self,
-        updates: &[BlobUpdate],
+        retirements: &[UploadRetirement],
     ) -> Result<(), diesel::result::Error> {
-        if updates.is_empty() {
-            return Ok(());
-        }
-
-        let uids: Vec<BigDecimal> = updates.iter().map(|u| u.uid.clone()).collect();
-        let ltvs: Vec<i64> = updates.iter().map(|u| u.last_transaction_version).collect();
-        let updated_at: Vec<Option<BigDecimal>> =
-            updates.iter().map(|u| u.updated_at.clone()).collect();
-        let owner: Vec<Option<String>> = updates.iter().map(|u| u.owner.clone()).collect();
-        let etag: Vec<Option<String>> = updates.iter().map(|u| u.etag.clone()).collect();
-        let deletion_reason: Vec<Option<String>> =
-            updates.iter().map(|u| u.deletion_reason.clone()).collect();
-        let is_persisted: Vec<Option<BigDecimal>> =
-            updates.iter().map(|u| u.is_persisted.clone()).collect();
-        let is_committed: Vec<Option<BigDecimal>> =
-            updates.iter().map(|u| u.is_committed.clone()).collect();
-        let is_deleted: Vec<Option<BigDecimal>> =
-            updates.iter().map(|u| u.is_deleted.clone()).collect();
-
-        const SQL: &str = "
-            UPDATE blobs AS b SET
-                updated_at = COALESCE(v.updated_at, b.updated_at),
-                owner = COALESCE(v.owner, b.owner),
-                etag = COALESCE(v.etag, b.etag),
-                deletion_reason = COALESCE(v.deletion_reason, b.deletion_reason),
-                is_persisted = COALESCE(v.is_persisted, b.is_persisted),
-                is_committed = COALESCE(v.is_committed, b.is_committed),
-                is_deleted = COALESCE(v.is_deleted, b.is_deleted),
-                last_transaction_version = v.ltv
-            FROM unnest($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                AS v(uid, ltv, updated_at, owner, etag,
-                      deletion_reason, is_persisted, is_committed, is_deleted)
-            WHERE b.uid = v.uid AND b.last_transaction_version <= v.ltv
+        const DELETE_PARTS_SQL: &str = "
+            DELETE FROM shelby_open_multipart_parts AS p
+            USING unnest($1, $2) AS v(multipart_uid, ltv)
+            WHERE p.multipart_uid = v.multipart_uid AND p.last_transaction_version <= v.ltv
+        ";
+        const DELETE_UPLOADS_SQL: &str = "
+            DELETE FROM shelby_open_multipart_uploads AS u
+            USING unnest($1, $2) AS v(multipart_uid, ltv)
+            WHERE u.multipart_uid = v.multipart_uid AND u.last_transaction_version <= v.ltv
         ";
 
-        let mut conn = self.conn_pool.get().await.map_err(|e| {
-            diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
-        })?;
+        for chunk in retirements.chunks(DELETE_CHUNK_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let uids: Vec<BigDecimal> = chunk.iter().map(|r| r.multipart_uid.clone()).collect();
+            let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
 
-        let updated = diesel::sql_query(SQL)
-            .bind::<Array<Numeric>, _>(uids.clone())
-            .bind::<Array<BigInt>, _>(ltvs)
-            .bind::<Array<Nullable<Numeric>>, _>(updated_at)
-            .bind::<Array<Nullable<Text>>, _>(owner)
-            .bind::<Array<Nullable<Text>>, _>(etag)
-            .bind::<Array<Nullable<Text>>, _>(deletion_reason)
-            .bind::<Array<Nullable<Numeric>>, _>(is_persisted)
-            .bind::<Array<Nullable<Numeric>>, _>(is_committed)
-            .bind::<Array<Nullable<Numeric>>, _>(is_deleted)
-            .execute(&mut conn)
-            .await?;
-
-        // A short count is either the version guard rejecting a stale update
-        // (expected) or a blob whose registration fell outside the indexed
-        // range, which silently drops state. Only the latter is worth flagging.
-        if updated < updates.len() {
-            let missing: Vec<MissingUid> = diesel::sql_query(
-                "SELECT u AS uid FROM unnest($1) AS u \
-                 WHERE NOT EXISTS (SELECT 1 FROM blobs b WHERE b.uid = u)",
-            )
-            .bind::<Array<Numeric>, _>(uids)
-            .load(&mut conn)
-            .await?;
-
-            if !missing.is_empty() {
-                let sample: Vec<String> =
-                    missing.iter().take(10).map(|m| m.uid.to_string()).collect();
-                warn!(
-                    missing_count = missing.len(),
-                    sample = ?sample,
-                    "Dropped blob updates for uids with no registered row; the \
-                     BlobRegisteredEvent is likely before this run's starting version"
-                );
+            let mut conn = self.conn_pool.get().await.map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
+            })?;
+            for sql in [DELETE_PARTS_SQL, DELETE_UPLOADS_SQL] {
+                diesel::sql_query(sql)
+                    .bind::<Array<Numeric>, _>(uids.clone())
+                    .bind::<Array<BigInt>, _>(ltvs.clone())
+                    .execute(&mut conn)
+                    .await?;
             }
         }
-
         Ok(())
     }
 }
@@ -271,74 +286,56 @@ where
     by_key.into_values().collect()
 }
 
-/// Merges same-`uid` updates within a batch; the higher-version `Some` wins.
-fn merge_blob_updates(mut updates: Vec<BlobUpdate>) -> Vec<BlobUpdate> {
-    // Sorting first makes "last write wins" equal "highest version wins" without
-    // depending on the caller's ordering. The sort is stable, so events sharing a
-    // version keep their in-transaction order.
-    updates.sort_by_key(|u| u.last_transaction_version);
-
-    let mut by_uid: HashMap<String, BlobUpdate> = HashMap::new();
-    for u in updates {
-        let key = u.uid.to_string();
-        match by_uid.get_mut(&key) {
-            Some(m) => {
-                m.last_transaction_version =
-                    m.last_transaction_version.max(u.last_transaction_version);
-                if u.updated_at.is_some() {
-                    m.updated_at = u.updated_at;
-                }
-                if u.owner.is_some() {
-                    m.owner = u.owner;
-                }
-                if u.etag.is_some() {
-                    m.etag = u.etag;
-                }
-                if u.deletion_reason.is_some() {
-                    m.deletion_reason = u.deletion_reason;
-                }
-                if u.is_persisted.is_some() {
-                    m.is_persisted = u.is_persisted;
-                }
-                if u.is_committed.is_some() {
-                    m.is_committed = u.is_committed;
-                }
-                if u.is_deleted.is_some() {
-                    m.is_deleted = u.is_deleted;
-                }
-            },
-            None => {
-                by_uid.insert(key, u);
-            },
-        }
-    }
-    by_uid.into_values().collect()
+fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_objects::dsl::*;
+    diesel::insert_into(schema::shelby_objects::table)
+        .values(items)
+        .on_conflict(name)
+        .do_update()
+        .set((
+            owner.eq(excluded(owner)),
+            etag.eq(excluded(etag)),
+            encryption.eq(excluded(encryption)),
+            blob_uid.eq(excluded(blob_uid)),
+            stored_size.eq(excluded(stored_size)),
+            multipart_uid.eq(excluded(multipart_uid)),
+            part_count.eq(excluded(part_count)),
+            total_size.eq(excluded(total_size)),
+            committed_at_micros.eq(excluded(committed_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }
 
-fn insert_blobs_query(items: Vec<NewBlob>) -> impl QueryFragment<Pg> + QueryId + Send {
-    use schema::blobs::dsl::*;
-    diesel::insert_into(schema::blobs::table)
+fn insert_uploads_query(
+    items: Vec<OpenMultipartUpload>,
+) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_open_multipart_uploads::dsl::*;
+    diesel::insert_into(schema::shelby_open_multipart_uploads::table)
         .values(items)
-        .on_conflict(uid)
+        .on_conflict(multipart_uid)
         .do_update()
         .set((
             object_name.eq(excluded(object_name)),
             owner.eq(excluded(owner)),
-            blob_commitment.eq(excluded(blob_commitment)),
-            encoding.eq(excluded(encoding)),
             encryption.eq(excluded(encryption)),
-            slice_address.eq(excluded(slice_address)),
-            placement_group.eq(excluded(placement_group)),
-            created_at.eq(excluded(created_at)),
-            updated_at.eq(excluded(updated_at)),
-            size.eq(excluded(size)),
-            num_chunksets.eq(excluded(num_chunksets)),
-            payment_amount.eq(excluded(payment_amount)),
-            is_persisted.eq(excluded(is_persisted)),
-            is_committed.eq(excluded(is_committed)),
-            is_deleted.eq(excluded(is_deleted)),
+            created_at_micros.eq(excluded(created_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_parts_query(items: Vec<OpenMultipartPart>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_open_multipart_parts::dsl::*;
+    diesel::insert_into(schema::shelby_open_multipart_parts::table)
+        .values(items)
+        .on_conflict((multipart_uid, part_number))
+        .do_update()
+        .set((
+            blob_uid.eq(excluded(blob_uid)),
+            plaintext_size.eq(excluded(plaintext_size)),
             etag.eq(excluded(etag)),
-            deletion_reason.eq(excluded(deletion_reason)),
+            committed_at_micros.eq(excluded(committed_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
@@ -361,10 +358,10 @@ fn insert_pg_slots_query(
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }
 
-fn insert_activities_query(items: Vec<BlobActivity>) -> impl QueryFragment<Pg> + QueryId + Send {
-    use schema::blob_activities::dsl::*;
-    diesel::insert_into(schema::blob_activities::table)
+fn insert_activities_query(items: Vec<ObjectActivity>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_object_activities::dsl::*;
+    diesel::insert_into(schema::shelby_object_activities::table)
         .values(items)
-        .on_conflict((transaction_hash, event_type, event_index))
+        .on_conflict((transaction_version, event_index))
         .do_nothing()
 }

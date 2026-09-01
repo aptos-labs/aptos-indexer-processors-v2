@@ -4,4 +4,7 @@
 mod read;
 mod write;
 
-pub use write::{BlobActivity, BlobUpdate, NewBlob, PlacementGroupSlot, ShelbyBlobData};
+pub use write::{
+    ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PlacementGroupSlot,
+    ShelbyBlobData, ShelbyObject, UploadRetirement,
+};

@@ -1,14 +1,21 @@
 // Copyright (c) Aptos Foundation
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
-//! Diesel models and event parsing for the `blobs`, `blob_activities`, and
-//! `placement_group_slots` tables.
+//! Diesel models and event parsing for the Shelby object tables.
 //!
-//! Only `BlobRegisteredEvent` carries every NOT-NULL `blobs` column, so it is the
-//! sole row creator ([`NewBlob`]); other events are partial [`BlobUpdate`]s.
+//! The indexer holds objects and the uploads on their way to becoming one.
+//! Blobs are how bytes are stored, which concerns the storage providers, and
+//! they read that from the chain, so blob-layer events are not handled here.
+//!
+//! Five events are indexed. A commit writes an object and, when it seals a
+//! multipart upload, retires that upload's staging rows; a deletion removes the
+//! object; the three multipart events maintain the staging rows in between.
 
 use super::read::*;
-use crate::schema::{blob_activities, blobs, placement_group_slots};
+use crate::schema::{
+    placement_group_slots, shelby_object_activities, shelby_objects, shelby_open_multipart_parts,
+    shelby_open_multipart_uploads,
+};
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{Event, Transaction, transaction::TxnData},
@@ -24,40 +31,58 @@ pub const PLACEMENT_GROUP_MODULE: &str = "placement_group";
 
 // ─── Diesel models ──────────────────────────────────────────────────────────
 
+/// A live object. Exactly one content variant is populated, matching the
+/// table's check constraint.
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
-#[diesel(table_name = blobs)]
-pub struct NewBlob {
-    pub uid: BigDecimal,
-    pub object_name: String,
+#[diesel(table_name = shelby_objects)]
+pub struct ShelbyObject {
+    pub name: String,
     pub owner: String,
-    pub blob_commitment: String,
-    pub encoding: String,
+    pub etag: String,
     pub encryption: String,
-    pub slice_address: String,
-    pub placement_group: String,
-    pub created_at: BigDecimal,
-    pub updated_at: BigDecimal,
-    pub size: BigDecimal,
-    pub num_chunksets: BigDecimal,
-    pub payment_amount: BigDecimal,
-    pub is_persisted: BigDecimal,
-    pub is_committed: BigDecimal,
-    pub is_deleted: BigDecimal,
-    pub etag: Option<String>,
-    pub deletion_reason: Option<String>,
+    pub blob_uid: Option<BigDecimal>,
+    pub stored_size: Option<BigDecimal>,
+    pub multipart_uid: Option<BigDecimal>,
+    pub part_count: Option<BigDecimal>,
+    pub total_size: Option<BigDecimal>,
+    pub committed_at_micros: BigDecimal,
     pub last_transaction_version: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
-#[diesel(table_name = blob_activities)]
-pub struct BlobActivity {
-    pub transaction_hash: String,
-    pub event_type: String,
-    pub event_index: i64,
-    pub uid: BigDecimal,
+#[diesel(table_name = shelby_open_multipart_uploads)]
+pub struct OpenMultipartUpload {
+    pub multipart_uid: BigDecimal,
     pub object_name: String,
-    pub owner: Option<String>,
+    pub owner: String,
+    pub encryption: String,
+    pub created_at_micros: BigDecimal,
+    pub last_transaction_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
+#[diesel(table_name = shelby_open_multipart_parts)]
+pub struct OpenMultipartPart {
+    pub multipart_uid: BigDecimal,
+    pub part_number: BigDecimal,
+    pub blob_uid: BigDecimal,
+    pub plaintext_size: BigDecimal,
+    pub etag: String,
+    pub committed_at_micros: BigDecimal,
+    pub last_transaction_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
+#[diesel(table_name = shelby_object_activities)]
+pub struct ObjectActivity {
     pub transaction_version: i64,
+    pub event_index: i64,
+    pub event_type: String,
+    pub transaction_hash: String,
+    pub object_name: String,
+    pub owner: String,
+    pub blob_uid: Option<BigDecimal>,
+    pub multipart_uid: Option<BigDecimal>,
     pub timestamp: NaiveDateTime,
 }
 
@@ -72,34 +97,42 @@ pub struct PlacementGroupSlot {
     pub last_transaction_version: i64,
 }
 
-/// A partial update to an existing `blobs` row; `None` columns are left unchanged.
-#[derive(Clone, Debug, Default)]
-pub struct BlobUpdate {
-    pub uid: BigDecimal,
+/// An object to remove, and the version that removed it. The version is the
+/// guard: a row written by a later transaction survives a replayed deletion.
+#[derive(Clone, Debug)]
+pub struct ObjectDeletion {
+    pub name: String,
     pub last_transaction_version: i64,
-    pub updated_at: Option<BigDecimal>,
-    pub owner: Option<String>,
-    pub etag: Option<String>,
-    pub deletion_reason: Option<String>,
-    pub is_persisted: Option<BigDecimal>,
-    pub is_committed: Option<BigDecimal>,
-    pub is_deleted: Option<BigDecimal>,
+}
+
+/// An upload whose staging rows are finished with, because it completed or was
+/// abandoned. Both its own row and all of its parts go.
+#[derive(Clone, Debug)]
+pub struct UploadRetirement {
+    pub multipart_uid: BigDecimal,
+    pub last_transaction_version: i64,
 }
 
 // ─── Parsed output for one context of transactions ──────────────────────────
 
 #[derive(Default)]
 pub struct ShelbyBlobData {
-    pub new_blobs: Vec<NewBlob>,
-    pub blob_updates: Vec<BlobUpdate>,
-    pub activities: Vec<BlobActivity>,
+    pub objects: Vec<ShelbyObject>,
+    pub object_deletions: Vec<ObjectDeletion>,
+    pub uploads: Vec<OpenMultipartUpload>,
+    pub parts: Vec<OpenMultipartPart>,
+    pub retired_uploads: Vec<UploadRetirement>,
+    pub activities: Vec<ObjectActivity>,
     pub pg_slots: Vec<PlacementGroupSlot>,
 }
 
 impl ShelbyBlobData {
     pub fn extend(&mut self, other: ShelbyBlobData) {
-        self.new_blobs.extend(other.new_blobs);
-        self.blob_updates.extend(other.blob_updates);
+        self.objects.extend(other.objects);
+        self.object_deletions.extend(other.object_deletions);
+        self.uploads.extend(other.uploads);
+        self.parts.extend(other.parts);
+        self.retired_uploads.extend(other.retired_uploads);
         self.activities.extend(other.activities);
         self.pg_slots.extend(other.pg_slots);
     }
@@ -162,98 +195,146 @@ impl ShelbyBlobData {
         txn_timestamp: NaiveDateTime,
         event_index: i64,
     ) -> Option<()> {
-        // (uid, object_name, owner) for the blob_activities row.
-        let activity: (u64, String, Option<String>) = match short {
-            "BlobRegisteredEvent" => {
-                let e = deser::<BlobRegisteredEvent>(short, &event.data);
-                let owner = standardize_address(&e.owner);
-                self.new_blobs.push(NewBlob {
-                    uid: BigDecimal::from(e.uid),
-                    object_name: e.object_name.clone(),
-                    owner: owner.clone(),
-                    blob_commitment: e.blob_commitment,
-                    encoding: e.encoding.variant,
-                    encryption: e.encryption.variant,
-                    slice_address: standardize_address(&e.slice_address),
-                    placement_group: standardize_address(&e.placement_group_address),
-                    created_at: BigDecimal::from(e.creation_micros),
-                    updated_at: BigDecimal::from(e.creation_micros),
-                    size: BigDecimal::from(e.blob_size),
-                    num_chunksets: BigDecimal::from(e.chunkset_count),
-                    payment_amount: BigDecimal::from(e.payment_amount),
-                    is_persisted: BigDecimal::from(0u64),
-                    is_committed: BigDecimal::from(0u64),
-                    is_deleted: BigDecimal::from(0u64),
-                    etag: None,
-                    deletion_reason: None,
-                    last_transaction_version: txn_version,
-                });
-                (e.uid, e.object_name, Some(owner))
-            },
-            "BlobPersistedEvent" => {
-                let e = deser::<BlobPersistedEvent>(short, &event.data);
-                self.blob_updates.push(BlobUpdate {
-                    uid: BigDecimal::from(e.uid),
-                    last_transaction_version: txn_version,
-                    updated_at: Some(BigDecimal::from(e.persisted_at_micros)),
-                    is_persisted: Some(BigDecimal::from(1u64)),
-                    ..Default::default()
-                });
-                (e.uid, e.object_name, None)
-            },
+        // Set by the two events an object's history is made of; the multipart
+        // events maintain staging rows and are not part of that history.
+        let activity: Option<(String, String, Option<u64>, Option<u64>)> = match short {
             "ObjectCommittedEvent" => {
-                let e = deser::<ObjectCommittedEvent>(short, &event.data);
-                let owner = standardize_address(&e.owner);
-                self.blob_updates.push(BlobUpdate {
-                    uid: BigDecimal::from(e.uid),
-                    last_transaction_version: txn_version,
-                    updated_at: Some(BigDecimal::from(e.committed_at_micros)),
-                    owner: Some(owner.clone()),
-                    etag: Some(e.etag),
-                    is_committed: Some(BigDecimal::from(1u64)),
-                    ..Default::default()
-                });
-                (e.uid, e.object_name, Some(owner))
+                match deser::<ObjectCommittedEvent>(short, &event.data) {
+                    ObjectCommittedEvent::V1 {} => None,
+                    ObjectCommittedEvent::V2 {
+                        object_name,
+                        owner,
+                        etag,
+                        content,
+                        encryption,
+                        committed_at_micros,
+                    } => {
+                        let owner = standardize_address(&owner);
+                        let (blob_uid, multipart_uid) = match &content {
+                            ObjectContent::Blob { blob_uid, .. } => (Some(*blob_uid), None),
+                            ObjectContent::Multipart { multipart_uid, .. } => {
+                                (None, Some(*multipart_uid))
+                            },
+                        };
+                        // Sealing an upload ends it: its staging rows go, and
+                        // the object row below is what the name resolves to.
+                        if let Some(uid) = multipart_uid {
+                            self.retired_uploads.push(UploadRetirement {
+                                multipart_uid: BigDecimal::from(uid),
+                                last_transaction_version: txn_version,
+                            });
+                        }
+                        self.objects.push(ShelbyObject {
+                            name: object_name.clone(),
+                            owner: owner.clone(),
+                            etag,
+                            encryption: encryption.variant,
+                            blob_uid: blob_uid.map(BigDecimal::from),
+                            stored_size: match &content {
+                                ObjectContent::Blob { stored_size, .. } => {
+                                    Some(BigDecimal::from(*stored_size))
+                                },
+                                ObjectContent::Multipart { .. } => None,
+                            },
+                            multipart_uid: multipart_uid.map(BigDecimal::from),
+                            part_count: match &content {
+                                ObjectContent::Multipart { part_count, .. } => {
+                                    Some(BigDecimal::from(*part_count))
+                                },
+                                ObjectContent::Blob { .. } => None,
+                            },
+                            total_size: match &content {
+                                ObjectContent::Multipart { total_size, .. } => {
+                                    Some(BigDecimal::from(*total_size))
+                                },
+                                ObjectContent::Blob { .. } => None,
+                            },
+                            committed_at_micros: BigDecimal::from(committed_at_micros),
+                            last_transaction_version: txn_version,
+                        });
+                        Some((object_name, owner, blob_uid, multipart_uid))
+                    },
+                }
             },
-            "BlobDeletedEvent" => {
-                // Carries no timestamp: sets is_deleted but not updated_at.
-                let e = deser::<BlobDeletedEvent>(short, &event.data);
-                self.blob_updates.push(BlobUpdate {
-                    uid: BigDecimal::from(e.uid),
-                    last_transaction_version: txn_version,
-                    deletion_reason: Some(e.reason.variant),
-                    is_deleted: Some(BigDecimal::from(1u64)),
-                    ..Default::default()
-                });
-                (e.uid, e.object_name, None)
+            "ObjectDeletedEvent" => match deser::<ObjectDeletedEvent>(short, &event.data) {
+                ObjectDeletedEvent::V1 {} => None,
+                ObjectDeletedEvent::V2 {
+                    object_name,
+                    owner,
+                    binding,
+                } => {
+                    let owner = standardize_address(&owner);
+                    let (blob_uid, multipart_uid) = match binding {
+                        ObjectRef::Blob { blob_uid } => (Some(blob_uid), None),
+                        ObjectRef::Multipart { multipart_uid } => (None, Some(multipart_uid)),
+                    };
+                    self.object_deletions.push(ObjectDeletion {
+                        name: object_name.clone(),
+                        last_transaction_version: txn_version,
+                    });
+                    Some((object_name, owner, blob_uid, multipart_uid))
+                },
             },
-            "ObjectDeletedEvent" => {
-                let e = deser::<ObjectDeletedEvent>(short, &event.data);
-                self.blob_updates.push(BlobUpdate {
-                    uid: BigDecimal::from(e.uid),
+            "MultipartUploadCreatedEvent" => {
+                let MultipartUploadCreatedEvent::V1 {
+                    multipart_uid,
+                    object_name,
+                    owner,
+                    encryption,
+                    created_at_micros,
+                } = deser::<MultipartUploadCreatedEvent>(short, &event.data);
+                self.uploads.push(OpenMultipartUpload {
+                    multipart_uid: BigDecimal::from(multipart_uid),
+                    object_name,
+                    owner: standardize_address(&owner),
+                    encryption: encryption.variant,
+                    created_at_micros: BigDecimal::from(created_at_micros),
                     last_transaction_version: txn_version,
-                    updated_at: Some(BigDecimal::from(e.deleted_at_micros)),
-                    ..Default::default()
                 });
-                (e.uid, e.object_name, None)
+                None
             },
-            "ObjectCommitRejectedEvent" => {
-                // Activity-only; no blobs row change.
-                let e = deser::<ObjectCommitRejectedEvent>(short, &event.data);
-                (e.uid, e.object_name, Some(standardize_address(&e.owner)))
+            "PartCommittedEvent" => {
+                let PartCommittedEvent::V1 {
+                    multipart_uid,
+                    part_number,
+                    uid,
+                    plaintext_size,
+                    etag,
+                    committed_at_micros,
+                } = deser::<PartCommittedEvent>(short, &event.data);
+                self.parts.push(OpenMultipartPart {
+                    multipart_uid: BigDecimal::from(multipart_uid),
+                    part_number: BigDecimal::from(part_number),
+                    blob_uid: BigDecimal::from(uid),
+                    plaintext_size: BigDecimal::from(plaintext_size),
+                    etag,
+                    committed_at_micros: BigDecimal::from(committed_at_micros),
+                    last_transaction_version: txn_version,
+                });
+                None
+            },
+            "MultipartUploadAbortedEvent" => {
+                let MultipartUploadAbortedEvent::V1 { multipart_uid } =
+                    deser::<MultipartUploadAbortedEvent>(short, &event.data);
+                self.retired_uploads.push(UploadRetirement {
+                    multipart_uid: BigDecimal::from(multipart_uid),
+                    last_transaction_version: txn_version,
+                });
+                None
             },
             _ => return None,
         };
 
-        let (uid, object_name, owner) = activity;
-        self.activities.push(BlobActivity {
-            transaction_hash: txn_hash.to_string(),
-            event_type: event.type_str.clone(),
+        let (object_name, owner, blob_uid, multipart_uid) = activity?;
+        self.activities.push(ObjectActivity {
+            transaction_version: txn_version,
             event_index,
-            uid: BigDecimal::from(uid),
+            event_type: event.type_str.clone(),
+            transaction_hash: txn_hash.to_string(),
             object_name,
             owner,
-            transaction_version: txn_version,
+            blob_uid: blob_uid.map(BigDecimal::from),
+            multipart_uid: multipart_uid.map(BigDecimal::from),
             timestamp: txn_timestamp,
         });
         Some(())
@@ -280,7 +361,8 @@ impl ShelbyBlobData {
 }
 
 /// Panics on failure: a parse error for an event we index means the on-chain
-/// shape diverged from this processor's target schema.
+/// shape diverged from this processor's target schema. A retired variant is
+/// not such a divergence, and is declared so that it parses and is skipped.
 fn deser<'a, T: serde::Deserialize<'a>>(event_type: &str, data: &'a str) -> T {
     serde_json::from_str::<T>(data).unwrap_or_else(|e| {
         panic!(

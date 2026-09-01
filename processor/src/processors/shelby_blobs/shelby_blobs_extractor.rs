@@ -17,6 +17,10 @@ where
 {
     /// Standardized address of the Shelby contract whose events we index.
     pub deployer_address: String,
+    /// Whether to record the object history an explorer reads. It is the only
+    /// table nothing else queries, and the only one that grows without bound,
+    /// so a deployment that serves the gateway alone leaves it empty.
+    pub index_object_activities: bool,
 }
 
 #[async_trait]
@@ -35,6 +39,9 @@ impl Processable for ShelbyBlobsExtractor {
                 txn,
                 &self.deployer_address,
             ));
+        }
+        if !self.index_object_activities {
+            data.activities.clear();
         }
 
         Ok(Some(TransactionContext {
