@@ -30,7 +30,7 @@ use diesel::{
     sql_types::{Array, BigInt, Integer, Text},
 };
 use diesel_async::RunQueryDsl;
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
 /// Bounds the array a single hand-written statement binds.
 const ARRAY_CHUNK_SIZE: usize = 1000;
@@ -77,55 +77,35 @@ impl Processable for ShelbyBlobsStorer {
         // Postgres rejects a conflict target touched twice in one do_update statement.
         let objects =
             dedup_by_max_version(objects, |o| o.name.clone(), |o| o.last_transaction_version);
-        let uploads = dedup_by_max_version(
-            uploads,
-            |u| u.multipart_uid.to_string(),
-            |u| u.last_transaction_version,
-        );
+        let uploads =
+            dedup_by_max_version(uploads, |u| u.multipart_uid, |u| u.last_transaction_version);
         let parts = dedup_by_max_version(
             parts,
-            |p| format!("{}:{}", p.multipart_uid, p.part_number),
+            |p| (p.multipart_uid, p.part_number),
             |p| p.last_transaction_version,
         );
         let pg_slots = dedup_by_max_version(
             pg_slots,
-            |s| format!("{}:{}", s.placement_group, s.slot_index),
+            |s| (s.placement_group.clone(), s.slot_index.clone()),
             |s| s.last_transaction_version,
         );
 
         let (start_version, end_version) =
             (input.metadata.start_version, input.metadata.end_version);
 
-        // Writes before removals. A batch can hold both a part commit and the
-        // completion that consumes it, and the removal has to see the row to
-        // take it away; the other order would leave a part nothing collects.
-        // Ordering alone is not what makes that correct -- a removal that can
-        // contend with a later write is guarded on the stored version, so a row
-        // written by a later transaction survives it.
+        // Writes before removals, since a batch can hold both a part commit and
+        // the completion that consumes it. Beyond that the order carries three
+        // things a version guard cannot: staged parts must exist before the
+        // promotion reads them, the promotion must run before `retire_uploads`
+        // deletes those same rows, and orphan deletion must run after the
+        // promotion so a commit and the overwrite displacing it in one batch
+        // leave nothing behind. An out-of-order promotion writes an empty
+        // manifest and reports no error.
         //
-        // Three steps below are ordered for reasons a version guard cannot
-        // supply, and each is load-bearing:
-        //
-        //   - Staging parts are inserted before the promotion reads them, so a
-        //     batch carrying both a part and the completion that consumes it
-        //     promotes a full manifest rather than a short one.
-        //
-        //   - Promotion runs before `retire_uploads`, which deletes the very
-        //     staging rows it reads. Reversed, every manifest comes out empty,
-        //     and silently, because promoting nothing is not an error.
-        //
-        //   - Orphan deletion runs after promotion, so a batch holding both a
-        //     commit and the overwrite that displaces it does not leak the
-        //     manifest it has just written.
-        //
-        // Nothing here shares a transaction: each statement runs on its own
-        // pooled connection and commits by itself. A crash therefore lands
-        // mid-batch, and what makes that safe is the replay -- the version
-        // tracker runs after this step and has not advanced. On the way through
-        // again the objects upsert passes its own guard at equal versions, the
-        // staging rows are still present because retirement had not run, and
-        // the promotion repeats itself under ON CONFLICT DO NOTHING. Promotion
-        // before retirement is what buys that.
+        // These statements share no transaction, so a crash lands mid-batch.
+        // The replay absorbs it: the version tracker has not advanced, staging
+        // survives because retirement had not run, and the promotion repeats
+        // under ON CONFLICT DO NOTHING.
         execute_in_chunks(
             self.conn_pool.clone(),
             insert_uploads_query,
@@ -227,9 +207,6 @@ impl ShelbyBlobsStorer {
         ";
 
         for chunk in deletions.chunks(ARRAY_CHUNK_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
             let names: Vec<String> = chunk.iter().map(|d| d.name.clone()).collect();
             let ltvs: Vec<i64> = chunk.iter().map(|d| d.last_transaction_version).collect();
 
@@ -245,25 +222,19 @@ impl ShelbyBlobsStorer {
         Ok(())
     }
 
-    /// Turn each sealed upload's staged parts into the object's manifest.
+    /// Turn each sealed upload's staged parts into the object's manifest, at
+    /// offsets that are a running sum over the parts the completion kept.
     ///
-    /// The offsets are a running sum over the parts the completion kept, which
-    /// is why this cannot be built when the parts arrive: a part's place in the
-    /// object is not known until the list it belongs to is fixed, and the parts
-    /// themselves usually landed in an earlier batch.
-    ///
-    /// Raw SQL because the whole statement is one insert-from-select over
-    /// values already in the database; there are no rows to send. Chunking
-    /// bounds the uid array, and each chunk carries only its own uids' pruned
-    /// pairs, so the anti-join stays proportional to the chunk.
+    /// Raw SQL, and one insert-from-select rather than rows sent from here,
+    /// because the sizes it sums are already in the database. Chunking bounds
+    /// the uid array; a chunk's pruned pairs are bounded only by how much the
+    /// completions in it pruned, which is nothing at all in the ordinary case.
     async fn promote_manifests(
         &self,
         sealed: &[SealedUpload],
     ) -> Result<(), diesel::result::Error> {
-        // DISTINCT because a duplicated uid in $1 would join each staged part
-        // more than once and silently double every offset. A uid is sealed
-        // exactly once on chain, so this defends the arithmetic rather than
-        // correcting for an input we expect.
+        // DISTINCT: a repeated uid in $1 would join each staged part twice and
+        // silently double every offset.
         const SQL: &str = "
             WITH completed AS (
                 SELECT DISTINCT unnest($1::BIGINT[]) AS multipart_uid
@@ -305,9 +276,6 @@ impl ShelbyBlobsStorer {
         ";
 
         for chunk in sealed.chunks(ARRAY_CHUNK_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
             let uids: Vec<i64> = chunk.iter().map(|s| s.multipart_uid).collect();
             let (pruned_uids, pruned_numbers): (Vec<i64>, Vec<i32>) = chunk
                 .iter()
@@ -329,10 +297,8 @@ impl ShelbyBlobsStorer {
 
     /// Remove the manifests of multipart records nothing resolves to any more.
     ///
-    /// No version guard, unlike the other removals here. Those arbitrate a
-    /// removal against a write that may be newer; a multipart uid is never
-    /// reused, so nothing can land under one that has been disposed of, and a
-    /// replayed disposal deletes rows that are already gone.
+    /// No version guard, unlike the other removals here: a multipart uid is
+    /// never reused, so no later write can land under one already disposed of.
     async fn drop_orphaned_manifests(
         &self,
         multipart_uids: &[i64],
@@ -340,9 +306,6 @@ impl ShelbyBlobsStorer {
         const SQL: &str = "DELETE FROM shelby_object_parts WHERE multipart_uid = ANY($1)";
 
         for chunk in multipart_uids.chunks(ARRAY_CHUNK_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
             let mut conn = self.conn_pool.get().await.map_err(|e| {
                 diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
             })?;
@@ -355,8 +318,7 @@ impl ShelbyBlobsStorer {
     }
 
     /// Drop the staging rows of uploads that completed or were abandoned, parts
-    /// included. An upload that ended answers no question a client can ask, so
-    /// nothing about it is kept.
+    /// included.
     async fn retire_uploads(
         &self,
         retirements: &[UploadRetirement],
@@ -373,9 +335,6 @@ impl ShelbyBlobsStorer {
         ";
 
         for chunk in retirements.chunks(ARRAY_CHUNK_SIZE) {
-            if chunk.is_empty() {
-                continue;
-            }
             let uids: Vec<i64> = chunk.iter().map(|r| r.multipart_uid).collect();
             let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
 
@@ -410,12 +369,13 @@ fn store_error(start_version: u64, end_version: u64, e: &dyn std::fmt::Debug) ->
 }
 
 /// Keeps, per key, only the row with the highest transaction version.
-fn dedup_by_max_version<T, K, V>(items: Vec<T>, key: K, version: V) -> Vec<T>
+fn dedup_by_max_version<T, K, Key, V>(items: Vec<T>, key: K, version: V) -> Vec<T>
 where
-    K: Fn(&T) -> String,
+    K: Fn(&T) -> Key,
+    Key: Hash + Eq,
     V: Fn(&T) -> i64,
 {
-    let mut by_key: HashMap<String, T> = HashMap::new();
+    let mut by_key: HashMap<Key, T> = HashMap::new();
     for item in items {
         let k = key(&item);
         match by_key.get(&k) {

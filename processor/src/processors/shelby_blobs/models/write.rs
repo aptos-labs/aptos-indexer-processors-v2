@@ -112,11 +112,8 @@ pub struct UploadRetirement {
     pub last_transaction_version: i64,
 }
 
-/// An upload a commit sealed into an object, and what that commit left behind.
-///
-/// Distinct from [`UploadRetirement`], which also covers aborts: an abandoned
-/// upload's staged parts are discarded, and only a sealed one's are promoted
-/// into a manifest.
+/// An upload a commit sealed into an object, whose staged parts become its
+/// manifest. Narrower than [`UploadRetirement`], which also covers aborts.
 #[derive(Clone, Debug)]
 pub struct SealedUpload {
     pub multipart_uid: i64,
@@ -134,10 +131,9 @@ pub struct ShelbyBlobData {
     pub uploads: Vec<OpenMultipartUpload>,
     pub parts: Vec<OpenMultipartPart>,
     pub sealed_uploads: Vec<SealedUpload>,
-    /// Multipart uids whose manifests nothing points at any more, because the
-    /// object was deleted or overwritten. Their `shelby_object_parts` rows are
-    /// unreachable once the object row is gone, and only the event that
-    /// released the binding names the uid.
+    /// Multipart uids whose manifests nothing resolves to any more, the object
+    /// having been deleted or overwritten. Only the event that released the
+    /// binding names the uid.
     pub orphaned_manifests: Vec<i64>,
     pub retired_uploads: Vec<UploadRetirement>,
     pub activities: Vec<ObjectActivity>,
