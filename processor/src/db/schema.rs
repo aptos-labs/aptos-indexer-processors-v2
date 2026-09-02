@@ -101,10 +101,19 @@ diesel::table! {
         object_name -> Text,
         #[max_length = 66]
         owner -> Varchar,
-        blob_uid -> Nullable<Numeric>,
-        multipart_uid -> Nullable<Numeric>,
+        blob_uid -> Nullable<Int8>,
+        multipart_uid -> Nullable<Int8>,
         timestamp -> Timestamp,
-        inserted_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    shelby_object_parts (multipart_uid, part_number) {
+        multipart_uid -> Int8,
+        part_number -> Int4,
+        blob_uid -> Int8,
+        offset_in_object -> Int8,
+        end_offset -> Int8,
     }
 }
 
@@ -115,40 +124,37 @@ diesel::table! {
         owner -> Varchar,
         etag -> Text,
         encryption -> Text,
-        plaintext_size -> Numeric,
-        blob_uid -> Nullable<Numeric>,
-        multipart_uid -> Nullable<Numeric>,
-        part_count -> Nullable<Numeric>,
+        plaintext_size -> Int8,
+        blob_uid -> Nullable<Int8>,
+        multipart_uid -> Nullable<Int8>,
+        part_count -> Nullable<Int4>,
         kind -> Nullable<Text>,
-        committed_at_micros -> Numeric,
+        committed_at_micros -> Int8,
         last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
     }
 }
 
 diesel::table! {
     shelby_open_multipart_parts (multipart_uid, part_number) {
-        multipart_uid -> Numeric,
-        part_number -> Numeric,
-        blob_uid -> Numeric,
-        plaintext_size -> Numeric,
+        multipart_uid -> Int8,
+        part_number -> Int4,
+        blob_uid -> Int8,
+        plaintext_size -> Int8,
         etag -> Text,
-        committed_at_micros -> Numeric,
+        committed_at_micros -> Int8,
         last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
     }
 }
 
 diesel::table! {
     shelby_open_multipart_uploads (multipart_uid) {
-        multipart_uid -> Numeric,
+        multipart_uid -> Int8,
         object_name -> Text,
         #[max_length = 66]
         owner -> Varchar,
         encryption -> Text,
-        created_at_micros -> Numeric,
+        created_at_micros -> Int8,
         last_transaction_version -> Int8,
-        inserted_at -> Timestamp,
     }
 }
 
@@ -1059,6 +1065,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     proposal_votes,
     public_key_auth_keys,
     shelby_object_activities,
+    shelby_object_parts,
     shelby_objects,
     shelby_open_multipart_parts,
     shelby_open_multipart_uploads,

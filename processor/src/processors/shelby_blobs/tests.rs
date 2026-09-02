@@ -19,8 +19,8 @@ use crate::{
     MIGRATIONS,
     processors::shelby_blobs::{
         models::{
-            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, ShelbyBlobData,
-            ShelbyObject, UploadRetirement,
+            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, SealedUpload,
+            ShelbyBlobData, ShelbyObject, UploadRetirement,
         },
         shelby_blobs_storer::ShelbyBlobsStorer,
     },
@@ -38,10 +38,9 @@ use aptos_indexer_processor_sdk::{
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
 };
-use bigdecimal::BigDecimal;
 use diesel::{
     QueryableByName,
-    sql_types::{BigInt, Nullable, Numeric, Text},
+    sql_types::{BigInt, Integer, Nullable, Text},
 };
 use diesel_async::RunQueryDsl;
 
@@ -140,12 +139,15 @@ fn a_commit_reports_the_content_it_bound() {
     let o = &data.objects[0];
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.encryption, "AES_GCM_V1");
-    assert_eq!(o.blob_uid, Some(BigDecimal::from(7u64)));
-    assert_eq!(o.plaintext_size, BigDecimal::from(2048u64));
+    assert_eq!(o.blob_uid, Some(7));
+    assert_eq!(o.plaintext_size, 2048);
     assert_eq!(o.multipart_uid, None);
     assert_eq!(o.part_count, None);
-    // A single blob is not an upload, so nothing is retired.
+    // A single blob is not an upload, so nothing is retired or promoted.
     assert!(data.retired_uploads.is_empty());
+    assert!(data.sealed_uploads.is_empty());
+    // Nothing was displaced, so no manifest was orphaned.
+    assert!(data.orphaned_manifests.is_empty());
     assert_eq!(data.activities.len(), 1);
 
     let multipart = r#"{
@@ -157,7 +159,8 @@ fn a_commit_reports_the_content_it_bound() {
             "__variant__": "Multipart",
             "multipart_uid": "9",
             "part_count": "3",
-            "plaintext_size": "300"
+            "plaintext_size": "300",
+            "pruned_part_numbers": [4, 7]
         },
         "encryption": { "__variant__": "Unencrypted" },
         "previous": { "vec": [] },
@@ -166,16 +169,70 @@ fn a_commit_reports_the_content_it_bound() {
     }"#;
     let data = parse("ObjectCommittedEvent", multipart);
     let o = &data.objects[0];
-    assert_eq!(o.multipart_uid, Some(BigDecimal::from(9u64)));
-    assert_eq!(o.part_count, Some(BigDecimal::from(3u64)));
-    assert_eq!(o.plaintext_size, BigDecimal::from(300u64));
+    assert_eq!(o.multipart_uid, Some(9));
+    assert_eq!(o.part_count, Some(3));
+    assert_eq!(o.plaintext_size, 300);
     assert_eq!(o.blob_uid, None);
-    // Sealing the upload ends it.
+    // Sealing the upload both ends it and fixes the object's part list.
     assert_eq!(data.retired_uploads.len(), 1);
-    assert_eq!(
-        data.retired_uploads[0].multipart_uid,
-        BigDecimal::from(9u64)
+    assert_eq!(data.retired_uploads[0].multipart_uid, 9);
+    assert_eq!(data.sealed_uploads.len(), 1);
+    assert_eq!(data.sealed_uploads[0].multipart_uid, 9);
+    assert_eq!(data.sealed_uploads[0].pruned_part_numbers, vec![4, 7]);
+}
+
+/// An overwrite displaces whatever the name resolved to, and only the commit
+/// event reports it. A displaced multipart record's manifest is unreachable
+/// from that moment, so its uid has to be picked up here or not at all.
+#[test]
+fn an_overwrite_reports_the_multipart_record_it_displaced() {
+    let over_multipart = r#"{
+        "__variant__": "V2",
+        "object_name": "@0x1/big.mp4",
+        "owner": "0x1",
+        "etag": "0xabcd",
+        "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
+        "encryption": { "__variant__": "Unencrypted" },
+        "previous": { "vec": [{ "__variant__": "Multipart", "multipart_uid": "9" }] },
+        "previous_etag": { "vec": ["0xbeef"] },
+        "committed_at_micros": "800"
+    }"#;
+    let data = parse("ObjectCommittedEvent", over_multipart);
+    assert_eq!(data.orphaned_manifests, vec![9]);
+
+    // Displacing a single-blob object orphans no manifest: it never had one.
+    let over_blob = over_multipart.replace(
+        r#"{ "__variant__": "Multipart", "multipart_uid": "9" }"#,
+        r#"{ "__variant__": "Blob", "blob_uid": "3" }"#,
     );
+    let data = parse("ObjectCommittedEvent", &over_blob);
+    assert!(data.orphaned_manifests.is_empty());
+}
+
+/// Deleting a multipart object is the other way its manifest stops being
+/// reachable, and `binding` is where the uid comes from.
+#[test]
+fn deleting_a_multipart_object_orphans_its_manifest() {
+    let deleted = r#"{
+        "__variant__": "V2",
+        "object_name": "@0x1/big.mp4",
+        "owner": "0x1",
+        "binding": { "__variant__": "Multipart", "multipart_uid": "9" },
+        "reason": { "__variant__": "DeletedByOwner" },
+        "deleted_at_micros": "900"
+    }"#;
+    let data = parse("ObjectDeletedEvent", deleted);
+    assert_eq!(data.orphaned_manifests, vec![9]);
+    assert_eq!(data.object_deletions.len(), 1);
+    assert_eq!(data.object_deletions[0].name, "@0x1/big.mp4");
+
+    let blob_deleted = deleted.replace(
+        r#"{ "__variant__": "Multipart", "multipart_uid": "9" }"#,
+        r#"{ "__variant__": "Blob", "blob_uid": "3" }"#,
+    );
+    let data = parse("ObjectDeletedEvent", &blob_deleted);
+    assert!(data.orphaned_manifests.is_empty());
+    assert_eq!(data.object_deletions.len(), 1);
 }
 
 /// Blobs are the storage providers' concern and reach them from the chain, so
@@ -221,59 +278,66 @@ fn ctx(data: ShelbyBlobData, version: u64) -> TransactionContext<ShelbyBlobData>
     }
 }
 
-fn bd(n: u64) -> BigDecimal {
-    BigDecimal::from(n)
-}
-
 fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
     ShelbyObject {
         name: name.into(),
         owner: "0x1".into(),
         etag: etag.into(),
         encryption: "Unencrypted".into(),
-        plaintext_size: bd(64),
-        blob_uid: Some(bd(7)),
+        plaintext_size: 64,
+        blob_uid: Some(7),
         multipart_uid: None,
         part_count: None,
-        committed_at_micros: bd(100),
+        committed_at_micros: 100,
         last_transaction_version: version,
     }
 }
 
-fn multipart_object(name: &str, multipart_uid: u64, version: i64) -> ShelbyObject {
+fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObject {
     ShelbyObject {
         name: name.into(),
         owner: "0x1".into(),
         etag: "0xbeef".into(),
         encryption: "Unencrypted".into(),
-        plaintext_size: bd(200),
+        plaintext_size: 200,
         blob_uid: None,
-        multipart_uid: Some(bd(multipart_uid)),
-        part_count: Some(bd(2)),
-        committed_at_micros: bd(100),
+        multipart_uid: Some(multipart_uid),
+        part_count: Some(2),
+        committed_at_micros: 100,
         last_transaction_version: version,
     }
 }
 
-fn upload(multipart_uid: u64, version: i64) -> OpenMultipartUpload {
+fn upload(multipart_uid: i64, version: i64) -> OpenMultipartUpload {
     OpenMultipartUpload {
-        multipart_uid: bd(multipart_uid),
+        multipart_uid,
         object_name: "@0x1/big.mp4".into(),
         owner: "0x1".into(),
         encryption: "Unencrypted".into(),
-        created_at_micros: bd(50),
+        created_at_micros: 50,
         last_transaction_version: version,
     }
 }
 
-fn part(multipart_uid: u64, part_number: u64, version: i64) -> OpenMultipartPart {
+fn part(multipart_uid: i64, part_number: i32, version: i64) -> OpenMultipartPart {
+    sized_part(multipart_uid, part_number, 100, version)
+}
+
+/// A staged part with a chosen size, so a manifest's offsets are distinguishable
+/// from any other arrangement of the same parts.
+fn sized_part(
+    multipart_uid: i64,
+    part_number: i32,
+    plaintext_size: i64,
+    version: i64,
+) -> OpenMultipartPart {
     OpenMultipartPart {
-        multipart_uid: bd(multipart_uid),
-        part_number: bd(part_number),
-        blob_uid: bd(1000 + part_number),
-        plaintext_size: bd(100),
+        multipart_uid,
+        part_number,
+        blob_uid: 1000 + i64::from(part_number),
+        plaintext_size,
         etag: format!("0x{part_number:02x}"),
-        committed_at_micros: bd(60),
+        committed_at_micros: 60,
         last_transaction_version: version,
     }
 }
@@ -286,7 +350,7 @@ fn activity(name: &str, version: i64) -> ObjectActivity {
         transaction_hash: "0xh".into(),
         object_name: name.into(),
         owner: "0x1".into(),
-        blob_uid: Some(bd(7)),
+        blob_uid: Some(7),
         multipart_uid: None,
         timestamp: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
     }
@@ -298,10 +362,35 @@ struct ObjectRow {
     etag: String,
     #[diesel(sql_type = Nullable<Text>)]
     kind: Option<String>,
-    #[diesel(sql_type = Numeric)]
-    plaintext_size: BigDecimal,
+    #[diesel(sql_type = BigInt)]
+    plaintext_size: i64,
     #[diesel(sql_type = BigInt)]
     last_transaction_version: i64,
+}
+
+/// One promoted manifest row, for asserting a part's place in its object.
+#[derive(QueryableByName)]
+struct ManifestRow {
+    #[diesel(sql_type = Integer)]
+    part_number: i32,
+    #[diesel(sql_type = BigInt)]
+    blob_uid: i64,
+    #[diesel(sql_type = BigInt)]
+    offset_in_object: i64,
+    #[diesel(sql_type = BigInt)]
+    end_offset: i64,
+}
+
+async fn manifest(pool: &ArcDbPool, multipart_uid: i64) -> Vec<ManifestRow> {
+    let mut conn = pool.get().await.unwrap();
+    diesel::sql_query(
+        "SELECT part_number, blob_uid, offset_in_object, end_offset
+         FROM shelby_object_parts WHERE multipart_uid = $1 ORDER BY part_number",
+    )
+    .bind::<BigInt, _>(multipart_uid)
+    .get_results(&mut conn)
+    .await
+    .unwrap()
 }
 
 #[derive(QueryableByName)]
@@ -460,7 +549,7 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
         .process(ctx(
             ShelbyBlobData {
                 uploads: vec![upload(9, 100)],
-                parts: vec![part(9, 1, 110), part(9, 2, 120)],
+                parts: vec![sized_part(9, 1, 120, 110), sized_part(9, 2, 80, 120)],
                 ..Default::default()
             },
             120,
@@ -474,8 +563,12 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
         .process(ctx(
             ShelbyBlobData {
                 objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
                 retired_uploads: vec![UploadRetirement {
-                    multipart_uid: bd(9),
+                    multipart_uid: 9,
                     last_transaction_version: 200,
                 }],
                 ..Default::default()
@@ -487,14 +580,44 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
 
     let row = object_row(&pool, "@0x1/big.mp4").await.unwrap();
     assert_eq!(row.kind, Some("multipart".to_string()));
-    assert_eq!(row.plaintext_size, bd(200));
+    assert_eq!(row.plaintext_size, 200);
     assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
     assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
+
+    // Staging is gone, but the manifest it was promoted into remains, and the
+    // parts are laid out end to end in part-number order.
+    let rows = manifest(&pool, 9).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (
+            rows[0].part_number,
+            rows[0].offset_in_object,
+            rows[0].end_offset
+        ),
+        (1, 0, 120)
+    );
+    assert_eq!(
+        (
+            rows[1].part_number,
+            rows[1].offset_in_object,
+            rows[1].end_offset
+        ),
+        (2, 120, 200)
+    );
+    assert_eq!(rows[1].blob_uid, 1002);
+    // The manifest spans exactly the object's plaintext.
+    assert_eq!(rows[1].end_offset, row.plaintext_size);
 }
 
 /// A batch can hold both a part commit and the completion that consumes it.
 /// The removal has to see the row to take it away, so writes are applied first;
 /// the other order leaves a part nothing ever collects.
+///
+/// The promotion is caught in the same squeeze from the other side: it reads
+/// the staging rows, so it has to run after they are inserted and before
+/// retirement deletes them. Getting that wrong yields an empty manifest and no
+/// error, which is why the row count is asserted rather than the absence of a
+/// failure.
 #[tokio::test]
 async fn a_part_and_the_completion_that_consumes_it_can_share_a_batch() {
     let (_db, pool) = setup().await;
@@ -504,10 +627,14 @@ async fn a_part_and_the_completion_that_consumes_it_can_share_a_batch() {
         .process(ctx(
             ShelbyBlobData {
                 uploads: vec![upload(9, 100)],
-                parts: vec![part(9, 1, 110), part(9, 2, 120)],
+                parts: vec![sized_part(9, 1, 120, 110), sized_part(9, 2, 80, 120)],
                 objects: vec![multipart_object("@0x1/big.mp4", 9, 130)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
                 retired_uploads: vec![UploadRetirement {
-                    multipart_uid: bd(9),
+                    multipart_uid: 9,
                     last_transaction_version: 130,
                 }],
                 ..Default::default()
@@ -520,6 +647,131 @@ async fn a_part_and_the_completion_that_consumes_it_can_share_a_batch() {
     assert_eq!(count(&pool, "shelby_objects").await, 1);
     assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
     assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+
+    let rows = manifest(&pool, 9).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].end_offset, 120);
+    assert_eq!(rows[1].offset_in_object, 120);
+    assert_eq!(rows[1].end_offset, 200);
+}
+
+/// A completion may name a subset of what was uploaded, and the rest cease to
+/// exist. The pruned parts must occupy no bytes, so every part after one closes
+/// up rather than leaving a hole where it used to be.
+#[tokio::test]
+async fn a_pruned_part_takes_up_no_space_in_the_object() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![
+                    sized_part(9, 1, 50, 110),
+                    sized_part(9, 2, 999, 120),
+                    sized_part(9, 3, 70, 130),
+                ],
+                ..Default::default()
+            },
+            130,
+        ))
+        .await
+        .unwrap();
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![2],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 200,
+                }],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    let rows = manifest(&pool, 9).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].part_number, 1);
+    assert_eq!(rows[1].part_number, 3);
+    // Part 3 starts where part 1 ended: the 999 bytes of part 2 are not in the
+    // object, so they displace nothing.
+    assert_eq!((rows[1].offset_in_object, rows[1].end_offset), (50, 120));
+}
+
+/// One batch can seal two uploads, only one of which pruned anything. Each
+/// upload's pruned list applies to that upload alone.
+#[tokio::test]
+async fn pruning_one_upload_does_not_affect_another_in_the_same_batch() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100), upload(10, 100)],
+                parts: vec![
+                    sized_part(9, 1, 50, 110),
+                    sized_part(9, 2, 60, 110),
+                    sized_part(10, 1, 50, 110),
+                    sized_part(10, 2, 60, 110),
+                ],
+                ..Default::default()
+            },
+            110,
+        ))
+        .await
+        .unwrap();
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![
+                    multipart_object("@0x1/pruned.mp4", 9, 200),
+                    multipart_object("@0x1/whole.mp4", 10, 200),
+                ],
+                sealed_uploads: vec![
+                    SealedUpload {
+                        multipart_uid: 9,
+                        pruned_part_numbers: vec![2],
+                    },
+                    SealedUpload {
+                        multipart_uid: 10,
+                        pruned_part_numbers: vec![],
+                    },
+                ],
+                retired_uploads: vec![
+                    UploadRetirement {
+                        multipart_uid: 9,
+                        last_transaction_version: 200,
+                    },
+                    UploadRetirement {
+                        multipart_uid: 10,
+                        last_transaction_version: 200,
+                    },
+                ],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    let pruned = manifest(&pool, 9).await;
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(pruned[0].end_offset, 50);
+
+    let whole = manifest(&pool, 10).await;
+    assert_eq!(whole.len(), 2);
+    assert_eq!(whole[1].end_offset, 110);
 }
 
 #[tokio::test]
@@ -533,7 +785,7 @@ async fn aborting_an_upload_removes_it_and_its_parts() {
                 uploads: vec![upload(9, 100)],
                 parts: vec![part(9, 1, 110)],
                 retired_uploads: vec![UploadRetirement {
-                    multipart_uid: bd(9),
+                    multipart_uid: 9,
                     last_transaction_version: 200,
                 }],
                 ..Default::default()
@@ -547,6 +799,8 @@ async fn aborting_an_upload_removes_it_and_its_parts() {
     assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 0);
     // An abandoned upload never became an object.
     assert_eq!(count(&pool, "shelby_objects").await, 0);
+    // Nor a manifest: retirement discards its parts, and only a seal promotes.
+    assert_eq!(count(&pool, "shelby_object_parts").await, 0);
 }
 
 /// Re-uploading a part number replaces it rather than adding a second row.
@@ -575,8 +829,8 @@ async fn a_replaced_part_overwrites_its_predecessor() {
     let etag: String = diesel::sql_query(
         "SELECT etag FROM shelby_open_multipart_parts WHERE multipart_uid = $1 AND part_number = $2",
     )
-    .bind::<Numeric, _>(bd(9))
-    .bind::<Numeric, _>(bd(1))
+    .bind::<BigInt, _>(9i64)
+    .bind::<Integer, _>(1i32)
     .get_result::<PartEtag>(&mut conn)
     .await
     .unwrap()
@@ -588,4 +842,141 @@ async fn a_replaced_part_overwrites_its_predecessor() {
 struct PartEtag {
     #[diesel(sql_type = Text)]
     etag: String,
+}
+
+/// Nothing in the object row can find a manifest once the name stops resolving,
+/// so the uid has to come off the event that released the binding. Left behind,
+/// the rows are unreachable and accumulate forever.
+#[tokio::test]
+async fn deleting_an_object_takes_its_manifest_with_it() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110), part(9, 2, 110)],
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 120)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 120,
+                }],
+                ..Default::default()
+            },
+            120,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, "shelby_object_parts").await, 2);
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                object_deletions: vec![ObjectDeletion {
+                    name: "@0x1/big.mp4".into(),
+                    last_transaction_version: 200,
+                }],
+                orphaned_manifests: vec![9],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(count(&pool, "shelby_objects").await, 0);
+    assert_eq!(count(&pool, "shelby_object_parts").await, 0);
+}
+
+/// A batch can hold both a commit and the overwrite that displaces it. Orphan
+/// deletion runs after promotion, so the manifest written earlier in the batch
+/// is the one that gets removed rather than one that outlives its object.
+#[tokio::test]
+async fn an_overwrite_drops_the_manifest_it_displaces_even_in_the_same_batch() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 110), part(9, 2, 110)],
+                objects: vec![
+                    multipart_object("@0x1/big.mp4", 9, 120),
+                    // The overwrite: the same name now resolves to a blob, and
+                    // the multipart record it displaced is named as orphaned.
+                    blob_object("@0x1/big.mp4", "0xaaaa", 130),
+                ],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 120,
+                }],
+                orphaned_manifests: vec![9],
+                ..Default::default()
+            },
+            130,
+        ))
+        .await
+        .unwrap();
+
+    // The name resolves to the later of the two commits.
+    let row = object_row(&pool, "@0x1/big.mp4").await.unwrap();
+    assert_eq!(row.kind, Some("blob".to_string()));
+    assert_eq!(row.last_transaction_version, 130);
+    // And the manifest promoted a moment earlier in the same batch is gone.
+    assert_eq!(count(&pool, "shelby_object_parts").await, 0);
+}
+
+/// Replaying a window that holds a completion but not the part commits before
+/// it finds staging empty. The promotion has nothing to copy and must leave the
+/// manifest written the first time exactly as it stands -- which is why no
+/// count of promoted rows can be treated as a failure.
+#[tokio::test]
+async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let seal = || ShelbyBlobData {
+        objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+        sealed_uploads: vec![SealedUpload {
+            multipart_uid: 9,
+            pruned_part_numbers: vec![],
+        }],
+        retired_uploads: vec![UploadRetirement {
+            multipart_uid: 9,
+            last_transaction_version: 200,
+        }],
+        ..Default::default()
+    };
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![sized_part(9, 1, 120, 110), sized_part(9, 2, 80, 120)],
+                ..Default::default()
+            },
+            120,
+        ))
+        .await
+        .unwrap();
+    storer.process(ctx(seal(), 200)).await.unwrap();
+    assert_eq!(count(&pool, "shelby_object_parts").await, 2);
+
+    // Replay the completion alone: staging was emptied by the retirement above.
+    storer.process(ctx(seal(), 200)).await.unwrap();
+
+    let rows = manifest(&pool, 9).await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].end_offset, 120);
+    assert_eq!(rows[1].end_offset, 200);
 }

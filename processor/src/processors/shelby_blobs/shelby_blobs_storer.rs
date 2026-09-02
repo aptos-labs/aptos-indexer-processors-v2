@@ -9,7 +9,7 @@
 use crate::{
     processors::shelby_blobs::models::{
         ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PlacementGroupSlot,
-        ShelbyBlobData, ShelbyObject, UploadRetirement,
+        SealedUpload, ShelbyBlobData, ShelbyObject, UploadRetirement,
     },
     schema,
 };
@@ -22,19 +22,18 @@ use aptos_indexer_processor_sdk::{
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use bigdecimal::BigDecimal;
 use diesel::{
     ExpressionMethods,
     pg::{Pg, upsert::excluded},
     query_builder::{QueryFragment, QueryId},
     query_dsl::methods::FilterDsl,
-    sql_types::{Array, BigInt, Numeric, Text},
+    sql_types::{Array, BigInt, Integer, Text},
 };
 use diesel_async::RunQueryDsl;
 use std::collections::HashMap;
 
-/// Bounds the array size of a single delete statement.
-const DELETE_CHUNK_SIZE: usize = 1000;
+/// Bounds the array a single hand-written statement binds.
+const ARRAY_CHUNK_SIZE: usize = 1000;
 
 pub struct ShelbyBlobsStorer
 where
@@ -68,6 +67,8 @@ impl Processable for ShelbyBlobsStorer {
             object_deletions,
             uploads,
             parts,
+            sealed_uploads,
+            orphaned_manifests,
             retired_uploads,
             activities,
             pg_slots,
@@ -98,21 +99,33 @@ impl Processable for ShelbyBlobsStorer {
         // Writes before removals. A batch can hold both a part commit and the
         // completion that consumes it, and the removal has to see the row to
         // take it away; the other order would leave a part nothing collects.
-        // Ordering alone is not what makes this correct -- each removal is
-        // guarded on the stored version, so a row written by a later
-        // transaction than the removal survives it.
-        execute_in_chunks(
-            self.conn_pool.clone(),
-            insert_objects_query,
-            &objects,
-            get_config_table_chunk_size::<ShelbyObject>(
-                "shelby_objects",
-                &self.per_table_chunk_sizes,
-            ),
-        )
-        .await
-        .map_err(|e| store_error(start_version, end_version, &e))?;
-
+        // Ordering alone is not what makes that correct -- a removal that can
+        // contend with a later write is guarded on the stored version, so a row
+        // written by a later transaction survives it.
+        //
+        // Three steps below are ordered for reasons a version guard cannot
+        // supply, and each is load-bearing:
+        //
+        //   - Staging parts are inserted before the promotion reads them, so a
+        //     batch carrying both a part and the completion that consumes it
+        //     promotes a full manifest rather than a short one.
+        //
+        //   - Promotion runs before `retire_uploads`, which deletes the very
+        //     staging rows it reads. Reversed, every manifest comes out empty,
+        //     and silently, because promoting nothing is not an error.
+        //
+        //   - Orphan deletion runs after promotion, so a batch holding both a
+        //     commit and the overwrite that displaces it does not leak the
+        //     manifest it has just written.
+        //
+        // Nothing here shares a transaction: each statement runs on its own
+        // pooled connection and commits by itself. A crash therefore lands
+        // mid-batch, and what makes that safe is the replay -- the version
+        // tracker runs after this step and has not advanced. On the way through
+        // again the objects upsert passes its own guard at equal versions, the
+        // staging rows are still present because retirement had not run, and
+        // the promotion repeats itself under ON CONFLICT DO NOTHING. Promotion
+        // before retirement is what buys that.
         execute_in_chunks(
             self.conn_pool.clone(),
             insert_uploads_query,
@@ -136,6 +149,26 @@ impl Processable for ShelbyBlobsStorer {
         )
         .await
         .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_objects_query,
+            &objects,
+            get_config_table_chunk_size::<ShelbyObject>(
+                "shelby_objects",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        self.promote_manifests(&sealed_uploads)
+            .await
+            .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        self.drop_orphaned_manifests(&orphaned_manifests)
+            .await
+            .map_err(|e| store_error(start_version, end_version, &e))?;
 
         self.delete_objects(&object_deletions)
             .await
@@ -193,7 +226,7 @@ impl ShelbyBlobsStorer {
             WHERE o.name = v.name AND o.last_transaction_version <= v.ltv
         ";
 
-        for chunk in deletions.chunks(DELETE_CHUNK_SIZE) {
+        for chunk in deletions.chunks(ARRAY_CHUNK_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
@@ -206,6 +239,115 @@ impl ShelbyBlobsStorer {
             diesel::sql_query(SQL)
                 .bind::<Array<Text>, _>(names)
                 .bind::<Array<BigInt>, _>(ltvs)
+                .execute(&mut conn)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Turn each sealed upload's staged parts into the object's manifest.
+    ///
+    /// The offsets are a running sum over the parts the completion kept, which
+    /// is why this cannot be built when the parts arrive: a part's place in the
+    /// object is not known until the list it belongs to is fixed, and the parts
+    /// themselves usually landed in an earlier batch.
+    ///
+    /// Raw SQL because the whole statement is one insert-from-select over
+    /// values already in the database; there are no rows to send. Chunking
+    /// bounds the uid array, and each chunk carries only its own uids' pruned
+    /// pairs, so the anti-join stays proportional to the chunk.
+    async fn promote_manifests(
+        &self,
+        sealed: &[SealedUpload],
+    ) -> Result<(), diesel::result::Error> {
+        // DISTINCT because a duplicated uid in $1 would join each staged part
+        // more than once and silently double every offset. A uid is sealed
+        // exactly once on chain, so this defends the arithmetic rather than
+        // correcting for an input we expect.
+        const SQL: &str = "
+            WITH completed AS (
+                SELECT DISTINCT unnest($1::BIGINT[]) AS multipart_uid
+            ), pruned AS (
+                SELECT * FROM unnest($2::BIGINT[], $3::INTEGER[])
+                    AS t(multipart_uid, part_number)
+            ), located AS (
+                SELECT
+                    p.multipart_uid,
+                    p.part_number,
+                    p.blob_uid,
+                    COALESCE(
+                        SUM(p.plaintext_size) OVER (
+                            PARTITION BY p.multipart_uid
+                            ORDER BY p.part_number
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        ),
+                        0
+                    ) AS offset_in_object,
+                    SUM(p.plaintext_size) OVER (
+                        PARTITION BY p.multipart_uid
+                        ORDER BY p.part_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS end_offset
+                FROM shelby_open_multipart_parts p
+                JOIN completed c ON c.multipart_uid = p.multipart_uid
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM pruned
+                    WHERE pruned.multipart_uid = p.multipart_uid
+                      AND pruned.part_number = p.part_number
+                )
+            )
+            INSERT INTO shelby_object_parts (
+                multipart_uid, part_number, blob_uid, offset_in_object, end_offset
+            )
+            SELECT multipart_uid, part_number, blob_uid, offset_in_object, end_offset
+            FROM located
+            ON CONFLICT (multipart_uid, part_number) DO NOTHING
+        ";
+
+        for chunk in sealed.chunks(ARRAY_CHUNK_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let uids: Vec<i64> = chunk.iter().map(|s| s.multipart_uid).collect();
+            let (pruned_uids, pruned_numbers): (Vec<i64>, Vec<i32>) = chunk
+                .iter()
+                .flat_map(|s| s.pruned_part_numbers.iter().map(|n| (s.multipart_uid, *n)))
+                .unzip();
+
+            let mut conn = self.conn_pool.get().await.map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
+            })?;
+            diesel::sql_query(SQL)
+                .bind::<Array<BigInt>, _>(uids)
+                .bind::<Array<BigInt>, _>(pruned_uids)
+                .bind::<Array<Integer>, _>(pruned_numbers)
+                .execute(&mut conn)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Remove the manifests of multipart records nothing resolves to any more.
+    ///
+    /// No version guard, unlike the other removals here. Those arbitrate a
+    /// removal against a write that may be newer; a multipart uid is never
+    /// reused, so nothing can land under one that has been disposed of, and a
+    /// replayed disposal deletes rows that are already gone.
+    async fn drop_orphaned_manifests(
+        &self,
+        multipart_uids: &[i64],
+    ) -> Result<(), diesel::result::Error> {
+        const SQL: &str = "DELETE FROM shelby_object_parts WHERE multipart_uid = ANY($1)";
+
+        for chunk in multipart_uids.chunks(ARRAY_CHUNK_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let mut conn = self.conn_pool.get().await.map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
+            })?;
+            diesel::sql_query(SQL)
+                .bind::<Array<BigInt>, _>(chunk.to_vec())
                 .execute(&mut conn)
                 .await?;
         }
@@ -230,11 +372,11 @@ impl ShelbyBlobsStorer {
             WHERE u.multipart_uid = v.multipart_uid AND u.last_transaction_version <= v.ltv
         ";
 
-        for chunk in retirements.chunks(DELETE_CHUNK_SIZE) {
+        for chunk in retirements.chunks(ARRAY_CHUNK_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
-            let uids: Vec<BigDecimal> = chunk.iter().map(|r| r.multipart_uid.clone()).collect();
+            let uids: Vec<i64> = chunk.iter().map(|r| r.multipart_uid).collect();
             let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
 
             let mut conn = self.conn_pool.get().await.map_err(|e| {
@@ -242,7 +384,7 @@ impl ShelbyBlobsStorer {
             })?;
             for sql in [DELETE_PARTS_SQL, DELETE_UPLOADS_SQL] {
                 diesel::sql_query(sql)
-                    .bind::<Array<Numeric>, _>(uids.clone())
+                    .bind::<Array<BigInt>, _>(uids.clone())
                     .bind::<Array<BigInt>, _>(ltvs.clone())
                     .execute(&mut conn)
                     .await?;

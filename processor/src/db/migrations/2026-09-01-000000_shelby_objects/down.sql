@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS shelby_object_activities;
+DROP TABLE IF EXISTS shelby_object_parts;
 DROP TABLE IF EXISTS shelby_open_multipart_parts;
 DROP TABLE IF EXISTS shelby_open_multipart_uploads;
 DROP TABLE IF EXISTS shelby_objects;

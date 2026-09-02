@@ -40,34 +40,34 @@ pub struct ShelbyObject {
     pub owner: String,
     pub etag: String,
     pub encryption: String,
-    pub plaintext_size: BigDecimal,
-    pub blob_uid: Option<BigDecimal>,
-    pub multipart_uid: Option<BigDecimal>,
-    pub part_count: Option<BigDecimal>,
-    pub committed_at_micros: BigDecimal,
+    pub plaintext_size: i64,
+    pub blob_uid: Option<i64>,
+    pub multipart_uid: Option<i64>,
+    pub part_count: Option<i32>,
+    pub committed_at_micros: i64,
     pub last_transaction_version: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
 #[diesel(table_name = shelby_open_multipart_uploads)]
 pub struct OpenMultipartUpload {
-    pub multipart_uid: BigDecimal,
+    pub multipart_uid: i64,
     pub object_name: String,
     pub owner: String,
     pub encryption: String,
-    pub created_at_micros: BigDecimal,
+    pub created_at_micros: i64,
     pub last_transaction_version: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
 #[diesel(table_name = shelby_open_multipart_parts)]
 pub struct OpenMultipartPart {
-    pub multipart_uid: BigDecimal,
-    pub part_number: BigDecimal,
-    pub blob_uid: BigDecimal,
-    pub plaintext_size: BigDecimal,
+    pub multipart_uid: i64,
+    pub part_number: i32,
+    pub blob_uid: i64,
+    pub plaintext_size: i64,
     pub etag: String,
-    pub committed_at_micros: BigDecimal,
+    pub committed_at_micros: i64,
     pub last_transaction_version: i64,
 }
 
@@ -80,8 +80,8 @@ pub struct ObjectActivity {
     pub transaction_hash: String,
     pub object_name: String,
     pub owner: String,
-    pub blob_uid: Option<BigDecimal>,
-    pub multipart_uid: Option<BigDecimal>,
+    pub blob_uid: Option<i64>,
+    pub multipart_uid: Option<i64>,
     pub timestamp: NaiveDateTime,
 }
 
@@ -108,8 +108,21 @@ pub struct ObjectDeletion {
 /// abandoned. Both its own row and all of its parts go.
 #[derive(Clone, Debug)]
 pub struct UploadRetirement {
-    pub multipart_uid: BigDecimal,
+    pub multipart_uid: i64,
     pub last_transaction_version: i64,
+}
+
+/// An upload a commit sealed into an object, and what that commit left behind.
+///
+/// Distinct from [`UploadRetirement`], which also covers aborts: an abandoned
+/// upload's staged parts are discarded, and only a sealed one's are promoted
+/// into a manifest.
+#[derive(Clone, Debug)]
+pub struct SealedUpload {
+    pub multipart_uid: i64,
+    /// Staged under this upload but left out of the completion list, so absent
+    /// from the object and from the offsets its parts are laid out at.
+    pub pruned_part_numbers: Vec<i32>,
 }
 
 // ─── Parsed output for one context of transactions ──────────────────────────
@@ -120,6 +133,12 @@ pub struct ShelbyBlobData {
     pub object_deletions: Vec<ObjectDeletion>,
     pub uploads: Vec<OpenMultipartUpload>,
     pub parts: Vec<OpenMultipartPart>,
+    pub sealed_uploads: Vec<SealedUpload>,
+    /// Multipart uids whose manifests nothing points at any more, because the
+    /// object was deleted or overwritten. Their `shelby_object_parts` rows are
+    /// unreachable once the object row is gone, and only the event that
+    /// released the binding names the uid.
+    pub orphaned_manifests: Vec<i64>,
     pub retired_uploads: Vec<UploadRetirement>,
     pub activities: Vec<ObjectActivity>,
     pub pg_slots: Vec<PlacementGroupSlot>,
@@ -131,6 +150,8 @@ impl ShelbyBlobData {
         self.object_deletions.extend(other.object_deletions);
         self.uploads.extend(other.uploads);
         self.parts.extend(other.parts);
+        self.sealed_uploads.extend(other.sealed_uploads);
+        self.orphaned_manifests.extend(other.orphaned_manifests);
         self.retired_uploads.extend(other.retired_uploads);
         self.activities.extend(other.activities);
         self.pg_slots.extend(other.pg_slots);
@@ -196,7 +217,7 @@ impl ShelbyBlobData {
     ) -> Option<()> {
         // Set by the two events an object's history is made of; the multipart
         // events maintain staging rows and are not part of that history.
-        let activity: Option<(String, String, Option<u64>, Option<u64>)> = match short {
+        let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
                 match deser::<ObjectCommittedEvent>(short, &event.data) {
                     ObjectCommittedEvent::V1 {} => None,
@@ -206,6 +227,7 @@ impl ShelbyBlobData {
                         etag,
                         content,
                         encryption,
+                        previous,
                         committed_at_micros,
                     } => {
                         let owner = standardize_address(&owner);
@@ -213,31 +235,49 @@ impl ShelbyBlobData {
                             ObjectContent::Blob {
                                 blob_uid,
                                 plaintext_size,
-                            } => (Some(blob_uid), None, None, plaintext_size),
+                            } => (Some(to_i64(blob_uid)), None, None, plaintext_size),
                             ObjectContent::Multipart {
                                 multipart_uid,
                                 part_count,
                                 plaintext_size,
-                            } => (None, Some(multipart_uid), Some(part_count), plaintext_size),
+                                pruned_part_numbers,
+                            } => {
+                                let uid = to_i64(multipart_uid);
+                                // Sealing an upload both ends it and fixes the
+                                // object's part list: the staging rows are
+                                // retired, and the ones the completion kept are
+                                // promoted into a manifest first.
+                                self.sealed_uploads.push(SealedUpload {
+                                    multipart_uid: uid,
+                                    pruned_part_numbers: pruned_part_numbers
+                                        .into_iter()
+                                        .map(i32::from)
+                                        .collect(),
+                                });
+                                self.retired_uploads.push(UploadRetirement {
+                                    multipart_uid: uid,
+                                    last_transaction_version: txn_version,
+                                });
+                                (None, Some(uid), Some(to_i32(part_count)), plaintext_size)
+                            },
                         };
-                        // Sealing an upload ends it: its staging rows go, and
-                        // the object row below is what the name resolves to.
-                        if let Some(uid) = multipart_uid {
-                            self.retired_uploads.push(UploadRetirement {
-                                multipart_uid: BigDecimal::from(uid),
-                                last_transaction_version: txn_version,
-                            });
+                        // An overwrite displaces whatever the name resolved to.
+                        // A displaced multipart record's manifest is then
+                        // unreachable, and this is where its uid is reported.
+                        if let Some(ObjectRef::Multipart { multipart_uid }) = previous.into_option()
+                        {
+                            self.orphaned_manifests.push(to_i64(multipart_uid));
                         }
                         self.objects.push(ShelbyObject {
                             name: object_name.clone(),
                             owner: owner.clone(),
                             etag,
                             encryption: encryption.variant,
-                            plaintext_size: BigDecimal::from(plaintext_size),
-                            blob_uid: blob_uid.map(BigDecimal::from),
-                            multipart_uid: multipart_uid.map(BigDecimal::from),
-                            part_count: part_count.map(BigDecimal::from),
-                            committed_at_micros: BigDecimal::from(committed_at_micros),
+                            plaintext_size: to_i64(plaintext_size),
+                            blob_uid,
+                            multipart_uid,
+                            part_count,
+                            committed_at_micros: to_i64(committed_at_micros),
                             last_transaction_version: txn_version,
                         });
                         Some((object_name, owner, blob_uid, multipart_uid))
@@ -253,8 +293,14 @@ impl ShelbyBlobData {
                 } => {
                     let owner = standardize_address(&owner);
                     let (blob_uid, multipart_uid) = match binding {
-                        ObjectRef::Blob { blob_uid } => (Some(blob_uid), None),
-                        ObjectRef::Multipart { multipart_uid } => (None, Some(multipart_uid)),
+                        ObjectRef::Blob { blob_uid } => (Some(to_i64(blob_uid)), None),
+                        ObjectRef::Multipart { multipart_uid } => {
+                            let uid = to_i64(multipart_uid);
+                            // The name stops resolving, so the manifest under
+                            // this uid is unreachable and goes with it.
+                            self.orphaned_manifests.push(uid);
+                            (None, Some(uid))
+                        },
                     };
                     self.object_deletions.push(ObjectDeletion {
                         name: object_name.clone(),
@@ -272,11 +318,11 @@ impl ShelbyBlobData {
                     created_at_micros,
                 } = deser::<MultipartUploadCreatedEvent>(short, &event.data);
                 self.uploads.push(OpenMultipartUpload {
-                    multipart_uid: BigDecimal::from(multipart_uid),
+                    multipart_uid: to_i64(multipart_uid),
                     object_name,
                     owner: standardize_address(&owner),
                     encryption: encryption.variant,
-                    created_at_micros: BigDecimal::from(created_at_micros),
+                    created_at_micros: to_i64(created_at_micros),
                     last_transaction_version: txn_version,
                 });
                 None
@@ -291,12 +337,12 @@ impl ShelbyBlobData {
                     committed_at_micros,
                 } = deser::<PartCommittedEvent>(short, &event.data);
                 self.parts.push(OpenMultipartPart {
-                    multipart_uid: BigDecimal::from(multipart_uid),
-                    part_number: BigDecimal::from(part_number),
-                    blob_uid: BigDecimal::from(uid),
-                    plaintext_size: BigDecimal::from(plaintext_size),
+                    multipart_uid: to_i64(multipart_uid),
+                    part_number: i32::from(part_number),
+                    blob_uid: to_i64(uid),
+                    plaintext_size: to_i64(plaintext_size),
                     etag,
-                    committed_at_micros: BigDecimal::from(committed_at_micros),
+                    committed_at_micros: to_i64(committed_at_micros),
                     last_transaction_version: txn_version,
                 });
                 None
@@ -305,7 +351,7 @@ impl ShelbyBlobData {
                 let MultipartUploadAbortedEvent::V1 { multipart_uid } =
                     deser::<MultipartUploadAbortedEvent>(short, &event.data);
                 self.retired_uploads.push(UploadRetirement {
-                    multipart_uid: BigDecimal::from(multipart_uid),
+                    multipart_uid: to_i64(multipart_uid),
                     last_transaction_version: txn_version,
                 });
                 None
@@ -321,8 +367,8 @@ impl ShelbyBlobData {
             transaction_hash: txn_hash.to_string(),
             object_name,
             owner,
-            blob_uid: blob_uid.map(BigDecimal::from),
-            multipart_uid: multipart_uid.map(BigDecimal::from),
+            blob_uid,
+            multipart_uid,
             timestamp: txn_timestamp,
         });
         Some(())
@@ -346,6 +392,24 @@ impl ShelbyBlobData {
         });
         Some(())
     }
+}
+
+/// Narrows a Move `u64` to the signed column that holds it.
+///
+/// Every value this converts is a uid, a size or a microsecond clock. Uids are
+/// minted with the sign bit clear -- `test_uid_layout` in the contract pins the
+/// snowflake's fields at 63 bits for exactly this reason -- and the rest are
+/// bounded far below it, so a failure here means the chain produced a value
+/// this schema cannot represent rather than a value we should truncate.
+#[track_caller]
+fn to_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or_else(|_| panic!("shelby event value {value} exceeds i64"))
+}
+
+/// Narrows a part count, which `MAX_OBJECT_PARTS` bounds far below `i32::MAX`.
+#[track_caller]
+fn to_i32(value: u64) -> i32 {
+    i32::try_from(value).unwrap_or_else(|_| panic!("shelby event value {value} exceeds i32"))
 }
 
 /// Panics on failure: a parse error for an event we index means the on-chain

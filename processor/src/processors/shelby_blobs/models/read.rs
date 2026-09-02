@@ -18,6 +18,18 @@ pub(super) struct MoveVariant {
     pub variant: String,
 }
 
+/// Move's `Option<T>` serializes as `{"vec": []}` (None) or `{"vec": [value]}` (Some).
+#[derive(Debug, Deserialize)]
+pub(super) struct MoveOption<T> {
+    vec: Vec<T>,
+}
+
+impl<T> MoveOption<T> {
+    pub(super) fn into_option(self) -> Option<T> {
+        self.vec.into_iter().next()
+    }
+}
+
 // ─── Object layer ───────────────────────────────────────────────────────────
 
 /// What an object's name resolves to, and how big it is.
@@ -40,6 +52,10 @@ pub(super) enum ObjectContent {
         part_count: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
         plaintext_size: u64,
+        /// Parts uploaded under this record that the completion left out of
+        /// its list, and which therefore occupy no bytes of the object. The
+        /// manifest is the staged parts minus these.
+        pruned_part_numbers: Vec<u16>,
     },
 }
 
@@ -76,6 +92,10 @@ pub(super) enum ObjectCommittedEvent {
         etag: String,
         content: ObjectContent,
         encryption: MoveVariant,
+        /// The binding this commit displaced, set only on overwrite. A
+        /// displaced multipart record's manifest is no longer reachable, and
+        /// this is the only place its uid is reported.
+        previous: MoveOption<ObjectRef>,
         #[serde(deserialize_with = "deserialize_from_string")]
         committed_at_micros: u64,
     },
