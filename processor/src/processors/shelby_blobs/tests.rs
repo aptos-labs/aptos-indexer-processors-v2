@@ -232,7 +232,7 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
     let u = &data.uploads[0];
     assert_eq!(u.multipart_uid, 9);
     assert_eq!(u.object_name, "@0x1/big.mp4");
-    assert_eq!(u.owner, "0x1");
+    assert_eq!(u.owner, "0x0000000000000000000000000000000000000000000000000000000000000001");
     assert_eq!(u.encryption, "AES_GCM_V1");
     assert_eq!(u.encoding, "ClayCode_4Total_2Data_3Helper");
     assert_eq!(u.created_at_micros, 50);
