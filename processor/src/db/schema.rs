@@ -124,6 +124,7 @@ diesel::table! {
         owner -> Varchar,
         etag -> Text,
         encryption -> Text,
+        encoding -> Text,
         plaintext_size -> Int8,
         blob_uid -> Nullable<Int8>,
         multipart_uid -> Nullable<Int8>,
@@ -153,6 +154,7 @@ diesel::table! {
         #[max_length = 66]
         owner -> Varchar,
         encryption -> Text,
+        encoding -> Text,
         created_at_micros -> Int8,
         last_transaction_version -> Int8,
     }

@@ -130,6 +130,7 @@ fn a_commit_reports_the_content_it_bound() {
         "etag": "0xabcd",
         "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
         "encryption": { "__variant__": "AES_GCM_V1" },
+        "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
         "previous": { "vec": [] },
         "previous_etag": { "vec": [] },
         "committed_at_micros": "500"
@@ -139,6 +140,7 @@ fn a_commit_reports_the_content_it_bound() {
     let o = &data.objects[0];
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.encryption, "AES_GCM_V1");
+    assert_eq!(o.encoding, "ClayCode_16Total_10Data_13Helper");
     assert_eq!(o.blob_uid, Some(7));
     assert_eq!(o.plaintext_size, 2048);
     assert_eq!(o.multipart_uid, None);
@@ -163,6 +165,7 @@ fn a_commit_reports_the_content_it_bound() {
             "pruned_part_numbers": [4, 7]
         },
         "encryption": { "__variant__": "Unencrypted" },
+        "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
         "previous": { "vec": [] },
         "previous_etag": { "vec": [] },
         "committed_at_micros": "700"
@@ -193,6 +196,7 @@ fn an_overwrite_reports_the_multipart_record_it_displaced() {
         "etag": "0xabcd",
         "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
         "encryption": { "__variant__": "Unencrypted" },
+        "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
         "previous": { "vec": [{ "__variant__": "Multipart", "multipart_uid": "9" }] },
         "previous_etag": { "vec": ["0xbeef"] },
         "committed_at_micros": "800"
@@ -207,6 +211,33 @@ fn an_overwrite_reports_the_multipart_record_it_displaced() {
     );
     let data = parse("ObjectCommittedEvent", &over_blob);
     assert!(data.orphaned_manifests.is_empty());
+}
+
+/// Opening an upload stages a row that ListMultipartUploads answers from. It
+/// carries the scheme and coding every part will take, which is the only place
+/// they are reported until the upload seals.
+#[test]
+fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
+    let created = r#"{
+        "__variant__": "V1",
+        "multipart_uid": "9",
+        "object_name": "@0x1/big.mp4",
+        "owner": "0x1",
+        "encryption": { "__variant__": "AES_GCM_V1" },
+        "encoding": { "__variant__": "ClayCode_4Total_2Data_3Helper" },
+        "created_at_micros": "50"
+    }"#;
+    let data = parse("MultipartUploadCreatedEvent", created);
+    assert_eq!(data.uploads.len(), 1);
+    let u = &data.uploads[0];
+    assert_eq!(u.multipart_uid, 9);
+    assert_eq!(u.object_name, "@0x1/big.mp4");
+    assert_eq!(u.owner, "0x1");
+    assert_eq!(u.encryption, "AES_GCM_V1");
+    assert_eq!(u.encoding, "ClayCode_4Total_2Data_3Helper");
+    assert_eq!(u.created_at_micros, 50);
+    // Opening an upload binds no name, so no object row comes of it.
+    assert!(data.objects.is_empty());
 }
 
 /// Deleting a multipart object is the other way its manifest stops being
@@ -284,6 +315,7 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         owner: "0x1".into(),
         etag: etag.into(),
         encryption: "Unencrypted".into(),
+        encoding: "ClayCode_16Total_10Data_13Helper".into(),
         plaintext_size: 64,
         blob_uid: Some(7),
         multipart_uid: None,
@@ -299,6 +331,7 @@ fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObjec
         owner: "0x1".into(),
         etag: "0xbeef".into(),
         encryption: "Unencrypted".into(),
+        encoding: "ClayCode_16Total_10Data_13Helper".into(),
         plaintext_size: 200,
         blob_uid: None,
         multipart_uid: Some(multipart_uid),
@@ -314,6 +347,7 @@ fn upload(multipart_uid: i64, version: i64) -> OpenMultipartUpload {
         object_name: "@0x1/big.mp4".into(),
         owner: "0x1".into(),
         encryption: "Unencrypted".into(),
+        encoding: "ClayCode_16Total_10Data_13Helper".into(),
         created_at_micros: 50,
         last_transaction_version: version,
     }

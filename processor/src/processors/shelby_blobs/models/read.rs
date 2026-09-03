@@ -92,6 +92,7 @@ pub(super) enum ObjectCommittedEvent {
         etag: String,
         content: ObjectContent,
         encryption: MoveVariant,
+        encoding: MoveVariant,
         /// The binding this commit displaced, set only on overwrite. A
         /// displaced multipart record's manifest is no longer reachable, and
         /// this is the only place its uid is reported.
@@ -126,6 +127,7 @@ pub(super) enum MultipartUploadCreatedEvent {
         object_name: String,
         owner: String,
         encryption: MoveVariant,
+        encoding: MoveVariant,
         #[serde(deserialize_with = "deserialize_from_string")]
         created_at_micros: u64,
     },

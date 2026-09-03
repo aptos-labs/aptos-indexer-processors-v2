@@ -40,6 +40,7 @@ pub struct ShelbyObject {
     pub owner: String,
     pub etag: String,
     pub encryption: String,
+    pub encoding: String,
     pub plaintext_size: i64,
     pub blob_uid: Option<i64>,
     pub multipart_uid: Option<i64>,
@@ -55,6 +56,7 @@ pub struct OpenMultipartUpload {
     pub object_name: String,
     pub owner: String,
     pub encryption: String,
+    pub encoding: String,
     pub created_at_micros: i64,
     pub last_transaction_version: i64,
 }
@@ -223,6 +225,7 @@ impl ShelbyBlobData {
                         etag,
                         content,
                         encryption,
+                        encoding,
                         previous,
                         committed_at_micros,
                     } => {
@@ -269,6 +272,7 @@ impl ShelbyBlobData {
                             owner: owner.clone(),
                             etag,
                             encryption: encryption.variant,
+                            encoding: encoding.variant,
                             plaintext_size: to_i64(plaintext_size),
                             blob_uid,
                             multipart_uid,
@@ -311,6 +315,7 @@ impl ShelbyBlobData {
                     object_name,
                     owner,
                     encryption,
+                    encoding,
                     created_at_micros,
                 } = deser::<MultipartUploadCreatedEvent>(short, &event.data);
                 self.uploads.push(OpenMultipartUpload {
@@ -318,6 +323,7 @@ impl ShelbyBlobData {
                     object_name,
                     owner: standardize_address(&owner),
                     encryption: encryption.variant,
+                    encoding: encoding.variant,
                     created_at_micros: to_i64(created_at_micros),
                     last_transaction_version: txn_version,
                 });

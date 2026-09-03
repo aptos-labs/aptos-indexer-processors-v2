@@ -47,6 +47,11 @@ CREATE TABLE shelby_objects (
     -- them. Unconstrained on purpose: the indexer never reads it, so a scheme
     -- added to the contract must not stop this processor.
     encryption               TEXT NOT NULL,
+    -- How the object's bytes are erasure coded. This fixes the size of a
+    -- chunkset, so it is what maps a plaintext range onto the stored bytes that
+    -- carry it, and a reader cannot size a range without it. Unconstrained for
+    -- the same reason as encryption.
+    encoding                 TEXT NOT NULL,
     -- Bytes the object carries, encryption container excluded. The same
     -- measurement whichever variant below is populated.
     plaintext_size           BIGINT NOT NULL,
@@ -118,6 +123,8 @@ CREATE TABLE shelby_open_multipart_uploads (
     owner                    VARCHAR(66) NOT NULL,
     -- Scheme every part of this upload carries.
     encryption               TEXT NOT NULL,
+    -- Coding every part of this upload carries.
+    encoding                 TEXT NOT NULL,
     created_at_micros        BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
 

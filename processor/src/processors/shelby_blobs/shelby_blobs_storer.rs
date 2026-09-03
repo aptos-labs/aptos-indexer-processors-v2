@@ -398,6 +398,7 @@ fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + Qu
             owner.eq(excluded(owner)),
             etag.eq(excluded(etag)),
             encryption.eq(excluded(encryption)),
+            encoding.eq(excluded(encoding)),
             plaintext_size.eq(excluded(plaintext_size)),
             blob_uid.eq(excluded(blob_uid)),
             multipart_uid.eq(excluded(multipart_uid)),
@@ -420,6 +421,7 @@ fn insert_uploads_query(
             object_name.eq(excluded(object_name)),
             owner.eq(excluded(owner)),
             encryption.eq(excluded(encryption)),
+            encoding.eq(excluded(encoding)),
             created_at_micros.eq(excluded(created_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
         ))
