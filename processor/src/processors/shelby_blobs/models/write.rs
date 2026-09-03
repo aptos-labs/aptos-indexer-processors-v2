@@ -3,18 +3,20 @@
 
 //! Diesel models and event parsing for the Shelby object tables.
 //!
-//! The indexer holds objects and the uploads on their way to becoming one.
-//! Blobs are how bytes are stored, which concerns the storage providers, and
-//! they read that from the chain, so blob-layer events are not handled here.
+//! The indexer holds objects and the uploads on their way to becoming one. How
+//! a committed blob stores its bytes concerns the storage providers, which read
+//! it from the chain, so that is not held here.
 //!
-//! Five events are indexed. A commit writes an object and, when it seals a
+//! Eight events are indexed. A commit writes an object and, when it seals a
 //! multipart upload, retires that upload's staging rows; a deletion removes the
-//! object; the three multipart events maintain the staging rows in between.
+//! object; the three multipart events maintain the staging rows in between. The
+//! three blob-layer events maintain the pending set a garbage collector sweeps:
+//! registration adds a blob to it, and durability or teardown takes it out.
 
 use super::read::*;
 use crate::schema::{
     placement_group_slots, shelby_object_activities, shelby_objects, shelby_open_multipart_parts,
-    shelby_open_multipart_uploads,
+    shelby_open_multipart_uploads, shelby_pending_blobs,
 };
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
@@ -41,7 +43,9 @@ pub struct ShelbyObject {
     pub etag: String,
     pub encryption: String,
     pub encoding: String,
+    pub location_name: String,
     pub plaintext_size: i64,
+    pub stored_size: i64,
     pub blob_uid: Option<i64>,
     pub multipart_uid: Option<i64>,
     pub part_count: Option<i32>,
@@ -57,6 +61,7 @@ pub struct OpenMultipartUpload {
     pub owner: String,
     pub encryption: String,
     pub encoding: String,
+    pub location_name: String,
     pub created_at_micros: i64,
     pub last_transaction_version: i64,
 }
@@ -68,8 +73,31 @@ pub struct OpenMultipartPart {
     pub part_number: i32,
     pub blob_uid: i64,
     pub plaintext_size: i64,
+    pub stored_size: i64,
     pub etag: String,
     pub committed_at_micros: i64,
+    pub last_transaction_version: i64,
+}
+
+/// A blob registered but not yet committed, and so a candidate for collection
+/// once its grace window elapses.
+#[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
+#[diesel(table_name = shelby_pending_blobs)]
+pub struct PendingBlob {
+    pub uid: i64,
+    pub owner: String,
+    pub location_name: String,
+    pub creation_micros: i64,
+    pub stored_size: i64,
+    pub last_transaction_version: i64,
+}
+
+/// A blob that has stopped waiting, because it became durable or was torn down.
+/// The version is the guard: a row written by a later transaction survives a
+/// replayed removal.
+#[derive(Clone, Debug)]
+pub struct PendingBlobRemoval {
+    pub uid: i64,
     pub last_transaction_version: i64,
 }
 
@@ -138,6 +166,8 @@ pub struct ShelbyBlobData {
     /// binding names the uid.
     pub orphaned_manifests: Vec<i64>,
     pub retired_uploads: Vec<UploadRetirement>,
+    pub pending_blobs: Vec<PendingBlob>,
+    pub pending_blob_removals: Vec<PendingBlobRemoval>,
     pub activities: Vec<ObjectActivity>,
     pub pg_slots: Vec<PlacementGroupSlot>,
 }
@@ -151,6 +181,9 @@ impl ShelbyBlobData {
         self.sealed_uploads.extend(other.sealed_uploads);
         self.orphaned_manifests.extend(other.orphaned_manifests);
         self.retired_uploads.extend(other.retired_uploads);
+        self.pending_blobs.extend(other.pending_blobs);
+        self.pending_blob_removals
+            .extend(other.pending_blob_removals);
         self.activities.extend(other.activities);
         self.pg_slots.extend(other.pg_slots);
     }
@@ -226,40 +259,56 @@ impl ShelbyBlobData {
                         content,
                         encryption,
                         encoding,
+                        location_name,
                         previous,
                         committed_at_micros,
                     } => {
                         let owner = standardize_address(&owner);
-                        let (blob_uid, multipart_uid, part_count, plaintext_size) = match content {
-                            ObjectContent::Blob {
-                                blob_uid,
-                                plaintext_size,
-                            } => (Some(to_i64(blob_uid)), None, None, plaintext_size),
-                            ObjectContent::Multipart {
-                                multipart_uid,
-                                part_count,
-                                plaintext_size,
-                                pruned_part_numbers,
-                            } => {
-                                let uid = to_i64(multipart_uid);
-                                // Sealing an upload both ends it and fixes the
-                                // object's part list: the staging rows are
-                                // retired, and the ones the completion kept are
-                                // promoted into a manifest first.
-                                self.sealed_uploads.push(SealedUpload {
-                                    multipart_uid: uid,
-                                    pruned_part_numbers: pruned_part_numbers
-                                        .into_iter()
-                                        .map(i32::from)
-                                        .collect(),
-                                });
-                                self.retired_uploads.push(UploadRetirement {
-                                    multipart_uid: uid,
-                                    last_transaction_version: txn_version,
-                                });
-                                (None, Some(uid), Some(to_i32(part_count)), plaintext_size)
-                            },
-                        };
+                        let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
+                            match content {
+                                ObjectContent::Blob {
+                                    blob_uid,
+                                    plaintext_size,
+                                    stored_size,
+                                } => (
+                                    Some(to_i64(blob_uid)),
+                                    None,
+                                    None,
+                                    plaintext_size,
+                                    stored_size,
+                                ),
+                                ObjectContent::Multipart {
+                                    multipart_uid,
+                                    part_count,
+                                    plaintext_size,
+                                    stored_size,
+                                    pruned_part_numbers,
+                                } => {
+                                    let uid = to_i64(multipart_uid);
+                                    // Sealing an upload both ends it and fixes the
+                                    // object's part list: the staging rows are
+                                    // retired, and the ones the completion kept are
+                                    // promoted into a manifest first.
+                                    self.sealed_uploads.push(SealedUpload {
+                                        multipart_uid: uid,
+                                        pruned_part_numbers: pruned_part_numbers
+                                            .into_iter()
+                                            .map(i32::from)
+                                            .collect(),
+                                    });
+                                    self.retired_uploads.push(UploadRetirement {
+                                        multipart_uid: uid,
+                                        last_transaction_version: txn_version,
+                                    });
+                                    (
+                                        None,
+                                        Some(uid),
+                                        Some(to_i32(part_count)),
+                                        plaintext_size,
+                                        stored_size,
+                                    )
+                                },
+                            };
                         // An overwrite displaces whatever the name resolved to.
                         // A displaced multipart record's manifest is then
                         // unreachable, and this is where its uid is reported.
@@ -273,7 +322,9 @@ impl ShelbyBlobData {
                             etag,
                             encryption: encryption.variant,
                             encoding: encoding.variant,
+                            location_name,
                             plaintext_size: to_i64(plaintext_size),
+                            stored_size: to_i64(stored_size),
                             blob_uid,
                             multipart_uid,
                             part_count,
@@ -316,6 +367,7 @@ impl ShelbyBlobData {
                     owner,
                     encryption,
                     encoding,
+                    location_name,
                     created_at_micros,
                 } = deser::<MultipartUploadCreatedEvent>(short, &event.data);
                 self.uploads.push(OpenMultipartUpload {
@@ -324,6 +376,7 @@ impl ShelbyBlobData {
                     owner: standardize_address(&owner),
                     encryption: encryption.variant,
                     encoding: encoding.variant,
+                    location_name,
                     created_at_micros: to_i64(created_at_micros),
                     last_transaction_version: txn_version,
                 });
@@ -335,6 +388,7 @@ impl ShelbyBlobData {
                     part_number,
                     uid,
                     plaintext_size,
+                    stored_size,
                     etag,
                     committed_at_micros,
                 } = deser::<PartCommittedEvent>(short, &event.data);
@@ -343,6 +397,7 @@ impl ShelbyBlobData {
                     part_number: i32::from(part_number),
                     blob_uid: to_i64(uid),
                     plaintext_size: to_i64(plaintext_size),
+                    stored_size: to_i64(stored_size),
                     etag,
                     committed_at_micros: to_i64(committed_at_micros),
                     last_transaction_version: txn_version,
@@ -354,6 +409,44 @@ impl ShelbyBlobData {
                     deser::<MultipartUploadAbortedEvent>(short, &event.data);
                 self.retired_uploads.push(UploadRetirement {
                     multipart_uid: to_i64(multipart_uid),
+                    last_transaction_version: txn_version,
+                });
+                None
+            },
+            "BlobRegisteredEvent" => {
+                let BlobRegisteredEvent::V1 {
+                    uid,
+                    owner,
+                    location_name,
+                    creation_micros,
+                    blob_size,
+                } = deser::<BlobRegisteredEvent>(short, &event.data);
+                self.pending_blobs.push(PendingBlob {
+                    uid: to_i64(uid),
+                    owner: standardize_address(&owner),
+                    location_name,
+                    creation_micros: to_i64(creation_micros),
+                    stored_size: to_i64(blob_size),
+                    last_transaction_version: txn_version,
+                });
+                None
+            },
+            "BlobPersistedEvent" => {
+                let uid = match deser::<BlobPersistedEvent>(short, &event.data) {
+                    BlobPersistedEvent::V1 { uid } | BlobPersistedEvent::V2 { uid } => uid,
+                };
+                self.pending_blob_removals.push(PendingBlobRemoval {
+                    uid: to_i64(uid),
+                    last_transaction_version: txn_version,
+                });
+                None
+            },
+            "BlobDeletedEvent" => {
+                let uid = match deser::<BlobDeletedEvent>(short, &event.data) {
+                    BlobDeletedEvent::V1 { uid } | BlobDeletedEvent::V2 { uid } => uid,
+                };
+                self.pending_blob_removals.push(PendingBlobRemoval {
+                    uid: to_i64(uid),
                     last_transaction_version: txn_version,
                 });
                 None

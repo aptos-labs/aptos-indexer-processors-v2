@@ -5,6 +5,7 @@ mod read;
 mod write;
 
 pub use write::{
-    ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PlacementGroupSlot,
-    SealedUpload, ShelbyBlobData, ShelbyObject, UploadRetirement,
+    ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PendingBlob,
+    PendingBlobRemoval, PlacementGroupSlot, SealedUpload, ShelbyBlobData, ShelbyObject,
+    UploadRetirement,
 };

@@ -114,6 +114,7 @@ diesel::table! {
         blob_uid -> Int8,
         offset_in_object -> Int8,
         end_offset -> Int8,
+        stored_size -> Int8,
     }
 }
 
@@ -125,7 +126,9 @@ diesel::table! {
         etag -> Text,
         encryption -> Text,
         encoding -> Text,
+        location_name -> Text,
         plaintext_size -> Int8,
+        stored_size -> Int8,
         blob_uid -> Nullable<Int8>,
         multipart_uid -> Nullable<Int8>,
         part_count -> Nullable<Int4>,
@@ -141,8 +144,21 @@ diesel::table! {
         part_number -> Int4,
         blob_uid -> Int8,
         plaintext_size -> Int8,
+        stored_size -> Int8,
         etag -> Text,
         committed_at_micros -> Int8,
+        last_transaction_version -> Int8,
+    }
+}
+
+diesel::table! {
+    shelby_pending_blobs (uid) {
+        uid -> Int8,
+        #[max_length = 66]
+        owner -> Varchar,
+        location_name -> Text,
+        creation_micros -> Int8,
+        stored_size -> Int8,
         last_transaction_version -> Int8,
     }
 }
@@ -155,6 +171,7 @@ diesel::table! {
         owner -> Varchar,
         encryption -> Text,
         encoding -> Text,
+        location_name -> Text,
         created_at_micros -> Int8,
         last_transaction_version -> Int8,
     }
@@ -1071,6 +1088,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     shelby_objects,
     shelby_open_multipart_parts,
     shelby_open_multipart_uploads,
+    shelby_pending_blobs,
     signatures,
     spam_assets,
     table_items,

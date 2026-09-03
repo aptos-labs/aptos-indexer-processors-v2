@@ -1,6 +1,8 @@
 -- Shelby indexes objects: what a name resolves to, the uploads on their way to
--- becoming one, and the parts a completed multipart object is made of. Blobs
--- get no table; storage providers read those from the chain.
+-- becoming one, and the parts a completed multipart object is made of. A
+-- committed blob gets no row of its own; storage providers read those from the
+-- chain. The one exception is a blob still waiting to be committed, which
+-- nothing else can enumerate -- see shelby_pending_blobs.
 --
 -- A uid is a Move `u64` and does not fit BIGINT in general, but `test_uid_layout`
 -- in the contract pins the snowflake's fields at 63 bits, leaving the sign bit
@@ -52,9 +54,20 @@ CREATE TABLE shelby_objects (
     -- carry it, and a reader cannot size a range without it. Unconstrained for
     -- the same reason as encryption.
     encoding                 TEXT NOT NULL,
+    -- Region holding the object's bytes. One name for either kind of object: a
+    -- single blob has its slice's region, and a multipart object's parts were all
+    -- written to the one its upload fixed.
+    location_name            TEXT NOT NULL,
     -- Bytes the object carries, encryption container excluded. The same
     -- measurement whichever variant below is populated.
     plaintext_size           BIGINT NOT NULL,
+    -- Bytes holding them, encryption container included: what reading the whole
+    -- object transfers, and what a payment for it is quantized against.
+    --
+    -- Stored rather than derived because a multipart object's containers are its
+    -- parts', one per part, so the overhead does not follow from the object's own
+    -- plaintext length. The chain sums it and reports it here.
+    stored_size              BIGINT NOT NULL,
 
     -- ObjectContent::Blob -- the object resolves to one blob.
     blob_uid                 BIGINT,
@@ -125,6 +138,10 @@ CREATE TABLE shelby_open_multipart_uploads (
     encryption               TEXT NOT NULL,
     -- Coding every part of this upload carries.
     encoding                 TEXT NOT NULL,
+    -- Region every part of this upload is written to, resolved when it was opened.
+    -- A part takes it from the record, so the parts cannot disagree and the part
+    -- tables do not repeat it.
+    location_name            TEXT NOT NULL,
     created_at_micros        BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
 
@@ -157,6 +174,9 @@ CREATE TABLE shelby_open_multipart_parts (
     blob_uid                 BIGINT NOT NULL,
     -- Bytes of the object this part supplies, encryption excluded.
     plaintext_size           BIGINT NOT NULL,
+    -- Bytes the part's blob holds them in, container included: what reading this
+    -- part transfers.
+    stored_size              BIGINT NOT NULL,
     -- The bare digest, `0x` and thirty-two hex characters. A part's tag is
     -- pinned at ETAG_LENGTH by E_INVALID_PART_ETAG_LENGTH, so unlike an
     -- object's it never carries a suffix, and ListParts quotes it as it stands.
@@ -199,6 +219,11 @@ CREATE TABLE shelby_object_parts (
     offset_in_object         BIGINT NOT NULL,
     end_offset               BIGINT NOT NULL,
 
+    -- Bytes reading this part transfers, container included. Carried across from
+    -- the staging row rather than derived from the span, so a part reports the
+    -- length its blob really has.
+    stored_size              BIGINT NOT NULL,
+
     -- No `last_transaction_version`: a row is written once under a
     -- `multipart_uid` that is never reused, so no two writes ever contend.
 
@@ -214,6 +239,53 @@ CREATE TABLE shelby_object_parts (
 -- it reads the parts in the range rather than all of them.
 CREATE INDEX shelby_object_parts_range
     ON shelby_object_parts (multipart_uid, end_offset);
+
+
+-- Blobs registered but not yet committed: the candidate set for
+-- `garbage_collect_blobs`, which collects a pending blob once the contract's
+-- `PENDING_GC_GRACE_MICROS` window has elapsed since it was registered.
+--
+-- A sweeper cannot find these anywhere else. The chain keys blobs by uid with no
+-- way to enumerate them by state, and every other table here describes objects,
+-- which is precisely what a pending blob is not yet. Collection is
+-- permissionless, so anyone running this query can reclaim.
+--
+-- It also answers how much storage is committed to uploads that never finished,
+-- which is what makes the backlog visible rather than merely collectable.
+--
+-- Written by BlobRegisteredEvent and deleted by the two events that end a blob's
+-- wait: BlobPersistedEvent when it becomes durable, BlobDeletedEvent when it is
+-- torn down. A blob leaves through exactly one of them, and the delete is keyed
+-- on uid alone, so the teardown of a blob that was never here is a no-op.
+--
+-- Bounded by blobs currently in flight, unlike the staging tables above: every
+-- row is claimed by one of those two events within a bounded window.
+--
+-- `BlobRegisteredEvent` does not say whether the blob was registered as an
+-- object or as a part, so neither does this. Both kinds become collectable on
+-- the same grace window, which is what this table exists to answer; a pending
+-- part whose upload is already gone is collectable sooner, and that is the
+-- contract's own check rather than something a query here anticipates.
+CREATE TABLE shelby_pending_blobs (
+    uid                      BIGINT NOT NULL,
+    owner                    VARCHAR(66) NOT NULL,
+    -- Region the blob was registered into, so a backlog can be read per region.
+    location_name            TEXT NOT NULL,
+    -- Registration time, which the grace window is measured from.
+    creation_micros          BIGINT NOT NULL,
+    -- Bytes the blob was registered to hold, container included: what a sweep
+    -- reclaims by collecting it, and what an uncollected backlog is costing.
+    stored_size              BIGINT NOT NULL,
+    last_transaction_version BIGINT NOT NULL,
+
+    -- A uid identifies a blob, and a sweep passes uids to the entry function.
+    PRIMARY KEY (uid)
+);
+
+-- The sweep: the blobs registered longest ago, which are the ones whose grace
+-- window has elapsed. Scanned forward from the oldest and stopped at the cutoff.
+CREATE INDEX shelby_pending_blobs_creation
+    ON shelby_pending_blobs (creation_micros);
 
 
 -- When each object appeared and went away: ObjectCommittedEvent and

@@ -19,8 +19,8 @@ use crate::{
     MIGRATIONS,
     processors::shelby_blobs::{
         models::{
-            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, SealedUpload,
-            ShelbyBlobData, ShelbyObject, UploadRetirement,
+            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PendingBlob,
+            PendingBlobRemoval, SealedUpload, ShelbyBlobData, ShelbyObject, UploadRetirement,
         },
         shelby_blobs_storer::ShelbyBlobsStorer,
     },
@@ -128,9 +128,15 @@ fn a_commit_reports_the_content_it_bound() {
         "object_name": "@0x1/a.txt",
         "owner": "0x1",
         "etag": "0xabcd",
-        "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
+        "content": {
+            "__variant__": "Blob",
+            "blob_uid": "7",
+            "plaintext_size": "2048",
+            "stored_size": "2176"
+        },
         "encryption": { "__variant__": "AES_GCM_V1" },
         "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
+        "location_name": "us-east",
         "previous": { "vec": [] },
         "previous_etag": { "vec": [] },
         "committed_at_micros": "500"
@@ -141,8 +147,11 @@ fn a_commit_reports_the_content_it_bound() {
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.encryption, "AES_GCM_V1");
     assert_eq!(o.encoding, "ClayCode_16Total_10Data_13Helper");
+    assert_eq!(o.location_name, "us-east");
     assert_eq!(o.blob_uid, Some(7));
     assert_eq!(o.plaintext_size, 2048);
+    // Encrypted, so the container it is held in is the longer of the two.
+    assert_eq!(o.stored_size, 2176);
     assert_eq!(o.multipart_uid, None);
     assert_eq!(o.part_count, None);
     // A single blob is not an upload, so nothing is retired or promoted.
@@ -162,10 +171,12 @@ fn a_commit_reports_the_content_it_bound() {
             "multipart_uid": "9",
             "part_count": "3",
             "plaintext_size": "300",
+            "stored_size": "684",
             "pruned_part_numbers": [4, 7]
         },
         "encryption": { "__variant__": "Unencrypted" },
         "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
+        "location_name": "us-east",
         "previous": { "vec": [] },
         "previous_etag": { "vec": [] },
         "committed_at_micros": "700"
@@ -175,6 +186,9 @@ fn a_commit_reports_the_content_it_bound() {
     assert_eq!(o.multipart_uid, Some(9));
     assert_eq!(o.part_count, Some(3));
     assert_eq!(o.plaintext_size, 300);
+    // Summed over the parts by the chain, so it is taken as reported rather than
+    // derived from the object's own length.
+    assert_eq!(o.stored_size, 684);
     assert_eq!(o.blob_uid, None);
     // Sealing the upload both ends it and fixes the object's part list.
     assert_eq!(data.retired_uploads.len(), 1);
@@ -194,9 +208,15 @@ fn an_overwrite_reports_the_multipart_record_it_displaced() {
         "object_name": "@0x1/big.mp4",
         "owner": "0x1",
         "etag": "0xabcd",
-        "content": { "__variant__": "Blob", "blob_uid": "7", "plaintext_size": "2048" },
+        "content": {
+            "__variant__": "Blob",
+            "blob_uid": "7",
+            "plaintext_size": "2048",
+            "stored_size": "2048"
+        },
         "encryption": { "__variant__": "Unencrypted" },
         "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
+        "location_name": "us-east",
         "previous": { "vec": [{ "__variant__": "Multipart", "multipart_uid": "9" }] },
         "previous_etag": { "vec": ["0xbeef"] },
         "committed_at_micros": "800"
@@ -214,8 +234,8 @@ fn an_overwrite_reports_the_multipart_record_it_displaced() {
 }
 
 /// Opening an upload stages a row that ListMultipartUploads answers from. It
-/// carries the scheme and coding every part will take, which is the only place
-/// they are reported until the upload seals.
+/// carries the scheme, coding and region every part will take, which is the only
+/// place they are reported until the upload seals.
 #[test]
 fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
     let created = r#"{
@@ -225,6 +245,7 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
         "owner": "0x1",
         "encryption": { "__variant__": "AES_GCM_V1" },
         "encoding": { "__variant__": "ClayCode_4Total_2Data_3Helper" },
+        "location_name": "us-west",
         "created_at_micros": "50"
     }"#;
     let data = parse("MultipartUploadCreatedEvent", created);
@@ -232,9 +253,14 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
     let u = &data.uploads[0];
     assert_eq!(u.multipart_uid, 9);
     assert_eq!(u.object_name, "@0x1/big.mp4");
-    assert_eq!(u.owner, "0x0000000000000000000000000000000000000000000000000000000000000001");
+    assert_eq!(
+        u.owner,
+        "0x0000000000000000000000000000000000000000000000000000000000000001"
+    );
     assert_eq!(u.encryption, "AES_GCM_V1");
     assert_eq!(u.encoding, "ClayCode_4Total_2Data_3Helper");
+    // Resolved once here, so every part of this upload lands in this region.
+    assert_eq!(u.location_name, "us-west");
     assert_eq!(u.created_at_micros, 50);
     // Opening an upload binds no name, so no object row comes of it.
     assert!(data.objects.is_empty());
@@ -266,10 +292,54 @@ fn deleting_a_multipart_object_orphans_its_manifest() {
     assert_eq!(data.object_deletions.len(), 1);
 }
 
-/// Blobs are the storage providers' concern and reach them from the chain, so
-/// nothing about them is recorded here.
+/// A registration is what puts a blob in the pending set. How its bytes are
+/// stored is the storage providers' concern and reaches them from the chain, so
+/// the row carries only what a sweep and its monitoring need.
 #[test]
-fn blob_layer_events_are_not_indexed() {
+fn a_registration_puts_a_blob_in_the_pending_set() {
+    let registered = r#"{
+        "__variant__": "V1",
+        "location_name": "us-east",
+        "uid": "7",
+        "object_name": "@0x1/a.txt",
+        "owner": "0x1",
+        "sponsor": { "vec": [] },
+        "creation_micros": "500",
+        "slice_address": "0x2",
+        "placement_group_address": "0x3",
+        "payment_tier_id": 0,
+        "payment_amount": "10",
+        "blob_commitment": "0xabcd",
+        "chunkset_count": 1,
+        "blob_size": "2176",
+        "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
+        "encryption": { "__variant__": "AES_GCM_V1" },
+        "payment_currency": { "__variant__": "Stable" },
+        "shl_amount": "0",
+        "shl_sp_amount": "0",
+        "oracle_base_rate": "0",
+        "premium_bps": "0"
+    }"#;
+    let data = parse("BlobRegisteredEvent", registered);
+    assert_eq!(data.pending_blobs.len(), 1);
+    let b = &data.pending_blobs[0];
+    assert_eq!(b.uid, 7);
+    assert_eq!(
+        b.owner,
+        "0x0000000000000000000000000000000000000000000000000000000000000001"
+    );
+    assert_eq!(b.location_name, "us-east");
+    assert_eq!(b.creation_micros, 500);
+    assert_eq!(b.stored_size, 2176);
+    // A pending blob is not an object and has no history of its own.
+    assert!(data.objects.is_empty());
+    assert!(data.activities.is_empty());
+}
+
+/// Both events that end a blob's wait claim its pending row, and each reports the
+/// uid under either shape it has been emitted in.
+#[test]
+fn durability_or_teardown_takes_a_blob_out_of_the_pending_set() {
     let persisted = r#"{
         "__variant__": "V2",
         "uid": "7",
@@ -280,9 +350,34 @@ fn blob_layer_events_are_not_indexed() {
         "ack_bits": 65535
     }"#;
     let data = parse("BlobPersistedEvent", persisted);
+    assert_eq!(data.pending_blob_removals.len(), 1);
+    assert_eq!(data.pending_blob_removals[0].uid, 7);
     assert!(data.objects.is_empty());
     assert!(data.activities.is_empty());
-    assert!(data.parts.is_empty());
+
+    let deleted = r#"{
+        "__variant__": "V2",
+        "uid": "8",
+        "owner": "0x1",
+        "slice_address": "0x2",
+        "placement_group_address": "0x3",
+        "reason": { "__variant__": "PendingGarbageCollection" }
+    }"#;
+    let data = parse("BlobDeletedEvent", deleted);
+    assert_eq!(data.pending_blob_removals.len(), 1);
+    assert_eq!(data.pending_blob_removals[0].uid, 8);
+
+    let persisted_v1 = r#"{
+        "__variant__": "V1",
+        "uid": "9",
+        "object_name": "@0x1/a.txt",
+        "slice_address": "0x2",
+        "placement_group_address": "0x3",
+        "persisted_at_micros": "500",
+        "ack_bits": 65535
+    }"#;
+    let data = parse("BlobPersistedEvent", persisted_v1);
+    assert_eq!(data.pending_blob_removals[0].uid, 9);
 }
 
 // ─── Storer helpers ─────────────────────────────────────────────────────────
@@ -316,7 +411,9 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         etag: etag.into(),
         encryption: "Unencrypted".into(),
         encoding: "ClayCode_16Total_10Data_13Helper".into(),
+        location_name: "us-east".into(),
         plaintext_size: 64,
+        stored_size: 64,
         blob_uid: Some(7),
         multipart_uid: None,
         part_count: None,
@@ -332,7 +429,9 @@ fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObjec
         etag: "0xbeef".into(),
         encryption: "Unencrypted".into(),
         encoding: "ClayCode_16Total_10Data_13Helper".into(),
+        location_name: "us-east".into(),
         plaintext_size: 200,
+        stored_size: 200,
         blob_uid: None,
         multipart_uid: Some(multipart_uid),
         part_count: Some(2),
@@ -348,6 +447,7 @@ fn upload(multipart_uid: i64, version: i64) -> OpenMultipartUpload {
         owner: "0x1".into(),
         encryption: "Unencrypted".into(),
         encoding: "ClayCode_16Total_10Data_13Helper".into(),
+        location_name: "us-east".into(),
         created_at_micros: 50,
         last_transaction_version: version,
     }
@@ -359,6 +459,9 @@ fn part(multipart_uid: i64, part_number: i32, version: i64) -> OpenMultipartPart
 
 /// A staged part with a chosen size, so a manifest's offsets are distinguishable
 /// from any other arrangement of the same parts.
+///
+/// Its stored size is the container overhead above its plaintext, so a value
+/// carried across from staging is distinguishable from one read off the span.
 fn sized_part(
     multipart_uid: i64,
     part_number: i32,
@@ -370,8 +473,24 @@ fn sized_part(
         part_number,
         blob_uid: 1000 + i64::from(part_number),
         plaintext_size,
+        stored_size: plaintext_size + PART_CONTAINER_OVERHEAD,
         etag: format!("0x{part_number:02x}"),
         committed_at_micros: 60,
+        last_transaction_version: version,
+    }
+}
+
+/// Stands in for what a part's encryption container costs it, so no fixture has
+/// a stored size equal to its plaintext one.
+const PART_CONTAINER_OVERHEAD: i64 = 128;
+
+fn pending_blob(uid: i64, creation_micros: i64, stored_size: i64, version: i64) -> PendingBlob {
+    PendingBlob {
+        uid,
+        owner: "0x1".into(),
+        location_name: "us-east".into(),
+        creation_micros,
+        stored_size,
         last_transaction_version: version,
     }
 }
@@ -413,15 +532,39 @@ struct ManifestRow {
     offset_in_object: i64,
     #[diesel(sql_type = BigInt)]
     end_offset: i64,
+    #[diesel(sql_type = BigInt)]
+    stored_size: i64,
 }
 
 async fn manifest(pool: &ArcDbPool, multipart_uid: i64) -> Vec<ManifestRow> {
     let mut conn = pool.get().await.unwrap();
     diesel::sql_query(
-        "SELECT part_number, blob_uid, offset_in_object, end_offset
+        "SELECT part_number, blob_uid, offset_in_object, end_offset, stored_size
          FROM shelby_object_parts WHERE multipart_uid = $1 ORDER BY part_number",
     )
     .bind::<BigInt, _>(multipart_uid)
+    .get_results(&mut conn)
+    .await
+    .unwrap()
+}
+
+/// One pending blob, for asserting what a sweep would find.
+#[derive(QueryableByName)]
+struct PendingRow {
+    #[diesel(sql_type = BigInt)]
+    uid: i64,
+    #[diesel(sql_type = BigInt)]
+    creation_micros: i64,
+    #[diesel(sql_type = BigInt)]
+    stored_size: i64,
+}
+
+async fn pending_blobs(pool: &ArcDbPool) -> Vec<PendingRow> {
+    let mut conn = pool.get().await.unwrap();
+    diesel::sql_query(
+        "SELECT uid, creation_micros, stored_size
+         FROM shelby_pending_blobs ORDER BY creation_micros",
+    )
     .get_results(&mut conn)
     .await
     .unwrap()
@@ -641,6 +784,10 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     assert_eq!(rows[1].blob_uid, 1002);
     // The manifest spans exactly the object's plaintext.
     assert_eq!(rows[1].end_offset, row.plaintext_size);
+    // Each part reports the bytes its own blob holds, which the promotion carried
+    // across rather than reading off the span.
+    assert_eq!(rows[0].stored_size, 120 + PART_CONTAINER_OVERHEAD);
+    assert_eq!(rows[1].stored_size, 80 + PART_CONTAINER_OVERHEAD);
 }
 
 /// A batch can hold both a part commit and the completion that consumes it.
@@ -1013,4 +1160,140 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].end_offset, 120);
     assert_eq!(rows[1].end_offset, 200);
+}
+
+/// A blob waits in the pending set from its registration until it is committed,
+/// which is the window `garbage_collect_blobs` acts inside.
+#[tokio::test]
+async fn a_blob_waits_in_the_pending_set_until_it_is_committed() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blobs: vec![pending_blob(7, 500, 2176, 100)],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    let rows = pending_blobs(&pool).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].uid, 7);
+    assert_eq!(rows[0].creation_micros, 500);
+    assert_eq!(rows[0].stored_size, 2176);
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blob_removals: vec![PendingBlobRemoval {
+                    uid: 7,
+                    last_transaction_version: 200,
+                }],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(count(&pool, "shelby_pending_blobs").await, 0);
+}
+
+/// A blob registered and committed inside one batch leaves nothing behind: the
+/// insert lands before the removal that cancels it, so the row does not outlive
+/// the batch that created it.
+#[tokio::test]
+async fn a_registration_and_its_commit_can_share_a_batch() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blobs: vec![
+                    pending_blob(7, 500, 2176, 100),
+                    pending_blob(8, 600, 64, 100),
+                ],
+                pending_blob_removals: vec![PendingBlobRemoval {
+                    uid: 7,
+                    last_transaction_version: 100,
+                }],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    // Only the blob that is still waiting remains.
+    let rows = pending_blobs(&pool).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].uid, 8);
+}
+
+/// The teardown of a blob that never waited here matches nothing, which is the
+/// ordinary case: every committed blob's deletion reports a uid this table
+/// stopped holding when it was committed.
+#[tokio::test]
+async fn removing_a_blob_that_was_never_pending_does_nothing() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blobs: vec![pending_blob(7, 500, 2176, 100)],
+                pending_blob_removals: vec![PendingBlobRemoval {
+                    uid: 999,
+                    last_transaction_version: 100,
+                }],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    let rows = pending_blobs(&pool).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].uid, 7);
+}
+
+/// A replayed removal cannot take a row a later registration wrote. A uid is
+/// never reused, so this guards a re-registration under a uid whose earlier
+/// removal is replayed behind it.
+#[tokio::test]
+async fn a_replayed_removal_leaves_a_newer_pending_row_alone() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blobs: vec![pending_blob(7, 500, 2176, 300)],
+                ..Default::default()
+            },
+            300,
+        ))
+        .await
+        .unwrap();
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                pending_blob_removals: vec![PendingBlobRemoval {
+                    uid: 7,
+                    last_transaction_version: 200,
+                }],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(count(&pool, "shelby_pending_blobs").await, 1);
 }

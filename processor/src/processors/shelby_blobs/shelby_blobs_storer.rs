@@ -8,8 +8,9 @@
 
 use crate::{
     processors::shelby_blobs::models::{
-        ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PlacementGroupSlot,
-        SealedUpload, ShelbyBlobData, ShelbyObject, UploadRetirement,
+        ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PendingBlob,
+        PendingBlobRemoval, PlacementGroupSlot, SealedUpload, ShelbyBlobData, ShelbyObject,
+        UploadRetirement,
     },
     schema,
 };
@@ -70,6 +71,8 @@ impl Processable for ShelbyBlobsStorer {
             sealed_uploads,
             orphaned_manifests,
             retired_uploads,
+            pending_blobs,
+            pending_blob_removals,
             activities,
             pg_slots,
         } = input.data;
@@ -89,6 +92,8 @@ impl Processable for ShelbyBlobsStorer {
             |s| (s.placement_group.clone(), s.slot_index.clone()),
             |s| s.last_transaction_version,
         );
+        let pending_blobs =
+            dedup_by_max_version(pending_blobs, |b| b.uid, |b| b.last_transaction_version);
 
         let (start_version, end_version) =
             (input.metadata.start_version, input.metadata.end_version);
@@ -155,6 +160,24 @@ impl Processable for ShelbyBlobsStorer {
             .map_err(|e| store_error(start_version, end_version, &e))?;
 
         self.retire_uploads(&retired_uploads)
+            .await
+            .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        // A blob registered and committed inside one batch appears in both lists,
+        // so the insert has to land before the removal that cancels it.
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_pending_blobs_query,
+            &pending_blobs,
+            get_config_table_chunk_size::<PendingBlob>(
+                "shelby_pending_blobs",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        self.remove_pending_blobs(&pending_blob_removals)
             .await
             .map_err(|e| store_error(start_version, end_version, &e))?;
 
@@ -246,6 +269,7 @@ impl ShelbyBlobsStorer {
                     p.multipart_uid,
                     p.part_number,
                     p.blob_uid,
+                    p.stored_size,
                     COALESCE(
                         SUM(p.plaintext_size) OVER (
                             PARTITION BY p.multipart_uid
@@ -268,9 +292,11 @@ impl ShelbyBlobsStorer {
                 )
             )
             INSERT INTO shelby_object_parts (
-                multipart_uid, part_number, blob_uid, offset_in_object, end_offset
+                multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
+                stored_size
             )
-            SELECT multipart_uid, part_number, blob_uid, offset_in_object, end_offset
+            SELECT multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
+                   stored_size
             FROM located
             ON CONFLICT (multipart_uid, part_number) DO NOTHING
         ";
@@ -311,6 +337,37 @@ impl ShelbyBlobsStorer {
             })?;
             diesel::sql_query(SQL)
                 .bind::<Array<BigInt>, _>(chunk.to_vec())
+                .execute(&mut conn)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Drop the rows of blobs that stopped waiting to be committed.
+    ///
+    /// Raw SQL for the same reason as `delete_objects`: the guard compares
+    /// against the stored row. A uid that was never pending matches nothing,
+    /// which is the ordinary case for a committed blob's teardown.
+    async fn remove_pending_blobs(
+        &self,
+        removals: &[PendingBlobRemoval],
+    ) -> Result<(), diesel::result::Error> {
+        const SQL: &str = "
+            DELETE FROM shelby_pending_blobs AS b
+            USING unnest($1, $2) AS v(uid, ltv)
+            WHERE b.uid = v.uid AND b.last_transaction_version <= v.ltv
+        ";
+
+        for chunk in removals.chunks(ARRAY_CHUNK_SIZE) {
+            let uids: Vec<i64> = chunk.iter().map(|r| r.uid).collect();
+            let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
+
+            let mut conn = self.conn_pool.get().await.map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("pool error: {e}").into())
+            })?;
+            diesel::sql_query(SQL)
+                .bind::<Array<BigInt>, _>(uids)
+                .bind::<Array<BigInt>, _>(ltvs)
                 .execute(&mut conn)
                 .await?;
         }
@@ -399,7 +456,9 @@ fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + Qu
             etag.eq(excluded(etag)),
             encryption.eq(excluded(encryption)),
             encoding.eq(excluded(encoding)),
+            location_name.eq(excluded(location_name)),
             plaintext_size.eq(excluded(plaintext_size)),
+            stored_size.eq(excluded(stored_size)),
             blob_uid.eq(excluded(blob_uid)),
             multipart_uid.eq(excluded(multipart_uid)),
             part_count.eq(excluded(part_count)),
@@ -422,6 +481,7 @@ fn insert_uploads_query(
             owner.eq(excluded(owner)),
             encryption.eq(excluded(encryption)),
             encoding.eq(excluded(encoding)),
+            location_name.eq(excluded(location_name)),
             created_at_micros.eq(excluded(created_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
         ))
@@ -437,8 +497,25 @@ fn insert_parts_query(items: Vec<OpenMultipartPart>) -> impl QueryFragment<Pg> +
         .set((
             blob_uid.eq(excluded(blob_uid)),
             plaintext_size.eq(excluded(plaintext_size)),
+            stored_size.eq(excluded(stored_size)),
             etag.eq(excluded(etag)),
             committed_at_micros.eq(excluded(committed_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_pending_blobs_query(items: Vec<PendingBlob>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_pending_blobs::dsl::*;
+    diesel::insert_into(schema::shelby_pending_blobs::table)
+        .values(items)
+        .on_conflict(uid)
+        .do_update()
+        .set((
+            owner.eq(excluded(owner)),
+            location_name.eq(excluded(location_name)),
+            creation_micros.eq(excluded(creation_micros)),
+            stored_size.eq(excluded(stored_size)),
             last_transaction_version.eq(excluded(last_transaction_version)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))

@@ -34,8 +34,8 @@ impl<T> MoveOption<T> {
 
 /// What an object's name resolves to, and how big it is.
 ///
-/// Both variants report the same measurement: the object's plaintext bytes,
-/// encryption container excluded.
+/// Both variants report the same two measurements: the object's plaintext bytes
+/// and the bytes holding them, encryption container excluded and included.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "__variant__")]
 pub(super) enum ObjectContent {
@@ -44,6 +44,8 @@ pub(super) enum ObjectContent {
         blob_uid: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
         plaintext_size: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        stored_size: u64,
     },
     Multipart {
         #[serde(deserialize_with = "deserialize_from_string")]
@@ -52,6 +54,8 @@ pub(super) enum ObjectContent {
         part_count: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
         plaintext_size: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        stored_size: u64,
         /// Parts uploaded under this record that the completion left out of
         /// its list, and which therefore occupy no bytes of the object. The
         /// manifest is the staged parts minus these.
@@ -93,6 +97,7 @@ pub(super) enum ObjectCommittedEvent {
         content: ObjectContent,
         encryption: MoveVariant,
         encoding: MoveVariant,
+        location_name: String,
         /// The binding this commit displaced, set only on overwrite. A
         /// displaced multipart record's manifest is no longer reachable, and
         /// this is the only place its uid is reported.
@@ -128,6 +133,7 @@ pub(super) enum MultipartUploadCreatedEvent {
         owner: String,
         encryption: MoveVariant,
         encoding: MoveVariant,
+        location_name: String,
         #[serde(deserialize_with = "deserialize_from_string")]
         created_at_micros: u64,
     },
@@ -148,6 +154,8 @@ pub(super) enum PartCommittedEvent {
         uid: u64,
         #[serde(deserialize_with = "deserialize_from_string")]
         plaintext_size: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        stored_size: u64,
         etag: String,
         #[serde(deserialize_with = "deserialize_from_string")]
         committed_at_micros: u64,
@@ -162,6 +170,65 @@ pub(super) enum MultipartUploadAbortedEvent {
     V1 {
         #[serde(deserialize_with = "deserialize_from_string")]
         multipart_uid: u64,
+    },
+}
+
+// ─── Blob layer ─────────────────────────────────────────────────────────────
+
+/// A blob was registered and is waiting to be committed.
+///
+/// Only what the pending row needs: the uid a sweep collects by, its owner, the
+/// registration time the grace window is measured from, and the bytes the blob
+/// holds. The rest of the event describes how those bytes are stored, which
+/// storage providers read from the chain.
+///
+/// `blob_size` is the length registration was charged for, container included,
+/// which is what this calls a stored size.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "__variant__")]
+pub(super) enum BlobRegisteredEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+        owner: String,
+        location_name: String,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        creation_micros: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        blob_size: u64,
+    },
+}
+
+/// A blob's bytes are durable, so it is no longer waiting.
+///
+/// Both variants carry the uid, which is all a removal needs; `V1` predates the
+/// part-committing shape and is handled rather than skipped, since dropping a
+/// pending row is the same act whichever announced it.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "__variant__")]
+pub(super) enum BlobPersistedEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+    },
+    V2 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+    },
+}
+
+/// A blob was torn down, so it is no longer waiting. Fires for committed blobs
+/// too, where there is no pending row to remove and the removal does nothing.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "__variant__")]
+pub(super) enum BlobDeletedEvent {
+    V1 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+    },
+    V2 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
     },
 }
 
