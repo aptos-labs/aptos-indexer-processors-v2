@@ -4,6 +4,10 @@
 // This is required because a diesel macro makes clippy sad
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
+// `QueryableByName` structs below are populated by diesel from SQL results, never
+// via struct literals; nightly clippy's `redundant_field_names` misfires on the
+// derive expansion (item-level #[allow] does not reach macro-generated code).
+#![allow(clippy::redundant_field_names)]
 
 use crate::{
     db::resources::FromWriteResource,

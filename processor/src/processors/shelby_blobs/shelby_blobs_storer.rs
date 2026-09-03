@@ -1,6 +1,11 @@
 // Copyright (c) Aptos Foundation
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
+// `QueryableByName` structs below are populated by diesel from SQL results, never
+// via struct literals; nightly clippy's `redundant_field_names` misfires on the
+// derive expansion (item-level #[allow] does not reach macro-generated code).
+#![allow(clippy::redundant_field_names)]
+
 use crate::{
     processors::shelby_blobs::models::{
         BlobActivity, BlobUpdate, NewBlob, PlacementGroupSlot, ShelbyBlobData,

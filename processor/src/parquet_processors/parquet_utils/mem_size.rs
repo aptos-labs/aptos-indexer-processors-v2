@@ -108,7 +108,10 @@ macro_rules! impl_mem_size {
 mod tests {
     use super::*;
 
+    // `id`/`deleted` are never read directly; they exist only to give the struct
+    // scalar (non-heap) fields so `size_of_val` reflects a realistic layout.
     #[derive(Clone)]
+    #[allow(dead_code)]
     struct Row {
         id: i64,
         deleted: bool,
@@ -138,7 +141,10 @@ mod tests {
         // A struct with no heap fields sizes to its shallow size.
         assert_eq!(5i64.mem_size(), std::mem::size_of::<i64>());
         assert_eq!(true.mem_size(), std::mem::size_of::<bool>());
-        assert_eq!(None::<String>.mem_size(), std::mem::size_of::<Option<String>>());
+        assert_eq!(
+            None::<String>.mem_size(),
+            std::mem::size_of::<Option<String>>()
+        );
     }
 
     #[test]

@@ -4,6 +4,11 @@
 //! Storer tests against a real Postgres (SDK `PostgresTestDatabase`, needs Docker).
 //! Build `ShelbyBlobData` directly to exercise the upsert/guard logic.
 
+// `QueryableByName` test structs are populated by diesel from SQL results, never
+// via struct literals; nightly clippy's `redundant_field_names` misfires on the
+// derive expansion (item-level #[allow] does not reach macro-generated code).
+#![allow(clippy::redundant_field_names)]
+
 use crate::{
     MIGRATIONS,
     processors::shelby_blobs::{
