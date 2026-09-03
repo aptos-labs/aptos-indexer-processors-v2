@@ -280,6 +280,7 @@ impl_mem_size!(
     ParquetMoveModule,
     name,
     address,
+    bytecode,
     exposed_functions,
     friends,
     structs
