@@ -5,12 +5,12 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::stake::models::stake_utils::StakeEvent,
     schema::delegated_staking_activities,
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{Transaction, transaction::TxnData},
@@ -146,9 +146,7 @@ impl From<DelegatedStakingActivity> for PostgresDelegatedStakingActivity {
 }
 
 // Parquet models
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetDelegatedStakingActivity {
     pub transaction_version: i64,
     pub event_index: i64,
@@ -156,7 +154,6 @@ pub struct ParquetDelegatedStakingActivity {
     pub pool_address: String,
     pub event_type: String,
     pub amount: String, // BigDecimal
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -183,3 +180,12 @@ impl From<DelegatedStakingActivity> for ParquetDelegatedStakingActivity {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetDelegatedStakingActivity,
+    delegator_address,
+    pool_address,
+    event_type,
+    amount
+);

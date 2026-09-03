@@ -31,10 +31,15 @@ set -x
 # Ensure all source files have the correct license header.
 python3 scripts/check_license.py $CHECK_ARG
 
-cargo +nightly xclippy
+# Run clippy on the pinned STABLE toolchain (from rust-toolchain.toml), NOT
+# nightly. Latest-nightly rustc intermittently segfaults (SIGSEGV) while
+# compiling some crates (e.g. the aptos-indexer-test-transactions git dep) and
+# introduces brand-new lints without warning, both of which break CI spuriously.
+# Stable clippy is deterministic and matches the toolchain the code is built with.
+cargo xclippy
 
-# We require the nightly build of cargo fmt
-# to provide stricter rust formatting.
+# We require the nightly build of cargo fmt to provide stricter rust formatting
+# (rustfmt.toml uses nightly-only options like imports_granularity/group_imports).
 cargo +nightly fmt $CHECK_ARG
 
 # Once cargo-sort correctly handles workspace dependencies,

@@ -10,11 +10,11 @@ use super::{
     signatures::Signature,
 };
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FeeStatement,
     schema::user_transactions,
 };
-use allocative::Allocative;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
@@ -240,11 +240,10 @@ impl UserTransaction {
 pub type UserTransactionModel = UserTransaction;
 
 // Parquet version of UserTransaction
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetUserTransaction {
     pub txn_version: i64,
     pub block_height: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub epoch: i64,
     pub sender: String,
@@ -349,3 +348,14 @@ impl From<UserTransaction> for PostgresUserTransaction {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetUserTransaction,
+    sender,
+    replay_protection_nonce,
+    entry_function_id_str,
+    parent_signature_type,
+    gas_fee_payer_address,
+    encrypted_state
+);
