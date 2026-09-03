@@ -5,10 +5,10 @@
 
 use super::signature_utils::parent_signature_utils::from_parent_signature;
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::signatures::{self},
 };
-use allocative_derive::Allocative;
 use anyhow::Result;
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::Signature as SignaturePb;
 use field_count::FieldCount;
@@ -104,7 +104,7 @@ impl From<Signature> for PostgresSignature {
 }
 
 // Parquet version of Signatures
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetSignature {
     pub txn_version: i64,
     pub multi_agent_index: i64,
@@ -119,7 +119,6 @@ pub struct ParquetSignature {
     pub signature: String,
     pub threshold: Option<i64>, // if multi key or multi ed?
     pub function_info: Option<String>,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -153,3 +152,15 @@ impl From<Signature> for ParquetSignature {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetSignature,
+    signer,
+    account_signature_type,
+    any_signature_type,
+    public_key_type,
+    public_key,
+    signature,
+    function_info
+);

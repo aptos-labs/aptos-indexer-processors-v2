@@ -5,12 +5,12 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::stake::models::stake_utils::StakeEvent,
     schema::proposal_votes,
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{Transaction, transaction::TxnData},
@@ -78,9 +78,7 @@ impl ProposalVote {
 }
 
 // Parquet models
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetProposalVote {
     pub transaction_version: i64,
     pub proposal_id: i64,
@@ -88,7 +86,6 @@ pub struct ParquetProposalVote {
     pub staking_pool_address: String,
     pub num_votes: String, // BigDecimal
     pub should_pass: bool,
-    #[allocative(skip)]
     pub transaction_timestamp: chrono::NaiveDateTime,
 }
 
@@ -143,3 +140,11 @@ impl From<ProposalVote> for PostgresProposalVote {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetProposalVote,
+    voter_address,
+    staking_pool_address,
+    num_votes
+);

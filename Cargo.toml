@@ -18,8 +18,6 @@ rust-version = "1.93.1"
 [workspace.dependencies]
 
 ahash = { version = "0.8.12", features = ["serde"] }
-allocative = "0.3.4"
-allocative_derive = "0.3.3"
 anyhow = "1.0.102"
 # Do NOT enable the postgres_full feature here, it is conditionally enabled in a feature
 # block in the Cargo.toml file for the processor crate.

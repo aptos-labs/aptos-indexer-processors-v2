@@ -4,10 +4,10 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::move_modules,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
         DeleteModule, MoveModule as MoveModulePB, MoveModuleBytecode, WriteModule,
@@ -137,9 +137,7 @@ impl MoveModule {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetMoveModule {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -151,7 +149,6 @@ pub struct ParquetMoveModule {
     pub friends: Option<String>,
     pub structs: Option<String>,
     pub is_deleted: bool,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -277,3 +274,13 @@ mod tests {
         assert_eq!(result.unwrap()["params"].as_array().unwrap().len(), 6);
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetMoveModule,
+    name,
+    address,
+    exposed_functions,
+    friends,
+    structs
+);

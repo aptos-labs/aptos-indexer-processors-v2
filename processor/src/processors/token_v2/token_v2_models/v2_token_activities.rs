@@ -6,6 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
@@ -19,7 +20,6 @@ use crate::{
     },
     schema::token_activities_v2,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::Event, utils::convert::standardize_address,
 };
@@ -418,9 +418,7 @@ impl TokenActivityV2 {
 }
 
 /// This is a parquet version of TokenActivityV2
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetTokenActivityV2 {
     pub txn_version: i64,
     pub event_index: i64,
@@ -436,7 +434,6 @@ pub struct ParquetTokenActivityV2 {
     pub entry_function_id_str: Option<String>,
     pub token_standard: String,
     pub is_fungible_v2: Option<bool>,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -516,3 +513,18 @@ impl From<TokenActivityV2> for PostgresTokenActivityV2 {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetTokenActivityV2,
+    event_account_address,
+    token_data_id,
+    event_type,
+    from_address,
+    to_address,
+    token_amount,
+    before_value,
+    after_value,
+    entry_function_id_str,
+    token_standard
+);

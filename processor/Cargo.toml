@@ -21,8 +21,6 @@ failpoints = ["dep:failpoints", "failpoints/failpoints"]
 
 [dependencies]
 ahash = { workspace = true }
-allocative = { workspace = true }
-allocative_derive = { workspace = true }
 anyhow = { workspace = true }
 aptos-indexer-processor-sdk = { workspace = true }
 async-trait = { workspace = true }

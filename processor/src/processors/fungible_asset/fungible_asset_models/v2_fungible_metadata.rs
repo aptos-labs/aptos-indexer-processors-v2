@@ -7,6 +7,7 @@
 
 use crate::{
     db::resources::{BURN_ADDR, FromWriteResource},
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         fungible_asset::{
@@ -19,7 +20,6 @@ use crate::{
     schema::fungible_asset_metadata,
 };
 use ahash::AHashMap;
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteResource, WriteResource},
     utils::convert::standardize_address,
@@ -201,7 +201,7 @@ impl FungibleAssetMetadataModel {
 }
 
 // Parquet version of FungibleAssetMetadataModel
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetFungibleAssetMetadataModel {
     pub asset_type: String,
     pub creator_address: String,
@@ -211,7 +211,6 @@ pub struct ParquetFungibleAssetMetadataModel {
     pub icon_uri: Option<String>,
     pub project_uri: Option<String>,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
     pub supply_aggregator_table_handle_v1: Option<String>,
     pub supply_aggregator_table_key_v1: Option<String>,
@@ -297,3 +296,19 @@ impl From<FungibleAssetMetadataModel> for PostgresFungibleAssetMetadataModel {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetFungibleAssetMetadataModel,
+    asset_type,
+    creator_address,
+    name,
+    symbol,
+    icon_uri,
+    project_uri,
+    supply_aggregator_table_handle_v1,
+    supply_aggregator_table_key_v1,
+    token_standard,
+    supply_v2,
+    maximum_v2
+);

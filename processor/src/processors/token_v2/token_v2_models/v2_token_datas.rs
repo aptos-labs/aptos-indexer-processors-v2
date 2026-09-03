@@ -7,6 +7,7 @@
 
 use crate::{
     db::resources::FromWriteResource,
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
@@ -19,7 +20,6 @@ use crate::{
     },
     schema::current_token_datas_v2,
 };
-use allocative_derive::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteResource, WriteResource, WriteTableItem},
@@ -306,7 +306,7 @@ impl TokenDataV2 {
 
 /// This is a parquet version of TokenDataV2
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetTokenDataV2 {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -319,7 +319,6 @@ pub struct ParquetTokenDataV2 {
     pub description: String,
     pub token_standard: String,
     pub is_fungible_v2: Option<bool>,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub is_deleted_v2: Option<bool>,
 }
@@ -358,7 +357,7 @@ impl From<TokenDataV2> for ParquetTokenDataV2 {
     }
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentTokenDataV2 {
     pub token_data_id: String,
     pub collection_id: String,
@@ -372,7 +371,6 @@ pub struct ParquetCurrentTokenDataV2 {
     pub token_standard: String,
     pub is_fungible_v2: Option<bool>,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
     // Deprecated, but still here for backwards compatibility
     pub decimals: Option<i64>,
@@ -467,3 +465,29 @@ impl From<CurrentTokenDataV2> for PostgresCurrentTokenDataV2 {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetTokenDataV2,
+    token_data_id,
+    collection_id,
+    token_name,
+    largest_property_version_v1,
+    token_uri,
+    token_properties,
+    description,
+    token_standard
+);
+impl_mem_size!(
+    ParquetCurrentTokenDataV2,
+    token_data_id,
+    collection_id,
+    token_name,
+    maximum,
+    supply,
+    largest_property_version_v1,
+    token_uri,
+    token_properties,
+    description,
+    token_standard
+);

@@ -3,23 +3,22 @@
 
 #![allow(clippy::extra_unused_lifetimes)]
 
-use crate::parquet_processors::parquet_utils::util::{HasVersion, NamedTable};
-use allocative_derive::Allocative;
+use crate::{
+    impl_mem_size,
+    parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
+};
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::WriteOpSizeInfo;
 use field_count::FieldCount;
 use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetWriteSetSize {
     pub txn_version: i64,
     pub change_index: i64,
     pub key_bytes: i64,
     pub value_bytes: i64,
     pub total_bytes: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -50,3 +49,6 @@ impl ParquetWriteSetSize {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(ParquetWriteSetSize);

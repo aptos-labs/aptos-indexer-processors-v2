@@ -6,10 +6,10 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::block_metadata_transactions,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::{compute_nanos_since_epoch, parse_timestamp},
     aptos_protos::{
@@ -106,9 +106,7 @@ impl From<BlockMetadataTransaction> for PostgresBlockMetadataTransaction {
 }
 
 // Parquet Model
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetBlockMetadataTransaction {
     pub txn_version: i64,
     pub block_height: i64,
@@ -118,7 +116,6 @@ pub struct ParquetBlockMetadataTransaction {
     pub previous_block_votes_bitvec: String,
     pub proposer: String,
     pub failed_proposer_indices: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub since_unix_epoch: u64,
 }
@@ -241,3 +238,12 @@ mod tests {
         writer.close().unwrap();
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetBlockMetadataTransaction,
+    block_id,
+    previous_block_votes_bitvec,
+    proposer,
+    failed_proposer_indices
+);

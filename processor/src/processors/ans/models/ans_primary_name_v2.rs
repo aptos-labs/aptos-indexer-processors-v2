@@ -7,6 +7,7 @@
 
 use super::ans_lookup_v2::TokenStandardType;
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         ans::models::{
@@ -17,7 +18,6 @@ use crate::{
     },
     schema::{ans_primary_name_v2, current_ans_primary_name_v2},
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::Event;
 use diesel::{Identifiable, Insertable};
 use field_count::FieldCount;
@@ -64,7 +64,7 @@ impl PartialOrd for CurrentAnsPrimaryNameV2 {
     }
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetAnsPrimaryNameV2 {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -74,7 +74,6 @@ pub struct ParquetAnsPrimaryNameV2 {
     pub subdomain: Option<String>,
     pub token_name: Option<String>,
     pub is_deleted: bool,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -104,7 +103,7 @@ impl From<AnsPrimaryNameV2> for ParquetAnsPrimaryNameV2 {
     }
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentAnsPrimaryNameV2 {
     pub registered_address: String,
     pub token_standard: String,
@@ -306,3 +305,21 @@ impl CurrentAnsPrimaryNameV2 {
         Ok(None)
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetAnsPrimaryNameV2,
+    registered_address,
+    token_standard,
+    domain,
+    subdomain,
+    token_name
+);
+impl_mem_size!(
+    ParquetCurrentAnsPrimaryNameV2,
+    registered_address,
+    token_standard,
+    domain,
+    subdomain,
+    token_name
+);
