@@ -110,6 +110,75 @@ fn retired_event_shapes_are_skipped_rather_than_fatal() {
     assert!(data.activities.is_empty());
 }
 
+/// Events emitted before Shelby adopted versioned Move enums have no
+/// `__variant__` tag. None can populate the current tables completely, so a
+/// replay ignores them.
+#[test]
+fn unversioned_event_shapes_are_skipped_rather_than_fatal() {
+    let events = [
+        (
+            "BlobRegisteredEvent",
+            r#"{
+                "uid": "7",
+                "object_name": "@0x1/a.txt",
+                "owner": "0x1",
+                "blob_commitment": "0xabcd",
+                "blob_size": "2176",
+                "chunkset_count": 1,
+                "creation_micros": "500",
+                "slice_address": "0x2",
+                "placement_group_address": "0x3",
+                "encoding": { "__variant__": "ClayCode_16Total_10Data_13Helper" },
+                "encryption": { "__variant__": "AES_GCM_V1" },
+                "payment_amount": "10"
+            }"#,
+        ),
+        (
+            "BlobPersistedEvent",
+            r#"{
+                "uid": "7",
+                "object_name": "@0x1/a.txt",
+                "persisted_at_micros": "550"
+            }"#,
+        ),
+        (
+            "ObjectCommittedEvent",
+            r#"{
+                "uid": "7",
+                "object_name": "@0x1/a.txt",
+                "owner": "0x1",
+                "etag": "0xabcd",
+                "committed_at_micros": "600"
+            }"#,
+        ),
+        (
+            "BlobDeletedEvent",
+            r#"{
+                "uid": "7",
+                "object_name": "@0x1/a.txt",
+                "reason": { "__variant__": "DeletedByOwner" }
+            }"#,
+        ),
+        (
+            "ObjectDeletedEvent",
+            r#"{
+                "uid": "7",
+                "object_name": "@0x1/a.txt",
+                "deleted_at_micros": "700"
+            }"#,
+        ),
+    ];
+
+    for (event_type, event_data) in events {
+        let data = parse(event_type, event_data);
+        assert_eq!(data.objects.len(), 0, "{event_type}");
+        assert_eq!(data.object_deletions.len(), 0, "{event_type}");
+        assert_eq!(data.pending_blobs.len(), 0, "{event_type}");
+        assert_eq!(data.pending_blob_removals.len(), 0, "{event_type}");
+        assert_eq!(data.activities.len(), 0, "{event_type}");
+    }
+}
+
 /// The counterpart guarantee: a shape this processor has never seen is a
 /// contract change it cannot represent, and is loud rather than dropped.
 #[test]

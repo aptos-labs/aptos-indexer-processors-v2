@@ -250,7 +250,8 @@ impl ShelbyBlobData {
         // events maintain staging rows and are not part of that history.
         let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
-                match deser::<ObjectCommittedEvent>(short, &event.data) {
+                let event = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
+                match event {
                     ObjectCommittedEvent::V1 {} => None,
                     ObjectCommittedEvent::V2 {
                         object_name,
@@ -335,7 +336,7 @@ impl ShelbyBlobData {
                     },
                 }
             },
-            "ObjectDeletedEvent" => match deser::<ObjectDeletedEvent>(short, &event.data) {
+            "ObjectDeletedEvent" => match deser_versioned_event(short, &event.data)? {
                 ObjectDeletedEvent::V1 {} => None,
                 ObjectDeletedEvent::V2 {
                     object_name,
@@ -420,7 +421,7 @@ impl ShelbyBlobData {
                     location_name,
                     creation_micros,
                     blob_size,
-                } = deser::<BlobRegisteredEvent>(short, &event.data);
+                } = deser_versioned_event::<BlobRegisteredEvent>(short, &event.data)?;
                 self.pending_blobs.push(PendingBlob {
                     uid: to_i64(uid),
                     owner: standardize_address(&owner),
@@ -432,7 +433,7 @@ impl ShelbyBlobData {
                 None
             },
             "BlobPersistedEvent" => {
-                let uid = match deser::<BlobPersistedEvent>(short, &event.data) {
+                let uid = match deser_versioned_event(short, &event.data)? {
                     BlobPersistedEvent::V1 { uid } | BlobPersistedEvent::V2 { uid } => uid,
                 };
                 self.pending_blob_removals.push(PendingBlobRemoval {
@@ -442,7 +443,7 @@ impl ShelbyBlobData {
                 None
             },
             "BlobDeletedEvent" => {
-                let uid = match deser::<BlobDeletedEvent>(short, &event.data) {
+                let uid = match deser_versioned_event(short, &event.data)? {
                     BlobDeletedEvent::V1 { uid } | BlobDeletedEvent::V2 { uid } => uid,
                 };
                 self.pending_blob_removals.push(PendingBlobRemoval {
@@ -487,6 +488,58 @@ impl ShelbyBlobData {
         });
         Some(())
     }
+}
+
+fn deser_versioned_event<'a, T: serde::Deserialize<'a>>(
+    event_type: &str,
+    data: &'a str,
+) -> Option<T> {
+    match serde_json::from_str::<T>(data) {
+        Ok(event) => Some(event),
+        Err(_) if is_unversioned_legacy_event(event_type, data) => None,
+        Err(error) => panic!(
+            "Failed to deserialize shelby event '{event_type}' (contract schema mismatch?): \
+             {error} — data: {data}"
+        ),
+    }
+}
+
+/// Identifies the struct-shaped events emitted before Shelby's events became
+/// versioned enums. Their fields cannot populate the current object tables, so
+/// replay starts indexing at the versioned event boundary.
+fn is_unversioned_legacy_event(event_type: &str, data: &str) -> bool {
+    let required_fields: &[&str] = match event_type {
+        "BlobRegisteredEvent" => &[
+            "uid",
+            "object_name",
+            "owner",
+            "blob_commitment",
+            "blob_size",
+            "creation_micros",
+            "slice_address",
+            "placement_group_address",
+            "encoding",
+            "encryption",
+            "payment_amount",
+        ],
+        "BlobPersistedEvent" => &["uid", "object_name", "persisted_at_micros"],
+        "ObjectCommittedEvent" => &["uid", "object_name", "owner", "etag", "committed_at_micros"],
+        "BlobDeletedEvent" => &["uid", "object_name", "reason"],
+        "ObjectDeletedEvent" => &["uid", "object_name", "deleted_at_micros"],
+        _ => return false,
+    };
+
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return false;
+    };
+    let Some(fields) = value.as_object() else {
+        return false;
+    };
+
+    !fields.contains_key("__variant__")
+        && required_fields
+            .iter()
+            .all(|field| fields.contains_key(*field))
 }
 
 /// Narrows a Move `u64` to the signed column that holds it.
