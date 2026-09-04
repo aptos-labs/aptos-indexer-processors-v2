@@ -14,9 +14,12 @@
 //! registration adds a blob to it, and durability or teardown takes it out.
 
 use super::read::*;
-use crate::schema::{
-    placement_group_slots, shelby_object_activities, shelby_objects, shelby_open_multipart_parts,
-    shelby_open_multipart_uploads, shelby_pending_blobs,
+use crate::{
+    schema::{
+        placement_group_slots, shelby_object_activities, shelby_objects,
+        shelby_open_multipart_parts, shelby_open_multipart_uploads, shelby_pending_blobs,
+    },
+    utils::counters::SHELBY_EVENTS_SKIPPED_TOTAL,
 };
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
@@ -252,7 +255,12 @@ impl ShelbyBlobData {
             "ObjectCommittedEvent" => {
                 let event = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
                 match event {
-                    ObjectCommittedEvent::V1 {} => None,
+                    ObjectCommittedEvent::V1 {} => {
+                        SHELBY_EVENTS_SKIPPED_TOTAL
+                            .with_label_values(&[short])
+                            .inc();
+                        None
+                    },
                     ObjectCommittedEvent::V2 {
                         object_name,
                         owner,
@@ -337,7 +345,12 @@ impl ShelbyBlobData {
                 }
             },
             "ObjectDeletedEvent" => match deser_versioned_event(short, &event.data)? {
-                ObjectDeletedEvent::V1 {} => None,
+                ObjectDeletedEvent::V1 {} => {
+                    SHELBY_EVENTS_SKIPPED_TOTAL
+                        .with_label_values(&[short])
+                        .inc();
+                    None
+                },
                 ObjectDeletedEvent::V2 {
                     object_name,
                     owner,
@@ -496,7 +509,12 @@ fn deser_versioned_event<'a, T: serde::Deserialize<'a>>(
 ) -> Option<T> {
     match serde_json::from_str::<T>(data) {
         Ok(event) => Some(event),
-        Err(_) if is_unversioned_legacy_event(event_type, data) => None,
+        Err(_) if is_unversioned_legacy_event(event_type, data) => {
+            SHELBY_EVENTS_SKIPPED_TOTAL
+                .with_label_values(&[event_type])
+                .inc();
+            None
+        },
         Err(error) => panic!(
             "Failed to deserialize shelby event '{event_type}' (contract schema mismatch?): \
              {error} — data: {data}"

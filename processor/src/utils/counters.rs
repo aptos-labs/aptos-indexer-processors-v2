@@ -143,6 +143,20 @@ pub static EVENT_SINK_DELIVERY_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| 
     .unwrap()
 });
 
+/// Shelby events skipped because they predate the current schema: either an
+/// unversioned legacy shape (replay starts indexing at the versioned-event
+/// boundary) or a retired enum variant. Non-zero is expected while replaying
+/// early history; a sustained rate at the chain head means the contract moved
+/// and this processor hasn't.
+pub static SHELBY_EVENTS_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "indexer_shelby_events_skipped_total",
+        "Count of Shelby events skipped as legacy or retired shapes",
+        &["event_type"]
+    )
+    .unwrap()
+});
+
 /// Seconds between now() and the latest processed block timestamp.
 /// First-class paging signal — aggregate alerts should AND against
 /// this < threshold to avoid firing on stale data.
