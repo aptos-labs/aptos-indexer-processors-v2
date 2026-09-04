@@ -5,6 +5,9 @@ server_config:
     channel_size: 100
     # Address of the Shelby contract to index; differs per network.
     deployer_address: "0xf3f4bf6b43f5a4fa82e3634465a624a95016160aa60ee237d857a0ef2d246d80"
+    # Record object history for an explorer to read. Nothing else queries it and
+    # it grows without bound, so leave it off where no explorer is served.
+    index_object_activities: true
   transaction_stream_config:
     indexer_grpc_data_service_address: "https://grpc.shelbynet.aptoslabs.com:443"
     auth_token: "AUTH_TOKEN"

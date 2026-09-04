@@ -41,6 +41,11 @@ pub struct ShelbyBlobsProcessorConfig {
     pub default_config: DefaultProcessorConfig,
     /// Address of the Shelby contract whose events are indexed (per-network).
     pub deployer_address: String,
+    /// Whether to record object history in `shelby_object_activities`, which an
+    /// explorer reads and nothing else does. Off by default, so a deployment
+    /// that only serves object lookups does not pay for the writes.
+    #[serde(default)]
+    pub index_object_activities: bool,
 }
 
 pub struct ShelbyBlobsProcessor {
@@ -119,6 +124,7 @@ impl ProcessorTrait for ShelbyBlobsProcessor {
 
         let extractor = ShelbyBlobsExtractor {
             deployer_address: standardize_address(&processor_config.deployer_address),
+            index_object_activities: processor_config.index_object_activities,
         };
         let storer = ShelbyBlobsStorer::new(
             self.db_pool.clone(),
