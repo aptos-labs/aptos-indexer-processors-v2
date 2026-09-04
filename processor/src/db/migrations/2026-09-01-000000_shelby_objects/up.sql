@@ -9,9 +9,9 @@
 -- clear.
 --
 -- `last_transaction_version` backs the latest-version-wins guard on every table
--- written more than once. There is no `inserted_at`: a wall-clock default would
--- stop this index being a deterministic function of the event stream, and so
--- rebuildable from the chain alone.
+-- written more than once. `inserted_at` carries a default and is never in an
+-- insert's values, so the chain-derived data stays a deterministic function of
+-- the event stream; only the wall clock differs, as on every other table here.
 
 DROP TABLE IF EXISTS blobs;
 DROP TABLE IF EXISTS blob_activities;
@@ -19,14 +19,8 @@ DROP TABLE IF EXISTS blob_activities;
 
 -- What a name resolves to, now. One row per live object, updated in place on
 -- overwrite and removed on delete, so it stays proportional to what exists.
---
 -- Written by ObjectCommittedEvent (upsert on `name`) and ObjectDeletedEvent
--- (delete, guarded on the stored version). A delete can drop the row rather
--- than tombstone it because the processor replays a contiguous range forward,
--- so a re-applied commit is always followed by the delete that came after it.
---
--- No lifecycle columns: `commit_object` asserts the blob is already durable, so
--- a row exists exactly when the name resolves to something readable.
+-- (delete, guarded on the stored version).
 CREATE TABLE shelby_objects (
     -- Object names are `@<owner>/<suffix>`, so a name is unique across accounts
     -- and one account's objects are a contiguous range of this key.
@@ -39,20 +33,17 @@ CREATE TABLE shelby_objects (
     -- is also what lets `name LIKE 'pfx%'` seek this column's indexes.
     name                     TEXT COLLATE "C" NOT NULL,
     owner                    VARCHAR(66) NOT NULL,
-    -- The etag S3 reports, `0x` and the hex of the event's bytes. The first
-    -- ETAG_LENGTH (16) bytes are a digest and anything after them is the suffix
-    -- in ASCII, so one rule renders either kind of object: hex the first
-    -- sixteen bytes, then append the rest. A single-blob etag has no rest; a
+    -- The etag S3 reports: hex the first ETAG_LENGTH (16) bytes (a digest),
+    -- then append the rest as ASCII. A single-blob etag has no rest; a
     -- multipart one carries `-<part count>`.
     etag                     TEXT NOT NULL,
-    -- How the object's bytes are encrypted, which a reader needs to interpret
-    -- them. Unconstrained on purpose: the indexer never reads it, so a scheme
-    -- added to the contract must not stop this processor.
+    -- How the object's bytes are encrypted. Unconstrained on purpose: the
+    -- indexer never reads it, so a scheme added to the contract must not stop
+    -- this processor.
     encryption               TEXT NOT NULL,
-    -- How the object's bytes are erasure coded. This fixes the size of a
-    -- chunkset, so it is what maps a plaintext range onto the stored bytes that
-    -- carry it, and a reader cannot size a range without it. Unconstrained for
-    -- the same reason as encryption.
+    -- How the object's bytes are erasure coded; fixes the chunkset size, which
+    -- maps a plaintext range onto stored bytes. Unconstrained for the same
+    -- reason as encryption.
     encoding                 TEXT NOT NULL,
     -- Region holding the object's bytes. One name for either kind of object: a
     -- single blob has its slice's region, and a multipart object's parts were all
@@ -61,12 +52,11 @@ CREATE TABLE shelby_objects (
     -- Bytes the object carries, encryption container excluded. The same
     -- measurement whichever variant below is populated.
     plaintext_size           BIGINT NOT NULL,
-    -- Bytes holding them, encryption container included: what reading the whole
-    -- object transfers, and what a payment for it is quantized against.
-    --
-    -- Stored rather than derived because a multipart object's containers are its
-    -- parts', one per part, so the overhead does not follow from the object's own
-    -- plaintext length. The chain sums it and reports it here.
+    -- Bytes holding the object's bytes, encryption container included: what
+    -- reading the whole object transfers, and what a payment for it is
+    -- quantized against. Stored rather than derived because a multipart
+    -- object's containers are its parts', one per part, so the overhead does
+    -- not follow from the object's own plaintext length.
     stored_size              BIGINT NOT NULL,
 
     -- ObjectContent::Blob -- the object resolves to one blob.
@@ -87,6 +77,7 @@ CREATE TABLE shelby_objects (
 
     committed_at_micros      BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Resolves a name, orders a listing, carries its cursor, and bounds a
     -- prefix as `name >= 'pfx' AND name < 'pfx' || high-sentinel`.
@@ -101,68 +92,58 @@ CREATE TABLE shelby_objects (
     )
 );
 
--- One account's objects, ascending by name: every bucket listing. A name
--- embeds its owner, so these rows are also a contiguous range of the primary
--- key, but that is a convention of how names are built and not something the
--- planner can see.
+-- One account's objects, ascending by name: every bucket listing.
 CREATE INDEX shelby_objects_owner_name
     ON shelby_objects (owner, name);
 
--- Newest objects first, across every account: the explorer's feed, which has no
--- owner filter and so can use neither the index above nor the primary key.
+-- Newest objects first, across every account: the explorer's feed, which has
+-- no owner filter and so can use neither the index above nor the primary key.
 CREATE INDEX shelby_objects_committed_at
     ON shelby_objects (committed_at_micros DESC);
 
 
--- The uploads a client can still add parts to. An upload accumulates parts
--- under a name that does not resolve yet and may be abandoned rather than
--- committed, so its lifecycle is not an object's, and it has no shelby_objects
--- row to join to -- ListMultipartUploads is answered from this table alone.
+-- The uploads a client can still add parts to. ListMultipartUploads is
+-- answered from this table alone.
 --
 -- Written by MultipartUploadCreatedEvent, deleted by ObjectCommittedEvent when
--- its content is multipart, or by MultipartUploadAbortedEvent. Those are the
--- only ways a row leaves, and neither fires on its own: `abort_multipart_upload`
--- takes the client's signer and there is no expiry or admin sweep, so an
--- abandoned upload stays here for good. The table is bounded by uploads ever
--- started rather than by uploads in flight, which is why the listing below is
+-- its content is multipart, or by MultipartUploadAbortedEvent. There is no
+-- expiry or admin sweep, so an abandoned upload stays here for good; the table
+-- is bounded by uploads ever started, which is why the listing below is
 -- indexed rather than left to a scan.
 CREATE TABLE shelby_open_multipart_uploads (
     multipart_uid            BIGINT NOT NULL,
     -- The name this upload will claim if it completes. Not a foreign key: no
     -- object exists under it yet, and one may never exist. `COLLATE "C"` for
-    -- the reasons shelby_objects.name carries it -- ListMultipartUploads walks
-    -- the key space the same way, with a prefix and a delimiter.
+    -- the reasons shelby_objects.name carries it.
     object_name              TEXT COLLATE "C" NOT NULL,
     owner                    VARCHAR(66) NOT NULL,
     -- Scheme every part of this upload carries.
     encryption               TEXT NOT NULL,
     -- Coding every part of this upload carries.
     encoding                 TEXT NOT NULL,
-    -- Region every part of this upload is written to, resolved when it was opened.
-    -- A part takes it from the record, so the parts cannot disagree and the part
-    -- tables do not repeat it.
+    -- Region every part of this upload is written to, resolved when it was
+    -- opened. A part takes it from the record, so the parts cannot disagree
+    -- and the part tables do not repeat it.
     location_name            TEXT NOT NULL,
     created_at_micros        BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Every multipart request arrives as an uploadId and resolves through this.
     PRIMARY KEY (multipart_uid)
 );
 
 -- ListMultipartUploads: one bucket's uploads, by key and then by upload id.
--- `owner` leads because a bucket is an account, `object_name` carries the
--- prefix and the `key-marker`, and `multipart_uid` is both the
--- `upload-id-marker` and S3's order within a key, a uid being a snowflake with
--- the millisecond in its high bits.
+-- `object_name` carries the prefix and the `key-marker`, and `multipart_uid`
+-- is both the `upload-id-marker` and S3's order within a key, a uid being a
+-- snowflake with the millisecond in its high bits.
 CREATE INDEX shelby_open_multipart_uploads_owner_name
     ON shelby_open_multipart_uploads (owner, object_name, multipart_uid);
 
 
--- What an open upload has accumulated so far: staging, not a manifest. It holds
--- everything uploaded, including parts a completion goes on to leave out, and
--- it dies with its upload. It inherits the growth described above, at up to
--- MAX_OBJECT_PARTS rows per abandoned upload; every query against it is keyed
--- by `multipart_uid`, so the cost is storage rather than latency.
+-- What an open upload has accumulated so far: staging, not a manifest. It
+-- holds everything uploaded, including parts a completion goes on to leave
+-- out, and it dies with its upload.
 --
 -- Written by PartCommittedEvent, where re-uploading a part number is an upsert
 -- on the same key. Deleted for the whole upload by ObjectCommittedEvent or
@@ -179,10 +160,11 @@ CREATE TABLE shelby_open_multipart_parts (
     stored_size              BIGINT NOT NULL,
     -- The bare digest, `0x` and thirty-two hex characters. A part's tag is
     -- pinned at ETAG_LENGTH by E_INVALID_PART_ETAG_LENGTH, so unlike an
-    -- object's it never carries a suffix, and ListParts quotes it as it stands.
+    -- object's it never carries a suffix.
     etag                     TEXT NOT NULL,
     committed_at_micros      BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- The ListParts query: the parts of one upload, ascending from a
     -- part-number marker. Also the bulk delete, on the leading column alone.
@@ -195,14 +177,10 @@ CREATE TABLE shelby_open_multipart_parts (
 --
 -- Its own table rather than a column on shelby_objects because a ranged read
 -- wants only the parts covering its range; held on the object row, every read
--- would fetch the whole manifest, which at the part ceiling is on the order of
--- 100 KB to serve an 8 MiB range.
+-- would fetch the whole manifest.
 --
 -- Promoted from shelby_open_multipart_parts at completion, restricted to the
 -- part numbers the commit event leaves unpruned, and never updated after.
--- Removing them is driven off the ObjectRef that ObjectDeletedEvent and an
--- overwriting ObjectCommittedEvent carry: an overwrite replaces the object row
--- in place and takes the old uid with it, so nothing here could be found again.
 CREATE TABLE shelby_object_parts (
     multipart_uid            BIGINT NOT NULL,
     part_number              INTEGER NOT NULL,
@@ -210,19 +188,18 @@ CREATE TABLE shelby_object_parts (
     blob_uid                 BIGINT NOT NULL,
 
     -- Where this part sits in the object: `[offset_in_object, end_offset)`.
-    -- Both bounds are stored and the size derived, rather than the other way
-    -- round, because a ranged read needs both to be indexed predicates. The
-    -- natural `offset < :end AND offset + plaintext_size > :start` puts an
-    -- expression on the second comparison, which no index serves and Hasura
-    -- cannot generate; storing the end makes it two plain column comparisons. A
-    -- part's plaintext size is `end_offset - offset_in_object`.
+    -- Both bounds are stored and the size derived, because a ranged read needs
+    -- both to be indexed predicates: `offset < :end AND offset +
+    -- plaintext_size > :start` puts an expression on the second comparison,
+    -- which no index serves. A part's plaintext size is `end_offset -
+    -- offset_in_object`.
     offset_in_object         BIGINT NOT NULL,
     end_offset               BIGINT NOT NULL,
 
-    -- Bytes reading this part transfers, container included. Carried across from
-    -- the staging row rather than derived from the span, so a part reports the
-    -- length its blob really has.
+    -- Bytes reading this part transfers, container included, carried across
+    -- from the staging row so a part reports the length its blob really has.
     stored_size              BIGINT NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- No `last_transaction_version`: a row is written once under a
     -- `multipart_uid` that is never reused, so no two writes ever contend.
@@ -244,28 +221,12 @@ CREATE INDEX shelby_object_parts_range
 -- Blobs registered but not yet committed: the candidate set for
 -- `garbage_collect_blobs`, which collects a pending blob once the contract's
 -- `PENDING_GC_GRACE_MICROS` window has elapsed since it was registered.
+-- Collection is permissionless, so anyone running this query can reclaim.
 --
--- A sweeper cannot find these anywhere else. The chain keys blobs by uid with no
--- way to enumerate them by state, and every other table here describes objects,
--- which is precisely what a pending blob is not yet. Collection is
--- permissionless, so anyone running this query can reclaim.
---
--- It also answers how much storage is committed to uploads that never finished,
--- which is what makes the backlog visible rather than merely collectable.
---
--- Written by BlobRegisteredEvent and deleted by the two events that end a blob's
--- wait: BlobPersistedEvent when it becomes durable, BlobDeletedEvent when it is
--- torn down. A blob leaves through exactly one of them, and the delete is keyed
--- on uid alone, so the teardown of a blob that was never here is a no-op.
---
--- Bounded by blobs currently in flight, unlike the staging tables above: every
--- row is claimed by one of those two events within a bounded window.
---
--- `BlobRegisteredEvent` does not say whether the blob was registered as an
--- object or as a part, so neither does this. Both kinds become collectable on
--- the same grace window, which is what this table exists to answer; a pending
--- part whose upload is already gone is collectable sooner, and that is the
--- contract's own check rather than something a query here anticipates.
+-- Written by BlobRegisteredEvent and deleted by the two events that end a
+-- blob's wait: BlobPersistedEvent when it becomes durable, BlobDeletedEvent
+-- when it is torn down. The delete is keyed on uid alone, so the teardown of
+-- a blob that was never here is a no-op.
 CREATE TABLE shelby_pending_blobs (
     uid                      BIGINT NOT NULL,
     owner                    VARCHAR(66) NOT NULL,
@@ -273,24 +234,25 @@ CREATE TABLE shelby_pending_blobs (
     location_name            TEXT NOT NULL,
     -- Registration time, which the grace window is measured from.
     creation_micros          BIGINT NOT NULL,
-    -- Bytes the blob was registered to hold, container included: what a sweep
-    -- reclaims by collecting it, and what an uncollected backlog is costing.
+    -- Bytes the blob was registered to hold, container included: what a
+    -- sweep reclaims by collecting it.
     stored_size              BIGINT NOT NULL,
     last_transaction_version BIGINT NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- A uid identifies a blob, and a sweep passes uids to the entry function.
     PRIMARY KEY (uid)
 );
 
 -- The sweep: the blobs registered longest ago, which are the ones whose grace
--- window has elapsed. Scanned forward from the oldest and stopped at the cutoff.
+-- window has elapsed.
 CREATE INDEX shelby_pending_blobs_creation
     ON shelby_pending_blobs (creation_micros);
 
 
 -- When each object appeared and went away: ObjectCommittedEvent and
--- ObjectDeletedEvent only, since opening an upload or adding a part to one is a
--- step toward an object rather than something that happened to one.
+-- ObjectDeletedEvent only, since opening an upload or adding a part to one is
+-- a step toward an object rather than something that happened to one.
 --
 -- The only unbounded table here, and the only one no other component reads, so
 -- a deployment with no explorer switches it off in the processor config and
@@ -309,16 +271,15 @@ CREATE TABLE shelby_object_activities (
     blob_uid                 BIGINT,
     multipart_uid            BIGINT,
     timestamp                TIMESTAMP NOT NULL,
+    inserted_at              TIMESTAMP NOT NULL DEFAULT NOW(),
 
-    -- Keyed on where the event sits in the chain rather than on its hash, as
-    -- every other activity table here is: reprocessing stays idempotent, the
-    -- index grows at its right edge, and read backwards the key is itself the
-    -- newest-first feed, stable across pages when one transaction emits several
-    -- events.
+    -- Keyed on where the event sits in the chain rather than on its hash:
+    -- reprocessing stays idempotent, and read backwards the key is itself the
+    -- newest-first feed, stable across pages when one transaction emits
+    -- several events.
     PRIMARY KEY (transaction_version, event_index)
 );
 
--- One account's history, newest first. The leading `owner` is what the primary
--- key cannot serve, since that orders by version across every account.
+-- One account's history, newest first.
 CREATE INDEX shelby_object_activities_owner_version
     ON shelby_object_activities (owner, transaction_version DESC, event_index DESC);

@@ -104,6 +104,7 @@ diesel::table! {
         blob_uid -> Nullable<Int8>,
         multipart_uid -> Nullable<Int8>,
         timestamp -> Timestamp,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -115,6 +116,7 @@ diesel::table! {
         offset_in_object -> Int8,
         end_offset -> Int8,
         stored_size -> Int8,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -135,6 +137,7 @@ diesel::table! {
         kind -> Nullable<Text>,
         committed_at_micros -> Int8,
         last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -148,6 +151,7 @@ diesel::table! {
         etag -> Text,
         committed_at_micros -> Int8,
         last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -160,6 +164,7 @@ diesel::table! {
         creation_micros -> Int8,
         stored_size -> Int8,
         last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -174,6 +179,7 @@ diesel::table! {
         location_name -> Text,
         created_at_micros -> Int8,
         last_transaction_version -> Int8,
+        inserted_at -> Timestamp,
     }
 }
 

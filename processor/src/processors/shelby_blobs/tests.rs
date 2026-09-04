@@ -682,6 +682,59 @@ async fn count(pool: &ArcDbPool, table: &str) -> i64 {
 
 // ─── Storer tests ───────────────────────────────────────────────────────────
 
+/// Every Shelby table carries a defaulted `inserted_at`, which an insert must
+/// pick up without the model naming it.
+#[tokio::test]
+async fn inserted_at_is_populated_on_every_table() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![blob_object("@0x1/a.txt", "0xaaaa", 100)],
+                uploads: vec![upload(1, 100)],
+                parts: vec![part(1, 1, 100)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 1,
+                    pruned_part_numbers: vec![],
+                }],
+                pending_blobs: vec![PendingBlob {
+                    uid: 9,
+                    owner: "0x1".into(),
+                    location_name: "us-east".into(),
+                    creation_micros: 100,
+                    stored_size: 64,
+                    last_transaction_version: 100,
+                }],
+                activities: vec![activity("@0x1/a.txt", 100)],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    for table in [
+        "shelby_objects",
+        "shelby_open_multipart_uploads",
+        "shelby_open_multipart_parts",
+        "shelby_object_parts",
+        "shelby_pending_blobs",
+        "shelby_object_activities",
+    ] {
+        let mut conn = pool.get().await.unwrap();
+        let nulls = diesel::sql_query(format!(
+            "SELECT count(*) AS n FROM {table} WHERE inserted_at IS NULL"
+        ))
+        .get_result::<Scalar>(&mut conn)
+        .await
+        .unwrap()
+        .n;
+        assert_eq!(nulls, 0, "{table}: inserted_at not populated");
+    }
+}
+
 #[tokio::test]
 async fn an_object_is_overwritten_in_place_and_removed_on_deletion() {
     let (_db, pool) = setup().await;
