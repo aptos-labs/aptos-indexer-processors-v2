@@ -256,7 +256,6 @@ impl ShelbyBlobData {
         // events maintain staging rows and are not part of that history.
         let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
-                skip_incompatible_v1(short, &event.data)?;
                 let commit = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
                 let owner = standardize_address(&commit.owner);
                 let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
@@ -334,7 +333,6 @@ impl ShelbyBlobData {
                 Some((commit.object_name, owner, blob_uid, multipart_uid))
             },
             "ObjectDeletedEvent" => {
-                skip_incompatible_v1(short, &event.data)?;
                 let deletion = deser_versioned_event::<ObjectDeletedEvent>(short, &event.data)?;
                 let owner = standardize_address(&deletion.owner);
                 let (blob_uid, multipart_uid) = match deletion.binding {
@@ -465,26 +463,32 @@ impl ShelbyBlobData {
     }
 }
 
-/// `ObjectCommittedEvent` / `ObjectDeletedEvent` V1 cannot fill the current
-/// tables. Peek the tag so that shape is never parsed as the live struct.
-fn skip_incompatible_v1(event_type: &str, data: &str) -> Option<()> {
+/// The shapes that cannot fill the current tables, which a replay of Shelby's
+/// full history skips instead of halting on: payloads carrying no
+/// `__variant__`, emitted before Shelby's events became versioned enums, and
+/// the `V1` object commit and deletion, which name no size, encryption or
+/// binding. Every other tag is indexed for whatever fields it does carry.
+///
+/// Data that is not JSON at all is none of those shapes, so it is left to
+/// serde, whose failure names the event and the payload that broke it.
+fn is_unindexable_event(event_type: &str, data: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
-        return Some(());
+        return false;
     };
-    if value.get("__variant__").and_then(|v| v.as_str()) != Some("V1") {
-        return Some(());
-    }
-    SHELBY_EVENTS_SKIPPED_TOTAL
-        .with_label_values(&[event_type])
-        .inc();
-    None
+    let Some(tag) = value.get("__variant__") else {
+        return true;
+    };
+    matches!(event_type, "ObjectCommittedEvent" | "ObjectDeletedEvent")
+        && tag.as_str() == Some("V1")
 }
 
+/// Deserializes an event this processor indexes some versions of, peeking the
+/// variant tag first so an unindexable shape is never parsed as a live struct.
 fn deser_versioned_event<'a, T: serde::Deserialize<'a>>(
     event_type: &str,
     data: &'a str,
 ) -> Option<T> {
-    if is_unversioned_legacy_event(event_type, data) {
+    if is_unindexable_event(event_type, data) {
         SHELBY_EVENTS_SKIPPED_TOTAL
             .with_label_values(&[event_type])
             .inc();
@@ -497,44 +501,6 @@ fn deser_versioned_event<'a, T: serde::Deserialize<'a>>(
              {error} — data: {data}"
         ),
     }
-}
-
-/// Identifies the struct-shaped events emitted before Shelby's events became
-/// versioned enums. Their fields cannot populate the current object tables, so
-/// replay starts indexing at the versioned event boundary.
-fn is_unversioned_legacy_event(event_type: &str, data: &str) -> bool {
-    let required_fields: &[&str] = match event_type {
-        "BlobRegisteredEvent" => &[
-            "uid",
-            "object_name",
-            "owner",
-            "blob_commitment",
-            "blob_size",
-            "creation_micros",
-            "slice_address",
-            "placement_group_address",
-            "encoding",
-            "encryption",
-            "payment_amount",
-        ],
-        "BlobPersistedEvent" => &["uid", "object_name", "persisted_at_micros"],
-        "ObjectCommittedEvent" => &["uid", "object_name", "owner", "etag", "committed_at_micros"],
-        "BlobDeletedEvent" => &["uid", "object_name", "reason"],
-        "ObjectDeletedEvent" => &["uid", "object_name", "deleted_at_micros"],
-        _ => return false,
-    };
-
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
-        return false;
-    };
-    let Some(fields) = value.as_object() else {
-        return false;
-    };
-
-    !fields.contains_key("__variant__")
-        && required_fields
-            .iter()
-            .all(|field| fields.contains_key(*field))
 }
 
 /// Decode the transaction stream's hex representation of a metadata payload.
