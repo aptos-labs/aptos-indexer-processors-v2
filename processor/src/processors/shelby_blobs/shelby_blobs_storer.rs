@@ -254,7 +254,7 @@ async fn promote_upload_metadata(
 ) -> Result<(), diesel::result::Error> {
     const SQL: &str = "
         UPDATE shelby_objects o
-        SET opaque_meta = u.opaque_meta
+        SET multipart_meta = u.opaque_meta
         FROM shelby_open_multipart_uploads u
         WHERE u.multipart_uid = o.multipart_uid
           AND u.multipart_uid = ANY($1)
@@ -458,12 +458,12 @@ where
     by_key.into_values().collect()
 }
 
-/// Preserve promoted metadata when a payload-less multipart commit is replayed.
-/// A newer commit replaces it, including with NULL.
-const OBJECT_METADATA_ON_CONFLICT: &str = "\
+/// Preserve promoted multipart metadata when its commit is replayed. A newer
+/// binding clears it before a new multipart upload can be promoted.
+const MULTIPART_METADATA_ON_CONFLICT: &str = "\
     CASE WHEN excluded.last_transaction_version > shelby_objects.last_transaction_version \
-         THEN excluded.opaque_meta \
-         ELSE COALESCE(excluded.opaque_meta, shelby_objects.opaque_meta) \
+         THEN NULL \
+         ELSE shelby_objects.multipart_meta \
     END";
 
 fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + QueryId + Send {
@@ -485,7 +485,8 @@ fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + Qu
             part_count.eq(excluded(part_count)),
             committed_at_micros.eq(excluded(committed_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
-            opaque_meta.eq(sql::<Nullable<Bytea>>(OBJECT_METADATA_ON_CONFLICT)),
+            multipart_meta.eq(sql::<Nullable<Bytea>>(MULTIPART_METADATA_ON_CONFLICT)),
+            commit_meta.eq(excluded(commit_meta)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }

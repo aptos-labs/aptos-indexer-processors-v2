@@ -1,6 +1,8 @@
--- Opaque metadata announced for an object; NULL when absent.
 ALTER TABLE shelby_objects
-    ADD COLUMN opaque_meta BYTEA;
+    -- Opaque metadata announced when a multipart upload opens.
+    ADD COLUMN multipart_meta BYTEA,
+    -- Opaque metadata announced when an object commits.
+    ADD COLUMN commit_meta BYTEA;
 
 -- Object metadata held until the multipart upload seals.
 ALTER TABLE shelby_open_multipart_uploads

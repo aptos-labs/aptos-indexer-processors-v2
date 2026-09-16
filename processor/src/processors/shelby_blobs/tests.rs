@@ -376,7 +376,8 @@ fn a_commit_without_a_payload_is_indexed_without_metadata() {
     let o = &data.objects[0];
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.blob_uid, Some(7));
-    assert_eq!(o.opaque_meta, None);
+    assert_eq!(o.multipart_meta, None);
+    assert_eq!(o.commit_meta, None);
 }
 
 #[test]
@@ -393,7 +394,7 @@ fn a_commit_stores_its_payload_verbatim() {
     );
 
     assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].opaque_meta.as_deref(), Some(META_BYTES));
+    assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
 }
 
 #[test]
@@ -410,7 +411,7 @@ fn an_additive_later_variant_is_indexed() {
     );
 
     assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].opaque_meta.as_deref(), Some(META_BYTES));
+    assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
     assert_eq!(data.objects[0].blob_uid, Some(7));
 }
 
@@ -422,7 +423,7 @@ fn an_absent_payload_is_no_metadata() {
     );
 
     assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].opaque_meta, None);
+    assert_eq!(data.objects[0].commit_meta, None);
 }
 
 #[test]
@@ -433,7 +434,7 @@ fn an_explicitly_empty_payload_is_preserved() {
     );
 
     assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].opaque_meta, Some(vec![]));
+    assert_eq!(data.objects[0].commit_meta, Some(vec![]));
 }
 
 /// Invalid transaction-stream hex is fatal.
@@ -503,9 +504,8 @@ fn a_part_carries_a_payload_of_its_own() {
     assert_eq!(data.parts[0].opaque_meta.as_deref(), Some(META_BYTES));
 }
 
-#[test]
-fn sealing_a_commit_carries_no_payload_of_its_own() {
-    let sealing = commit_event("V3", r#""passthrough_meta": { "vec": [] },"#).replace(
+fn multipart_commit_event(extra: &str) -> String {
+    commit_event("V3", extra).replace(
         r#"{
             "__variant__": "Blob",
             "blob_uid": "7",
@@ -520,13 +520,35 @@ fn sealing_a_commit_carries_no_payload_of_its_own() {
             "stored_size": "2048",
             "pruned_part_numbers": []
         }"#,
-    );
+    )
+}
 
-    let data = parse("ObjectCommittedEvent", &sealing);
+#[test]
+fn sealing_a_commit_carries_no_payload_of_its_own() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &multipart_commit_event(r#""passthrough_meta": { "vec": [] },"#),
+    );
     assert_eq!(data.objects.len(), 1);
     assert_eq!(data.objects[0].multipart_uid, Some(9));
-    assert_eq!(data.objects[0].opaque_meta, None);
+    assert_eq!(data.objects[0].multipart_meta, None);
+    assert_eq!(data.objects[0].commit_meta, None);
     assert_eq!(data.sealed_uploads.len(), 1);
+}
+
+#[test]
+fn a_multipart_commit_carries_commit_metadata() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &multipart_commit_event(&format!(
+            r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
+            meta_payload()
+        )),
+    );
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].multipart_uid, Some(9));
+    assert_eq!(data.objects[0].multipart_meta, None);
+    assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
 }
 
 /// Deleting a multipart object is the other way its manifest stops being
@@ -682,7 +704,8 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         part_count: None,
         committed_at_micros: 100,
         last_transaction_version: version,
-        opaque_meta: None,
+        multipart_meta: None,
+        commit_meta: None,
     }
 }
 
@@ -701,7 +724,8 @@ fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObjec
         part_count: Some(2),
         committed_at_micros: 100,
         last_transaction_version: version,
-        opaque_meta: None,
+        multipart_meta: None,
+        commit_meta: None,
     }
 }
 
@@ -871,20 +895,28 @@ impl<T> OptionalRow<T> for Result<T, diesel::result::Error> {
     }
 }
 
-async fn object_metadata(pool: &ArcDbPool, name: &str) -> Option<Vec<u8>> {
-    #[derive(QueryableByName)]
-    struct Row {
-        #[diesel(sql_type = Nullable<Bytea>)]
-        opaque_meta: Option<Vec<u8>>,
-    }
+#[derive(Debug, PartialEq, QueryableByName)]
+struct ObjectMetadata {
+    #[diesel(sql_type = Nullable<Bytea>)]
+    multipart_meta: Option<Vec<u8>>,
+    #[diesel(sql_type = Nullable<Bytea>)]
+    commit_meta: Option<Vec<u8>>,
+}
 
+async fn object_metadata(pool: &ArcDbPool, name: &str) -> Option<ObjectMetadata> {
     let mut conn = pool.get().await.unwrap();
-    diesel::sql_query("SELECT opaque_meta FROM shelby_objects WHERE name = $1")
+    diesel::sql_query("SELECT multipart_meta, commit_meta FROM shelby_objects WHERE name = $1")
         .bind::<Text, _>(name)
-        .get_result::<Row>(&mut conn)
+        .get_result::<ObjectMetadata>(&mut conn)
         .await
         .optional_row()
-        .and_then(|r| r.opaque_meta)
+}
+
+fn metadata(multipart_meta: Option<&[u8]>, commit_meta: Option<&[u8]>) -> ObjectMetadata {
+    ObjectMetadata {
+        multipart_meta: multipart_meta.map(<[u8]>::to_vec),
+        commit_meta: commit_meta.map(<[u8]>::to_vec),
+    }
 }
 
 async fn count(pool: &ArcDbPool, table: &str) -> i64 {
@@ -1725,13 +1757,16 @@ async fn sealing_an_upload_moves_its_metadata_onto_the_object() {
     let announced = META_BYTES.to_vec();
     let mut staged = upload(9, 100);
     staged.opaque_meta = Some(announced.clone());
+    let committed = b"commit-time".to_vec();
+    let mut object = multipart_object("@0x1/big.mp4", 9, 100);
+    object.commit_meta = Some(committed.clone());
 
     storer
         .process(ctx(
             ShelbyBlobData {
                 uploads: vec![staged],
                 parts: vec![part(9, 1, 100), part(9, 2, 100)],
-                objects: vec![multipart_object("@0x1/big.mp4", 9, 100)],
+                objects: vec![object],
                 sealed_uploads: vec![SealedUpload {
                     multipart_uid: 9,
                     pruned_part_numbers: vec![],
@@ -1749,7 +1784,7 @@ async fn sealing_an_upload_moves_its_metadata_onto_the_object() {
 
     assert_eq!(
         object_metadata(&pool, "@0x1/big.mp4").await,
-        Some(announced)
+        Some(metadata(Some(&announced), Some(&committed)))
     );
     assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
 }
@@ -1781,7 +1816,10 @@ async fn sealing_an_upload_without_metadata_leaves_the_object_bare() {
         .unwrap();
 
     assert!(object_row(&pool, "@0x1/big.mp4").await.is_some());
-    assert_eq!(object_metadata(&pool, "@0x1/big.mp4").await, None);
+    assert_eq!(
+        object_metadata(&pool, "@0x1/big.mp4").await,
+        Some(metadata(None, None))
+    );
 }
 
 /// A replay cannot erase metadata promoted by the original completion.
@@ -1821,7 +1859,7 @@ async fn replaying_a_completion_leaves_the_promoted_metadata_intact() {
     storer.process(ctx(seal(), 200)).await.unwrap();
     assert_eq!(
         object_metadata(&pool, "@0x1/big.mp4").await,
-        Some(announced.clone())
+        Some(metadata(Some(&announced), None))
     );
 
     // The upload row is already retired.
@@ -1829,7 +1867,7 @@ async fn replaying_a_completion_leaves_the_promoted_metadata_intact() {
 
     assert_eq!(
         object_metadata(&pool, "@0x1/big.mp4").await,
-        Some(announced)
+        Some(metadata(Some(&announced), None))
     );
 }
 
@@ -1839,8 +1877,9 @@ async fn an_overwrite_without_metadata_clears_what_was_there() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
 
-    let mut described = blob_object("@0x1/a.txt", "0xaaaa", 100);
-    described.opaque_meta = Some(META_BYTES.to_vec());
+    let mut described = multipart_object("@0x1/a.txt", 9, 100);
+    described.multipart_meta = Some(b"create-time".to_vec());
+    described.commit_meta = Some(META_BYTES.to_vec());
 
     storer
         .process(ctx(
@@ -1864,5 +1903,8 @@ async fn an_overwrite_without_metadata_clears_what_was_there() {
         .await
         .unwrap();
 
-    assert_eq!(object_metadata(&pool, "@0x1/a.txt").await, None);
+    assert_eq!(
+        object_metadata(&pool, "@0x1/a.txt").await,
+        Some(metadata(None, None))
+    );
 }

@@ -139,7 +139,8 @@ diesel::table! {
         committed_at_micros -> Int8,
         last_transaction_version -> Int8,
         inserted_at -> Timestamp,
-        opaque_meta -> Nullable<Bytea>,
+        multipart_meta -> Nullable<Bytea>,
+        commit_meta -> Nullable<Bytea>,
     }
 }
 

@@ -54,7 +54,8 @@ pub struct ShelbyObject {
     pub part_count: Option<i32>,
     pub committed_at_micros: i64,
     pub last_transaction_version: i64,
-    pub opaque_meta: Option<Vec<u8>>,
+    pub multipart_meta: Option<Vec<u8>>,
+    pub commit_meta: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
@@ -324,7 +325,8 @@ impl ShelbyBlobData {
                     part_count,
                     committed_at_micros: to_i64(commit.committed_at_micros),
                     last_transaction_version: txn_version,
-                    opaque_meta: commit
+                    multipart_meta: None,
+                    commit_meta: commit
                         .passthrough_meta
                         .into_option()
                         .as_deref()
