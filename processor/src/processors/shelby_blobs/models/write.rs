@@ -256,125 +256,105 @@ impl ShelbyBlobData {
         // events maintain staging rows and are not part of that history.
         let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
-                let commit = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?
-                    .into_commit();
-                match commit {
-                    None => {
-                        SHELBY_EVENTS_SKIPPED_TOTAL
-                            .with_label_values(&[short])
-                            .inc();
-                        None
-                    },
-                    Some(commit) => {
-                        let owner = standardize_address(&commit.owner);
-                        let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
-                            match commit.content {
-                                ObjectContent::Blob {
-                                    blob_uid,
-                                    plaintext_size,
-                                    stored_size,
-                                } => (
-                                    Some(to_i64(blob_uid)),
-                                    None,
-                                    None,
-                                    plaintext_size,
-                                    stored_size,
-                                ),
-                                ObjectContent::Multipart {
-                                    multipart_uid,
-                                    part_count,
-                                    plaintext_size,
-                                    stored_size,
-                                    pruned_part_numbers,
-                                } => {
-                                    let uid = to_i64(multipart_uid);
-                                    // Sealing an upload both ends it and fixes the
-                                    // object's part list: the staging rows are
-                                    // retired, and the ones the completion kept are
-                                    // promoted into a manifest first.
-                                    self.sealed_uploads.push(SealedUpload {
-                                        multipart_uid: uid,
-                                        pruned_part_numbers: pruned_part_numbers
-                                            .into_iter()
-                                            .map(i32::from)
-                                            .collect(),
-                                    });
-                                    self.retired_uploads.push(UploadRetirement {
-                                        multipart_uid: uid,
-                                        last_transaction_version: txn_version,
-                                    });
-                                    (
-                                        None,
-                                        Some(uid),
-                                        Some(to_i32(part_count)),
-                                        plaintext_size,
-                                        stored_size,
-                                    )
-                                },
-                            };
-                        // An overwrite displaces whatever the name resolved to.
-                        // A displaced multipart record's manifest is then
-                        // unreachable, and this is where its uid is reported.
-                        if let Some(ObjectRef::Multipart { multipart_uid }) =
-                            commit.previous.into_option()
-                        {
-                            self.orphaned_manifests.push(to_i64(multipart_uid));
-                        }
-                        self.objects.push(ShelbyObject {
-                            name: commit.object_name.clone(),
-                            owner: owner.clone(),
-                            etag: commit.etag,
-                            encryption: commit.encryption.variant,
-                            encoding: commit.encoding.variant,
-                            location_name: commit.location_name,
-                            plaintext_size: to_i64(plaintext_size),
-                            stored_size: to_i64(stored_size),
+                skip_incompatible_v1(short, &event.data)?;
+                let commit = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
+                let owner = standardize_address(&commit.owner);
+                let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
+                    match commit.content {
+                        ObjectContent::Blob {
                             blob_uid,
+                            plaintext_size,
+                            stored_size,
+                        } => (
+                            Some(to_i64(blob_uid)),
+                            None,
+                            None,
+                            plaintext_size,
+                            stored_size,
+                        ),
+                        ObjectContent::Multipart {
                             multipart_uid,
                             part_count,
-                            committed_at_micros: to_i64(commit.committed_at_micros),
-                            last_transaction_version: txn_version,
-                            opaque_meta: commit
-                                .passthrough_meta
-                                .as_deref()
-                                .map(decode_passthrough_meta),
-                        });
-                        Some((commit.object_name, owner, blob_uid, multipart_uid))
-                    },
-                }
-            },
-            "ObjectDeletedEvent" => match deser_versioned_event(short, &event.data)? {
-                ObjectDeletedEvent::V1 {} => {
-                    SHELBY_EVENTS_SKIPPED_TOTAL
-                        .with_label_values(&[short])
-                        .inc();
-                    None
-                },
-                ObjectDeletedEvent::V2 {
-                    object_name,
-                    owner,
-                    binding,
-                } => {
-                    let owner = standardize_address(&owner);
-                    let (blob_uid, multipart_uid) = match binding {
-                        ObjectRef::Blob { blob_uid } => (Some(to_i64(blob_uid)), None),
-                        ObjectRef::Multipart { multipart_uid } => {
+                            plaintext_size,
+                            stored_size,
+                            pruned_part_numbers,
+                        } => {
                             let uid = to_i64(multipart_uid);
-                            // The name stops resolving, so the manifest under
-                            // this uid is unreachable and goes with it.
-                            self.orphaned_manifests.push(uid);
-                            (None, Some(uid))
+                            // Sealing an upload both ends it and fixes the
+                            // object's part list: the staging rows are
+                            // retired, and the ones the completion kept are
+                            // promoted into a manifest first.
+                            self.sealed_uploads.push(SealedUpload {
+                                multipart_uid: uid,
+                                pruned_part_numbers: pruned_part_numbers
+                                    .into_iter()
+                                    .map(i32::from)
+                                    .collect(),
+                            });
+                            self.retired_uploads.push(UploadRetirement {
+                                multipart_uid: uid,
+                                last_transaction_version: txn_version,
+                            });
+                            (
+                                None,
+                                Some(uid),
+                                Some(to_i32(part_count)),
+                                plaintext_size,
+                                stored_size,
+                            )
                         },
                     };
-                    self.object_deletions.push(ObjectDeletion {
-                        name: object_name.clone(),
-                        last_transaction_version: txn_version,
-                    });
-                    Some((object_name, owner, blob_uid, multipart_uid))
-                },
+                // An overwrite displaces whatever the name resolved to.
+                // A displaced multipart record's manifest is then
+                // unreachable, and this is where its uid is reported.
+                if let Some(ObjectRef::Multipart { multipart_uid }) = commit.previous.into_option()
+                {
+                    self.orphaned_manifests.push(to_i64(multipart_uid));
+                }
+                self.objects.push(ShelbyObject {
+                    name: commit.object_name.clone(),
+                    owner: owner.clone(),
+                    etag: commit.etag,
+                    encryption: commit.encryption.variant,
+                    encoding: commit.encoding.variant,
+                    location_name: commit.location_name,
+                    plaintext_size: to_i64(plaintext_size),
+                    stored_size: to_i64(stored_size),
+                    blob_uid,
+                    multipart_uid,
+                    part_count,
+                    committed_at_micros: to_i64(commit.committed_at_micros),
+                    last_transaction_version: txn_version,
+                    opaque_meta: commit
+                        .passthrough_meta
+                        .into_option()
+                        .as_deref()
+                        .map(decode_passthrough_meta),
+                });
+                Some((commit.object_name, owner, blob_uid, multipart_uid))
+            },
+            "ObjectDeletedEvent" => {
+                skip_incompatible_v1(short, &event.data)?;
+                let deletion = deser_versioned_event::<ObjectDeletedEvent>(short, &event.data)?;
+                let owner = standardize_address(&deletion.owner);
+                let (blob_uid, multipart_uid) = match deletion.binding {
+                    ObjectRef::Blob { blob_uid } => (Some(to_i64(blob_uid)), None),
+                    ObjectRef::Multipart { multipart_uid } => {
+                        let uid = to_i64(multipart_uid);
+                        // The name stops resolving, so the manifest under
+                        // this uid is unreachable and goes with it.
+                        self.orphaned_manifests.push(uid);
+                        (None, Some(uid))
+                    },
+                };
+                self.object_deletions.push(ObjectDeletion {
+                    name: deletion.object_name.clone(),
+                    last_transaction_version: txn_version,
+                });
+                Some((deletion.object_name, owner, blob_uid, multipart_uid))
             },
             "MultipartUploadCreatedEvent" => {
-                let upload = deser::<MultipartUploadCreatedEvent>(short, &event.data).into_upload();
+                let upload = deser::<MultipartUploadCreatedEvent>(short, &event.data);
                 self.uploads.push(OpenMultipartUpload {
                     multipart_uid: to_i64(upload.multipart_uid),
                     object_name: upload.object_name,
@@ -386,13 +366,14 @@ impl ShelbyBlobData {
                     last_transaction_version: txn_version,
                     opaque_meta: upload
                         .passthrough_meta
+                        .into_option()
                         .as_deref()
                         .map(decode_passthrough_meta),
                 });
                 None
             },
             "PartCommittedEvent" => {
-                let part = deser::<PartCommittedEvent>(short, &event.data).into_part();
+                let part = deser::<PartCommittedEvent>(short, &event.data);
                 self.parts.push(OpenMultipartPart {
                     multipart_uid: to_i64(part.multipart_uid),
                     part_number: i32::from(part.part_number),
@@ -404,54 +385,44 @@ impl ShelbyBlobData {
                     last_transaction_version: txn_version,
                     opaque_meta: part
                         .passthrough_meta
+                        .into_option()
                         .as_deref()
                         .map(decode_passthrough_meta),
                 });
                 None
             },
             "MultipartUploadAbortedEvent" => {
-                let MultipartUploadAbortedEvent::V1 { multipart_uid } =
-                    deser::<MultipartUploadAbortedEvent>(short, &event.data);
+                let abort = deser::<MultipartUploadAbortedEvent>(short, &event.data);
                 self.retired_uploads.push(UploadRetirement {
-                    multipart_uid: to_i64(multipart_uid),
+                    multipart_uid: to_i64(abort.multipart_uid),
                     last_transaction_version: txn_version,
                 });
                 None
             },
             "BlobRegisteredEvent" => {
-                let BlobRegisteredEvent::V1 {
-                    uid,
-                    owner,
-                    location_name,
-                    creation_micros,
-                    blob_size,
-                } = deser_versioned_event::<BlobRegisteredEvent>(short, &event.data)?;
+                let registered = deser_versioned_event::<BlobRegisteredEvent>(short, &event.data)?;
                 self.pending_blobs.push(PendingBlob {
-                    uid: to_i64(uid),
-                    owner: standardize_address(&owner),
-                    location_name,
-                    creation_micros: to_i64(creation_micros),
-                    stored_size: to_i64(blob_size),
+                    uid: to_i64(registered.uid),
+                    owner: standardize_address(&registered.owner),
+                    location_name: registered.location_name,
+                    creation_micros: to_i64(registered.creation_micros),
+                    stored_size: to_i64(registered.blob_size),
                     last_transaction_version: txn_version,
                 });
                 None
             },
             "BlobPersistedEvent" => {
-                let uid = match deser_versioned_event(short, &event.data)? {
-                    BlobPersistedEvent::V1 { uid } | BlobPersistedEvent::V2 { uid } => uid,
-                };
+                let persisted = deser_versioned_event::<BlobPersistedEvent>(short, &event.data)?;
                 self.pending_blob_removals.push(PendingBlobRemoval {
-                    uid: to_i64(uid),
+                    uid: to_i64(persisted.uid),
                     last_transaction_version: txn_version,
                 });
                 None
             },
             "BlobDeletedEvent" => {
-                let uid = match deser_versioned_event(short, &event.data)? {
-                    BlobDeletedEvent::V1 { uid } | BlobDeletedEvent::V2 { uid } => uid,
-                };
+                let deleted = deser_versioned_event::<BlobDeletedEvent>(short, &event.data)?;
                 self.pending_blob_removals.push(PendingBlobRemoval {
-                    uid: to_i64(uid),
+                    uid: to_i64(deleted.uid),
                     last_transaction_version: txn_version,
                 });
                 None
@@ -494,18 +465,33 @@ impl ShelbyBlobData {
     }
 }
 
+/// `ObjectCommittedEvent` / `ObjectDeletedEvent` V1 cannot fill the current
+/// tables. Peek the tag so that shape is never parsed as the live struct.
+fn skip_incompatible_v1(event_type: &str, data: &str) -> Option<()> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Some(());
+    };
+    if value.get("__variant__").and_then(|v| v.as_str()) != Some("V1") {
+        return Some(());
+    }
+    SHELBY_EVENTS_SKIPPED_TOTAL
+        .with_label_values(&[event_type])
+        .inc();
+    None
+}
+
 fn deser_versioned_event<'a, T: serde::Deserialize<'a>>(
     event_type: &str,
     data: &'a str,
 ) -> Option<T> {
+    if is_unversioned_legacy_event(event_type, data) {
+        SHELBY_EVENTS_SKIPPED_TOTAL
+            .with_label_values(&[event_type])
+            .inc();
+        return None;
+    }
     match serde_json::from_str::<T>(data) {
         Ok(event) => Some(event),
-        Err(_) if is_unversioned_legacy_event(event_type, data) => {
-            SHELBY_EVENTS_SKIPPED_TOTAL
-                .with_label_values(&[event_type])
-                .inc();
-            None
-        },
         Err(error) => panic!(
             "Failed to deserialize shelby event '{event_type}' (contract schema mismatch?): \
              {error} — data: {data}"
@@ -582,8 +568,7 @@ fn to_i32(value: u64) -> i32 {
 }
 
 /// Panics on failure: a parse error for an event we index means the on-chain
-/// shape diverged from this processor's target schema. A retired variant is
-/// not such a divergence, and is declared so that it parses and is skipped.
+/// shape diverged from this processor's target schema.
 fn deser<'a, T: serde::Deserialize<'a>>(event_type: &str, data: &'a str) -> T {
     serde_json::from_str::<T>(data).unwrap_or_else(|e| {
         panic!(

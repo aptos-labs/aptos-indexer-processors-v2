@@ -397,6 +397,24 @@ fn a_commit_stores_its_payload_verbatim() {
 }
 
 #[test]
+fn an_additive_later_variant_is_indexed() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &commit_event(
+            "V4",
+            &format!(
+                r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
+                meta_payload()
+            ),
+        ),
+    );
+
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].opaque_meta.as_deref(), Some(META_BYTES));
+    assert_eq!(data.objects[0].blob_uid, Some(7));
+}
+
+#[test]
 fn an_absent_payload_is_no_metadata() {
     let data = parse(
         "ObjectCommittedEvent",
