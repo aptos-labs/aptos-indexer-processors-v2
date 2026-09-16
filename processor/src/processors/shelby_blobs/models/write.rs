@@ -54,6 +54,7 @@ pub struct ShelbyObject {
     pub part_count: Option<i32>,
     pub committed_at_micros: i64,
     pub last_transaction_version: i64,
+    pub opaque_meta: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
@@ -67,6 +68,7 @@ pub struct OpenMultipartUpload {
     pub location_name: String,
     pub created_at_micros: i64,
     pub last_transaction_version: i64,
+    pub opaque_meta: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
@@ -80,6 +82,7 @@ pub struct OpenMultipartPart {
     pub etag: String,
     pub committed_at_micros: i64,
     pub last_transaction_version: i64,
+    pub opaque_meta: Option<Vec<u8>>,
 }
 
 /// A blob registered but not yet committed, and so a candidate for collection
@@ -253,28 +256,19 @@ impl ShelbyBlobData {
         // events maintain staging rows and are not part of that history.
         let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
-                let event = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
-                match event {
-                    ObjectCommittedEvent::V1 {} => {
+                let commit = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?
+                    .into_commit();
+                match commit {
+                    None => {
                         SHELBY_EVENTS_SKIPPED_TOTAL
                             .with_label_values(&[short])
                             .inc();
                         None
                     },
-                    ObjectCommittedEvent::V2 {
-                        object_name,
-                        owner,
-                        etag,
-                        content,
-                        encryption,
-                        encoding,
-                        location_name,
-                        previous,
-                        committed_at_micros,
-                    } => {
-                        let owner = standardize_address(&owner);
+                    Some(commit) => {
+                        let owner = standardize_address(&commit.owner);
                         let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
-                            match content {
+                            match commit.content {
                                 ObjectContent::Blob {
                                     blob_uid,
                                     plaintext_size,
@@ -321,26 +315,31 @@ impl ShelbyBlobData {
                         // An overwrite displaces whatever the name resolved to.
                         // A displaced multipart record's manifest is then
                         // unreachable, and this is where its uid is reported.
-                        if let Some(ObjectRef::Multipart { multipart_uid }) = previous.into_option()
+                        if let Some(ObjectRef::Multipart { multipart_uid }) =
+                            commit.previous.into_option()
                         {
                             self.orphaned_manifests.push(to_i64(multipart_uid));
                         }
                         self.objects.push(ShelbyObject {
-                            name: object_name.clone(),
+                            name: commit.object_name.clone(),
                             owner: owner.clone(),
-                            etag,
-                            encryption: encryption.variant,
-                            encoding: encoding.variant,
-                            location_name,
+                            etag: commit.etag,
+                            encryption: commit.encryption.variant,
+                            encoding: commit.encoding.variant,
+                            location_name: commit.location_name,
                             plaintext_size: to_i64(plaintext_size),
                             stored_size: to_i64(stored_size),
                             blob_uid,
                             multipart_uid,
                             part_count,
-                            committed_at_micros: to_i64(committed_at_micros),
+                            committed_at_micros: to_i64(commit.committed_at_micros),
                             last_transaction_version: txn_version,
+                            opaque_meta: commit
+                                .passthrough_meta
+                                .as_deref()
+                                .map(decode_passthrough_meta),
                         });
-                        Some((object_name, owner, blob_uid, multipart_uid))
+                        Some((commit.object_name, owner, blob_uid, multipart_uid))
                     },
                 }
             },
@@ -375,46 +374,38 @@ impl ShelbyBlobData {
                 },
             },
             "MultipartUploadCreatedEvent" => {
-                let MultipartUploadCreatedEvent::V1 {
-                    multipart_uid,
-                    object_name,
-                    owner,
-                    encryption,
-                    encoding,
-                    location_name,
-                    created_at_micros,
-                } = deser::<MultipartUploadCreatedEvent>(short, &event.data);
+                let upload = deser::<MultipartUploadCreatedEvent>(short, &event.data).into_upload();
                 self.uploads.push(OpenMultipartUpload {
-                    multipart_uid: to_i64(multipart_uid),
-                    object_name,
-                    owner: standardize_address(&owner),
-                    encryption: encryption.variant,
-                    encoding: encoding.variant,
-                    location_name,
-                    created_at_micros: to_i64(created_at_micros),
+                    multipart_uid: to_i64(upload.multipart_uid),
+                    object_name: upload.object_name,
+                    owner: standardize_address(&upload.owner),
+                    encryption: upload.encryption.variant,
+                    encoding: upload.encoding.variant,
+                    location_name: upload.location_name,
+                    created_at_micros: to_i64(upload.created_at_micros),
                     last_transaction_version: txn_version,
+                    opaque_meta: upload
+                        .passthrough_meta
+                        .as_deref()
+                        .map(decode_passthrough_meta),
                 });
                 None
             },
             "PartCommittedEvent" => {
-                let PartCommittedEvent::V1 {
-                    multipart_uid,
-                    part_number,
-                    uid,
-                    plaintext_size,
-                    stored_size,
-                    etag,
-                    committed_at_micros,
-                } = deser::<PartCommittedEvent>(short, &event.data);
+                let part = deser::<PartCommittedEvent>(short, &event.data).into_part();
                 self.parts.push(OpenMultipartPart {
-                    multipart_uid: to_i64(multipart_uid),
-                    part_number: i32::from(part_number),
-                    blob_uid: to_i64(uid),
-                    plaintext_size: to_i64(plaintext_size),
-                    stored_size: to_i64(stored_size),
-                    etag,
-                    committed_at_micros: to_i64(committed_at_micros),
+                    multipart_uid: to_i64(part.multipart_uid),
+                    part_number: i32::from(part.part_number),
+                    blob_uid: to_i64(part.uid),
+                    plaintext_size: to_i64(part.plaintext_size),
+                    stored_size: to_i64(part.stored_size),
+                    etag: part.etag,
+                    committed_at_micros: to_i64(part.committed_at_micros),
                     last_transaction_version: txn_version,
+                    opaque_meta: part
+                        .passthrough_meta
+                        .as_deref()
+                        .map(decode_passthrough_meta),
                 });
                 None
             },
@@ -558,6 +549,18 @@ fn is_unversioned_legacy_event(event_type: &str, data: &str) -> bool {
         && required_fields
             .iter()
             .all(|field| fields.contains_key(*field))
+}
+
+/// Decode the transaction stream's hex representation of a metadata payload.
+///
+/// Malformed hex indicates an invalid transaction stream payload.
+fn decode_passthrough_meta(passthrough_meta: &str) -> Vec<u8> {
+    let hex_digits = passthrough_meta
+        .strip_prefix("0x")
+        .unwrap_or(passthrough_meta);
+    hex::decode(hex_digits).unwrap_or_else(|e| {
+        panic!("shelby passthrough_meta is not hex (transaction stream malformed?): {e}")
+    })
 }
 
 /// Narrows a Move `u64` to the signed column that holds it.

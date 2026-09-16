@@ -105,6 +105,88 @@ pub(super) enum ObjectCommittedEvent {
         #[serde(deserialize_with = "deserialize_from_string")]
         committed_at_micros: u64,
     },
+    V3 {
+        object_name: String,
+        owner: String,
+        etag: String,
+        content: ObjectContent,
+        encryption: MoveVariant,
+        encoding: MoveVariant,
+        location_name: String,
+        previous: MoveOption<ObjectRef>,
+        /// Hex-encoded metadata, or `None` when this commit carries none.
+        passthrough_meta: MoveOption<String>,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        committed_at_micros: u64,
+    },
+}
+
+pub(super) struct ObjectCommit {
+    pub object_name: String,
+    pub owner: String,
+    pub etag: String,
+    pub content: ObjectContent,
+    pub encryption: MoveVariant,
+    pub encoding: MoveVariant,
+    pub location_name: String,
+    pub previous: MoveOption<ObjectRef>,
+    pub passthrough_meta: Option<String>,
+    pub committed_at_micros: u64,
+}
+
+impl ObjectCommittedEvent {
+    /// The commit this event describes, or `None` for a variant too old to
+    /// populate an object row.
+    pub(super) fn into_commit(self) -> Option<ObjectCommit> {
+        match self {
+            Self::V1 {} => None,
+            Self::V2 {
+                object_name,
+                owner,
+                etag,
+                content,
+                encryption,
+                encoding,
+                location_name,
+                previous,
+                committed_at_micros,
+            } => Some(ObjectCommit {
+                object_name,
+                owner,
+                etag,
+                content,
+                encryption,
+                encoding,
+                location_name,
+                previous,
+                passthrough_meta: None,
+                committed_at_micros,
+            }),
+            Self::V3 {
+                object_name,
+                owner,
+                etag,
+                content,
+                encryption,
+                encoding,
+                location_name,
+                previous,
+                passthrough_meta,
+                committed_at_micros,
+            } => Some(ObjectCommit {
+                object_name,
+                owner,
+                etag,
+                content,
+                encryption,
+                encoding,
+                location_name,
+                previous,
+                passthrough_meta: passthrough_meta.into_option(),
+                committed_at_micros,
+            }),
+        }
+    }
 }
 
 /// A name stopped resolving. `V1` is skipped for the same reason as
@@ -123,6 +205,7 @@ pub(super) enum ObjectDeletedEvent {
 
 // ─── Multipart layer ────────────────────────────────────────────────────────
 
+/// A multipart upload opened.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "__variant__")]
 pub(super) enum MultipartUploadCreatedEvent {
@@ -137,6 +220,74 @@ pub(super) enum MultipartUploadCreatedEvent {
         #[serde(deserialize_with = "deserialize_from_string")]
         created_at_micros: u64,
     },
+    V2 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+        object_name: String,
+        owner: String,
+        encryption: MoveVariant,
+        encoding: MoveVariant,
+        location_name: String,
+        /// Hex-encoded object metadata, or `None` when absent.
+        passthrough_meta: MoveOption<String>,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        created_at_micros: u64,
+    },
+}
+
+pub(super) struct UploadCreated {
+    pub multipart_uid: u64,
+    pub object_name: String,
+    pub owner: String,
+    pub encryption: MoveVariant,
+    pub encoding: MoveVariant,
+    pub location_name: String,
+    pub passthrough_meta: Option<String>,
+    pub created_at_micros: u64,
+}
+
+impl MultipartUploadCreatedEvent {
+    pub(super) fn into_upload(self) -> UploadCreated {
+        match self {
+            Self::V1 {
+                multipart_uid,
+                object_name,
+                owner,
+                encryption,
+                encoding,
+                location_name,
+                created_at_micros,
+            } => UploadCreated {
+                multipart_uid,
+                object_name,
+                owner,
+                encryption,
+                encoding,
+                location_name,
+                passthrough_meta: None,
+                created_at_micros,
+            },
+            Self::V2 {
+                multipart_uid,
+                object_name,
+                owner,
+                encryption,
+                encoding,
+                location_name,
+                passthrough_meta,
+                created_at_micros,
+            } => UploadCreated {
+                multipart_uid,
+                object_name,
+                owner,
+                encryption,
+                encoding,
+                location_name,
+                passthrough_meta: passthrough_meta.into_option(),
+                created_at_micros,
+            },
+        }
+    }
 }
 
 /// A part's bytes are durable and it now belongs to its upload.
@@ -160,6 +311,77 @@ pub(super) enum PartCommittedEvent {
         #[serde(deserialize_with = "deserialize_from_string")]
         committed_at_micros: u64,
     },
+    V2 {
+        #[serde(deserialize_with = "deserialize_from_string")]
+        multipart_uid: u64,
+        part_number: u16,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        uid: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        plaintext_size: u64,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        stored_size: u64,
+        etag: String,
+        /// Hex-encoded part metadata, or `None` when absent.
+        passthrough_meta: MoveOption<String>,
+        #[serde(deserialize_with = "deserialize_from_string")]
+        committed_at_micros: u64,
+    },
+}
+
+pub(super) struct PartCommitted {
+    pub multipart_uid: u64,
+    pub part_number: u16,
+    pub uid: u64,
+    pub plaintext_size: u64,
+    pub stored_size: u64,
+    pub etag: String,
+    pub passthrough_meta: Option<String>,
+    pub committed_at_micros: u64,
+}
+
+impl PartCommittedEvent {
+    pub(super) fn into_part(self) -> PartCommitted {
+        match self {
+            Self::V1 {
+                multipart_uid,
+                part_number,
+                uid,
+                plaintext_size,
+                stored_size,
+                etag,
+                committed_at_micros,
+            } => PartCommitted {
+                multipart_uid,
+                part_number,
+                uid,
+                plaintext_size,
+                stored_size,
+                etag,
+                passthrough_meta: None,
+                committed_at_micros,
+            },
+            Self::V2 {
+                multipart_uid,
+                part_number,
+                uid,
+                plaintext_size,
+                stored_size,
+                etag,
+                passthrough_meta,
+                committed_at_micros,
+            } => PartCommitted {
+                multipart_uid,
+                part_number,
+                uid,
+                plaintext_size,
+                stored_size,
+                etag,
+                passthrough_meta: passthrough_meta.into_option(),
+                committed_at_micros,
+            },
+        }
+    }
 }
 
 /// An upload was abandoned. Only its id is needed: the upload and its parts

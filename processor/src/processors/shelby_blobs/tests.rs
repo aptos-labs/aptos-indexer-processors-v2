@@ -40,9 +40,9 @@ use aptos_indexer_processor_sdk::{
 };
 use diesel::{
     QueryableByName,
-    sql_types::{BigInt, Integer, Nullable, Text},
+    sql_types::{BigInt, Bytea, Integer, Nullable, Text},
 };
-use diesel_async::RunQueryDsl;
+use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
 
 const DEPLOYER: &str = "0xdeadbeef";
 
@@ -186,7 +186,7 @@ fn unversioned_event_shapes_are_skipped_rather_than_fatal() {
 fn an_unknown_event_shape_is_fatal() {
     parse(
         "ObjectCommittedEvent",
-        r#"{"__variant__": "V3", "whatever": 1}"#,
+        r#"{"__variant__": "V99", "whatever": 1}"#,
     );
 }
 
@@ -333,6 +333,182 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
     assert_eq!(u.created_at_micros, 50);
     // Opening an upload binds no name, so no object row comes of it.
     assert!(data.objects.is_empty());
+    assert_eq!(u.opaque_meta, None);
+}
+
+// ─── Object metadata ────────────────────────────────────────────────────────
+
+const META_BYTES: &[u8] = b"\x08\x01\x12\x09image/png";
+
+fn meta_payload() -> String {
+    format!("0x{}", hex::encode(META_BYTES))
+}
+
+fn commit_event(variant: &str, extra: &str) -> String {
+    format!(
+        r#"{{
+        "__variant__": "{variant}",
+        "object_name": "@0x1/a.txt",
+        "owner": "0x1",
+        "etag": "0xabcd",
+        "content": {{
+            "__variant__": "Blob",
+            "blob_uid": "7",
+            "plaintext_size": "2048",
+            "stored_size": "2048"
+        }},
+        "encryption": {{ "__variant__": "Unencrypted" }},
+        "encoding": {{ "__variant__": "ClayCode_16Total_10Data_13Helper" }},
+        "location_name": "us-east",
+        "previous": {{ "vec": [] }},
+        "previous_etag": {{ "vec": [] }},
+        {extra}
+        "committed_at_micros": "500"
+    }}"#
+    )
+}
+
+#[test]
+fn a_commit_without_a_payload_is_indexed_without_metadata() {
+    let data = parse("ObjectCommittedEvent", &commit_event("V2", ""));
+
+    assert_eq!(data.objects.len(), 1);
+    let o = &data.objects[0];
+    assert_eq!(o.name, "@0x1/a.txt");
+    assert_eq!(o.blob_uid, Some(7));
+    assert_eq!(o.opaque_meta, None);
+}
+
+#[test]
+fn a_commit_stores_its_payload_verbatim() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &commit_event(
+            "V3",
+            &format!(
+                r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
+                meta_payload()
+            ),
+        ),
+    );
+
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].opaque_meta.as_deref(), Some(META_BYTES));
+}
+
+#[test]
+fn an_absent_payload_is_no_metadata() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &commit_event("V3", r#""passthrough_meta": { "vec": [] },"#),
+    );
+
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].opaque_meta, None);
+}
+
+#[test]
+fn an_explicitly_empty_payload_is_preserved() {
+    let data = parse(
+        "ObjectCommittedEvent",
+        &commit_event("V3", r#""passthrough_meta": { "vec": ["0x"] },"#),
+    );
+
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].opaque_meta, Some(vec![]));
+}
+
+/// Invalid transaction-stream hex is fatal.
+#[test]
+#[should_panic(expected = "shelby passthrough_meta is not hex")]
+fn a_payload_that_is_not_hex_is_fatal() {
+    parse(
+        "ObjectCommittedEvent",
+        &commit_event("V3", r#""passthrough_meta": { "vec": ["0xnothex"] },"#),
+    );
+}
+
+#[test]
+fn opening_an_upload_stages_the_payload_its_object_will_take() {
+    let payload = meta_payload();
+    let created = format!(
+        r#"{{
+        "__variant__": "V2",
+        "multipart_uid": "9",
+        "object_name": "@0x1/big.mp4",
+        "owner": "0x1",
+        "encryption": {{ "__variant__": "AES_GCM_V1" }},
+        "encoding": {{ "__variant__": "ClayCode_4Total_2Data_3Helper" }},
+        "location_name": "us-west",
+        "passthrough_meta": {{ "vec": ["{payload}"] }},
+        "created_at_micros": "50"
+    }}"#
+    );
+
+    let data = parse("MultipartUploadCreatedEvent", &created);
+    assert_eq!(data.uploads.len(), 1);
+    assert_eq!(data.uploads[0].opaque_meta.as_deref(), Some(META_BYTES));
+}
+
+#[test]
+fn a_part_carries_a_payload_of_its_own() {
+    let part = |extra: &str| {
+        format!(
+            r#"{{
+        "__variant__": "{}",
+        "multipart_uid": "9",
+        "part_number": 1,
+        "uid": "7",
+        "plaintext_size": "100",
+        "stored_size": "100",
+        "etag": "0xaa",
+        {extra}
+        "committed_at_micros": "60"
+    }}"#,
+            if extra.is_empty() { "V1" } else { "V2" }
+        )
+    };
+
+    let data = parse("PartCommittedEvent", &part(""));
+    assert_eq!(data.parts.len(), 1);
+    assert_eq!(data.parts[0].part_number, 1);
+    assert_eq!(data.parts[0].opaque_meta, None);
+
+    let payload = meta_payload();
+    let data = parse(
+        "PartCommittedEvent",
+        &part(&format!(
+            r#""passthrough_meta": {{ "vec": ["{payload}"] }},"#
+        )),
+    );
+    assert_eq!(data.parts.len(), 1);
+    assert_eq!(data.parts[0].opaque_meta.as_deref(), Some(META_BYTES));
+}
+
+#[test]
+fn sealing_a_commit_carries_no_payload_of_its_own() {
+    let sealing = commit_event("V3", r#""passthrough_meta": { "vec": [] },"#).replace(
+        r#"{
+            "__variant__": "Blob",
+            "blob_uid": "7",
+            "plaintext_size": "2048",
+            "stored_size": "2048"
+        }"#,
+        r#"{
+            "__variant__": "Multipart",
+            "multipart_uid": "9",
+            "part_count": "2",
+            "plaintext_size": "2048",
+            "stored_size": "2048",
+            "pruned_part_numbers": []
+        }"#,
+    );
+
+    let data = parse("ObjectCommittedEvent", &sealing);
+    assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].multipart_uid, Some(9));
+    assert_eq!(data.objects[0].opaque_meta, None);
+    assert_eq!(data.sealed_uploads.len(), 1);
 }
 
 /// Deleting a multipart object is the other way its manifest stops being
@@ -488,6 +664,7 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         part_count: None,
         committed_at_micros: 100,
         last_transaction_version: version,
+        opaque_meta: None,
     }
 }
 
@@ -506,6 +683,7 @@ fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObjec
         part_count: Some(2),
         committed_at_micros: 100,
         last_transaction_version: version,
+        opaque_meta: None,
     }
 }
 
@@ -519,6 +697,7 @@ fn upload(multipart_uid: i64, version: i64) -> OpenMultipartUpload {
         location_name: "us-east".into(),
         created_at_micros: 50,
         last_transaction_version: version,
+        opaque_meta: None,
     }
 }
 
@@ -544,6 +723,7 @@ fn sized_part(
         plaintext_size,
         stored_size: plaintext_size + PART_CONTAINER_OVERHEAD,
         etag: format!("0x{part_number:02x}"),
+        opaque_meta: None,
         committed_at_micros: 60,
         last_transaction_version: version,
     }
@@ -603,12 +783,14 @@ struct ManifestRow {
     end_offset: i64,
     #[diesel(sql_type = BigInt)]
     stored_size: i64,
+    #[diesel(sql_type = Nullable<Bytea>)]
+    opaque_meta: Option<Vec<u8>>,
 }
 
 async fn manifest(pool: &ArcDbPool, multipart_uid: i64) -> Vec<ManifestRow> {
     let mut conn = pool.get().await.unwrap();
     diesel::sql_query(
-        "SELECT part_number, blob_uid, offset_in_object, end_offset, stored_size
+        "SELECT part_number, blob_uid, offset_in_object, end_offset, stored_size, opaque_meta
          FROM shelby_object_parts WHERE multipart_uid = $1 ORDER BY part_number",
     )
     .bind::<BigInt, _>(multipart_uid)
@@ -669,6 +851,22 @@ impl<T> OptionalRow<T> for Result<T, diesel::result::Error> {
             Err(e) => panic!("query failed: {e}"),
         }
     }
+}
+
+async fn object_metadata(pool: &ArcDbPool, name: &str) -> Option<Vec<u8>> {
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Nullable<Bytea>)]
+        opaque_meta: Option<Vec<u8>>,
+    }
+
+    let mut conn = pool.get().await.unwrap();
+    diesel::sql_query("SELECT opaque_meta FROM shelby_objects WHERE name = $1")
+        .bind::<Text, _>(name)
+        .get_result::<Row>(&mut conn)
+        .await
+        .optional_row()
+        .and_then(|r| r.opaque_meta)
 }
 
 async fn count(pool: &ArcDbPool, table: &str) -> i64 {
@@ -843,12 +1041,15 @@ async fn replaying_a_superseded_write_changes_nothing() {
 async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+    let part_metadata = b"part-one-checksum".to_vec();
+    let mut first_part = sized_part(9, 1, 120, 110);
+    first_part.opaque_meta = Some(part_metadata.clone());
 
     storer
         .process(ctx(
             ShelbyBlobData {
                 uploads: vec![upload(9, 100)],
-                parts: vec![sized_part(9, 1, 120, 110), sized_part(9, 2, 80, 120)],
+                parts: vec![first_part, sized_part(9, 2, 80, 120)],
                 ..Default::default()
             },
             120,
@@ -910,6 +1111,75 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     // across rather than reading off the span.
     assert_eq!(rows[0].stored_size, 120 + PART_CONTAINER_OVERHEAD);
     assert_eq!(rows[1].stored_size, 80 + PART_CONTAINER_OVERHEAD);
+    assert_eq!(
+        rows[0].opaque_meta.as_deref(),
+        Some(part_metadata.as_slice())
+    );
+    assert_eq!(rows[1].opaque_meta, None);
+}
+
+#[tokio::test]
+async fn a_failed_manifest_promotion_does_not_publish_the_multipart_object() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 100), part(9, 2, 100)],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    let mut conn = pool.get().await.unwrap();
+    conn.batch_execute(
+        "
+        CREATE FUNCTION reject_manifest_insert() RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'manifest insert rejected';
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE TRIGGER reject_manifest_insert
+        BEFORE INSERT ON shelby_object_parts
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_manifest_insert();
+        ",
+    )
+    .await
+    .unwrap();
+    drop(conn);
+
+    let result = storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 200,
+                }],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("manifest promotion should fail"),
+        Err(error) => error,
+    };
+    assert!(format!("{error:?}").contains("manifest insert rejected"));
+    assert!(object_row(&pool, "@0x1/big.mp4").await.is_none());
+    assert_eq!(count(&pool, "shelby_object_parts").await, 0);
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 1);
+    assert_eq!(count(&pool, "shelby_open_multipart_parts").await, 2);
 }
 
 /// A batch can hold both a part commit and the completion that consumes it.
@@ -1247,6 +1517,9 @@ async fn an_overwrite_drops_the_manifest_it_displaces_even_in_the_same_batch() {
 async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+    let part_metadata = b"part-one-checksum".to_vec();
+    let mut first_part = sized_part(9, 1, 120, 110);
+    first_part.opaque_meta = Some(part_metadata.clone());
 
     let seal = || ShelbyBlobData {
         objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
@@ -1265,7 +1538,7 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
         .process(ctx(
             ShelbyBlobData {
                 uploads: vec![upload(9, 100)],
-                parts: vec![sized_part(9, 1, 120, 110), sized_part(9, 2, 80, 120)],
+                parts: vec![first_part, sized_part(9, 2, 80, 120)],
                 ..Default::default()
             },
             120,
@@ -1282,6 +1555,11 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].end_offset, 120);
     assert_eq!(rows[1].end_offset, 200);
+    assert_eq!(
+        rows[0].opaque_meta.as_deref(),
+        Some(part_metadata.as_slice())
+    );
+    assert_eq!(rows[1].opaque_meta, None);
 }
 
 /// A blob waits in the pending set from its registration until it is committed,
@@ -1418,4 +1696,155 @@ async fn a_replayed_removal_leaves_a_newer_pending_row_alone() {
         .unwrap();
 
     assert_eq!(count(&pool, "shelby_pending_blobs").await, 1);
+}
+
+/// Metadata promotion precedes retirement of the upload row.
+#[tokio::test]
+async fn sealing_an_upload_moves_its_metadata_onto_the_object() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let announced = META_BYTES.to_vec();
+    let mut staged = upload(9, 100);
+    staged.opaque_meta = Some(announced.clone());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![staged],
+                parts: vec![part(9, 1, 100), part(9, 2, 100)],
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 100)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 100,
+                }],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        object_metadata(&pool, "@0x1/big.mp4").await,
+        Some(announced)
+    );
+    assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+}
+
+#[tokio::test]
+async fn sealing_an_upload_without_metadata_leaves_the_object_bare() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![upload(9, 100)],
+                parts: vec![part(9, 1, 100)],
+                objects: vec![multipart_object("@0x1/big.mp4", 9, 100)],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 100,
+                }],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    assert!(object_row(&pool, "@0x1/big.mp4").await.is_some());
+    assert_eq!(object_metadata(&pool, "@0x1/big.mp4").await, None);
+}
+
+/// A replay cannot erase metadata promoted by the original completion.
+#[tokio::test]
+async fn replaying_a_completion_leaves_the_promoted_metadata_intact() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let announced = META_BYTES.to_vec();
+    let mut staged = upload(9, 100);
+    staged.opaque_meta = Some(announced.clone());
+
+    let seal = || ShelbyBlobData {
+        objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
+        sealed_uploads: vec![SealedUpload {
+            multipart_uid: 9,
+            pruned_part_numbers: vec![],
+        }],
+        retired_uploads: vec![UploadRetirement {
+            multipart_uid: 9,
+            last_transaction_version: 200,
+        }],
+        ..Default::default()
+    };
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![staged],
+                parts: vec![part(9, 1, 120)],
+                ..Default::default()
+            },
+            120,
+        ))
+        .await
+        .unwrap();
+    storer.process(ctx(seal(), 200)).await.unwrap();
+    assert_eq!(
+        object_metadata(&pool, "@0x1/big.mp4").await,
+        Some(announced.clone())
+    );
+
+    // The upload row is already retired.
+    storer.process(ctx(seal(), 200)).await.unwrap();
+
+    assert_eq!(
+        object_metadata(&pool, "@0x1/big.mp4").await,
+        Some(announced)
+    );
+}
+
+/// A newer payload-less overwrite clears existing metadata.
+#[tokio::test]
+async fn an_overwrite_without_metadata_clears_what_was_there() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let mut described = blob_object("@0x1/a.txt", "0xaaaa", 100);
+    described.opaque_meta = Some(META_BYTES.to_vec());
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![described],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![blob_object("@0x1/a.txt", "0xbbbb", 200)],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(object_metadata(&pool, "@0x1/a.txt").await, None);
 }
