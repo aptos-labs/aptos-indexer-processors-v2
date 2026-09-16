@@ -1161,10 +1161,7 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     // across rather than reading off the span.
     assert_eq!(rows[0].stored_size, 120 + PART_CONTAINER_OVERHEAD);
     assert_eq!(rows[1].stored_size, 80 + PART_CONTAINER_OVERHEAD);
-    assert_eq!(
-        rows[0].part_meta.as_deref(),
-        Some(part_metadata.as_slice())
-    );
+    assert_eq!(rows[0].part_meta.as_deref(), Some(part_metadata.as_slice()));
     assert_eq!(rows[1].part_meta, None);
 }
 
@@ -1605,10 +1602,7 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].end_offset, 120);
     assert_eq!(rows[1].end_offset, 200);
-    assert_eq!(
-        rows[0].part_meta.as_deref(),
-        Some(part_metadata.as_slice())
-    );
+    assert_eq!(rows[0].part_meta.as_deref(), Some(part_metadata.as_slice()));
     assert_eq!(rows[1].part_meta, None);
 }
 
