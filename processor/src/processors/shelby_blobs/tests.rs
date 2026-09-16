@@ -333,7 +333,7 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
     assert_eq!(u.created_at_micros, 50);
     // Opening an upload binds no name, so no object row comes of it.
     assert!(data.objects.is_empty());
-    assert_eq!(u.opaque_meta, None);
+    assert_eq!(u.multipart_meta, None);
 }
 
 // ─── Object metadata ────────────────────────────────────────────────────────
@@ -466,7 +466,7 @@ fn opening_an_upload_stages_the_payload_its_object_will_take() {
 
     let data = parse("MultipartUploadCreatedEvent", &created);
     assert_eq!(data.uploads.len(), 1);
-    assert_eq!(data.uploads[0].opaque_meta.as_deref(), Some(META_BYTES));
+    assert_eq!(data.uploads[0].multipart_meta.as_deref(), Some(META_BYTES));
 }
 
 #[test]
@@ -491,7 +491,7 @@ fn a_part_carries_a_payload_of_its_own() {
     let data = parse("PartCommittedEvent", &part(""));
     assert_eq!(data.parts.len(), 1);
     assert_eq!(data.parts[0].part_number, 1);
-    assert_eq!(data.parts[0].opaque_meta, None);
+    assert_eq!(data.parts[0].part_meta, None);
 
     let payload = meta_payload();
     let data = parse(
@@ -501,7 +501,7 @@ fn a_part_carries_a_payload_of_its_own() {
         )),
     );
     assert_eq!(data.parts.len(), 1);
-    assert_eq!(data.parts[0].opaque_meta.as_deref(), Some(META_BYTES));
+    assert_eq!(data.parts[0].part_meta.as_deref(), Some(META_BYTES));
 }
 
 fn multipart_commit_event(extra: &str) -> String {
@@ -739,7 +739,7 @@ fn upload(multipart_uid: i64, version: i64) -> OpenMultipartUpload {
         location_name: "us-east".into(),
         created_at_micros: 50,
         last_transaction_version: version,
-        opaque_meta: None,
+        multipart_meta: None,
     }
 }
 
@@ -765,7 +765,7 @@ fn sized_part(
         plaintext_size,
         stored_size: plaintext_size + PART_CONTAINER_OVERHEAD,
         etag: format!("0x{part_number:02x}"),
-        opaque_meta: None,
+        part_meta: None,
         committed_at_micros: 60,
         last_transaction_version: version,
     }
@@ -826,13 +826,13 @@ struct ManifestRow {
     #[diesel(sql_type = BigInt)]
     stored_size: i64,
     #[diesel(sql_type = Nullable<Bytea>)]
-    opaque_meta: Option<Vec<u8>>,
+    part_meta: Option<Vec<u8>>,
 }
 
 async fn manifest(pool: &ArcDbPool, multipart_uid: i64) -> Vec<ManifestRow> {
     let mut conn = pool.get().await.unwrap();
     diesel::sql_query(
-        "SELECT part_number, blob_uid, offset_in_object, end_offset, stored_size, opaque_meta
+        "SELECT part_number, blob_uid, offset_in_object, end_offset, stored_size, part_meta
          FROM shelby_object_parts WHERE multipart_uid = $1 ORDER BY part_number",
     )
     .bind::<BigInt, _>(multipart_uid)
@@ -1093,7 +1093,7 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
     let part_metadata = b"part-one-checksum".to_vec();
     let mut first_part = sized_part(9, 1, 120, 110);
-    first_part.opaque_meta = Some(part_metadata.clone());
+    first_part.part_meta = Some(part_metadata.clone());
 
     storer
         .process(ctx(
@@ -1162,10 +1162,10 @@ async fn completing_an_upload_leaves_the_object_and_no_staging_rows() {
     assert_eq!(rows[0].stored_size, 120 + PART_CONTAINER_OVERHEAD);
     assert_eq!(rows[1].stored_size, 80 + PART_CONTAINER_OVERHEAD);
     assert_eq!(
-        rows[0].opaque_meta.as_deref(),
+        rows[0].part_meta.as_deref(),
         Some(part_metadata.as_slice())
     );
-    assert_eq!(rows[1].opaque_meta, None);
+    assert_eq!(rows[1].part_meta, None);
 }
 
 #[tokio::test]
@@ -1569,7 +1569,7 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
     let part_metadata = b"part-one-checksum".to_vec();
     let mut first_part = sized_part(9, 1, 120, 110);
-    first_part.opaque_meta = Some(part_metadata.clone());
+    first_part.part_meta = Some(part_metadata.clone());
 
     let seal = || ShelbyBlobData {
         objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],
@@ -1606,10 +1606,10 @@ async fn replaying_a_completion_without_its_parts_leaves_the_manifest_intact() {
     assert_eq!(rows[0].end_offset, 120);
     assert_eq!(rows[1].end_offset, 200);
     assert_eq!(
-        rows[0].opaque_meta.as_deref(),
+        rows[0].part_meta.as_deref(),
         Some(part_metadata.as_slice())
     );
-    assert_eq!(rows[1].opaque_meta, None);
+    assert_eq!(rows[1].part_meta, None);
 }
 
 /// A blob waits in the pending set from its registration until it is committed,
@@ -1756,7 +1756,7 @@ async fn sealing_an_upload_moves_its_metadata_onto_the_object() {
 
     let announced = META_BYTES.to_vec();
     let mut staged = upload(9, 100);
-    staged.opaque_meta = Some(announced.clone());
+    staged.multipart_meta = Some(announced.clone());
     let committed = b"commit-time".to_vec();
     let mut object = multipart_object("@0x1/big.mp4", 9, 100);
     object.commit_meta = Some(committed.clone());
@@ -1830,7 +1830,7 @@ async fn replaying_a_completion_leaves_the_promoted_metadata_intact() {
 
     let announced = META_BYTES.to_vec();
     let mut staged = upload(9, 100);
-    staged.opaque_meta = Some(announced.clone());
+    staged.multipart_meta = Some(announced.clone());
 
     let seal = || ShelbyBlobData {
         objects: vec![multipart_object("@0x1/big.mp4", 9, 200)],

@@ -69,7 +69,7 @@ pub struct OpenMultipartUpload {
     pub location_name: String,
     pub created_at_micros: i64,
     pub last_transaction_version: i64,
-    pub opaque_meta: Option<Vec<u8>>,
+    pub multipart_meta: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Deserialize, FieldCount, Insertable, Serialize)]
@@ -83,7 +83,7 @@ pub struct OpenMultipartPart {
     pub etag: String,
     pub committed_at_micros: i64,
     pub last_transaction_version: i64,
-    pub opaque_meta: Option<Vec<u8>>,
+    pub part_meta: Option<Vec<u8>>,
 }
 
 /// A blob registered but not yet committed, and so a candidate for collection
@@ -364,7 +364,7 @@ impl ShelbyBlobData {
                     location_name: upload.location_name,
                     created_at_micros: to_i64(upload.created_at_micros),
                     last_transaction_version: txn_version,
-                    opaque_meta: upload
+                    multipart_meta: upload
                         .passthrough_meta
                         .into_option()
                         .as_deref()
@@ -383,7 +383,7 @@ impl ShelbyBlobData {
                     etag: part.etag,
                     committed_at_micros: to_i64(part.committed_at_micros),
                     last_transaction_version: txn_version,
-                    opaque_meta: part
+                    part_meta: part
                         .passthrough_meta
                         .into_option()
                         .as_deref()

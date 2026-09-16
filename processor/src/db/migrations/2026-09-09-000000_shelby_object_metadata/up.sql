@@ -6,12 +6,12 @@ ALTER TABLE shelby_objects
 
 -- Object metadata held until the multipart upload seals.
 ALTER TABLE shelby_open_multipart_uploads
-    ADD COLUMN opaque_meta BYTEA;
+    ADD COLUMN multipart_meta BYTEA;
 
 -- Per-part metadata held while an upload is open.
 ALTER TABLE shelby_open_multipart_parts
-    ADD COLUMN opaque_meta BYTEA;
+    ADD COLUMN part_meta BYTEA;
 
 -- Per-part metadata retained with a sealed object's manifest.
 ALTER TABLE shelby_object_parts
-    ADD COLUMN opaque_meta BYTEA;
+    ADD COLUMN part_meta BYTEA;

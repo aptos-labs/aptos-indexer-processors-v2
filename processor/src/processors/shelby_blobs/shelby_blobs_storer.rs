@@ -254,11 +254,11 @@ async fn promote_upload_metadata(
 ) -> Result<(), diesel::result::Error> {
     const SQL: &str = "
         UPDATE shelby_objects o
-        SET multipart_meta = u.opaque_meta
+        SET multipart_meta = u.multipart_meta
         FROM shelby_open_multipart_uploads u
         WHERE u.multipart_uid = o.multipart_uid
           AND u.multipart_uid = ANY($1)
-          AND u.opaque_meta IS NOT NULL
+          AND u.multipart_meta IS NOT NULL
     ";
 
     for chunk in sealed.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
@@ -295,7 +295,7 @@ async fn promote_manifests(
                     p.part_number,
                     p.blob_uid,
                     p.stored_size,
-                    p.opaque_meta,
+                    p.part_meta,
                     COALESCE(
                         SUM(p.plaintext_size) OVER (
                             PARTITION BY p.multipart_uid
@@ -319,10 +319,10 @@ async fn promote_manifests(
             )
             INSERT INTO shelby_object_parts (
                 multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
-                stored_size, opaque_meta
+                stored_size, part_meta
             )
             SELECT multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
-                   stored_size, opaque_meta
+                   stored_size, part_meta
             FROM located
             ON CONFLICT (multipart_uid, part_number) DO NOTHING
         ";
@@ -518,7 +518,7 @@ fn insert_uploads_query(
             location_name.eq(excluded(location_name)),
             created_at_micros.eq(excluded(created_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
-            opaque_meta.eq(excluded(opaque_meta)),
+            multipart_meta.eq(excluded(multipart_meta)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }
@@ -536,7 +536,7 @@ fn insert_parts_query(items: Vec<OpenMultipartPart>) -> impl QueryFragment<Pg> +
             etag.eq(excluded(etag)),
             committed_at_micros.eq(excluded(committed_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
-            opaque_meta.eq(excluded(opaque_meta)),
+            part_meta.eq(excluded(part_meta)),
         ))
         .filter(last_transaction_version.le(excluded(last_transaction_version)))
 }
