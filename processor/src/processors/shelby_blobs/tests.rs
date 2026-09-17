@@ -339,6 +339,7 @@ fn opening_an_upload_stages_the_row_it_will_be_listed_from() {
 // ─── Object metadata ────────────────────────────────────────────────────────
 
 const META_BYTES: &[u8] = b"\x08\x01\x12\x09image/png";
+const META_BASE64: &str = "CAESCWltYWdlL3BuZw==";
 
 fn meta_payload() -> String {
     format!("0x{}", hex::encode(META_BYTES))
@@ -917,6 +918,21 @@ fn metadata(multipart_meta: Option<&[u8]>, commit_meta: Option<&[u8]>) -> Object
         multipart_meta: multipart_meta.map(<[u8]>::to_vec),
         commit_meta: commit_meta.map(<[u8]>::to_vec),
     }
+}
+
+#[derive(QueryableByName)]
+struct Base64Value {
+    #[diesel(sql_type = Nullable<Text>)]
+    value: Option<String>,
+}
+
+async fn base64_value(pool: &ArcDbPool, query: &'static str) -> Option<String> {
+    let mut conn = pool.get().await.unwrap();
+    diesel::sql_query(query)
+        .get_result::<Base64Value>(&mut conn)
+        .await
+        .unwrap()
+        .value
 }
 
 async fn count(pool: &ArcDbPool, table: &str) -> i64 {
@@ -1781,6 +1797,112 @@ async fn sealing_an_upload_moves_its_metadata_onto_the_object() {
         Some(metadata(Some(&announced), Some(&committed)))
     );
     assert_eq!(count(&pool, "shelby_open_multipart_uploads").await, 0);
+}
+
+#[tokio::test]
+async fn metadata_is_exposed_as_unwrapped_base64() {
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+
+    let large_meta = vec![0xff; 4096];
+    let large_meta_base64 = format!("{}w==", "/".repeat(5461));
+    let mut staged = upload(9, 100);
+    staged.multipart_meta = Some(large_meta);
+    let mut first_part = part(9, 1, 100);
+    first_part.part_meta = Some(META_BYTES.to_vec());
+    let mut second_part = part(9, 2, 100);
+    second_part.part_meta = Some(vec![]);
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                uploads: vec![staged],
+                parts: vec![first_part, second_part],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_open_multipart_uploads_meta_base64(u) AS value
+             FROM shelby_open_multipart_uploads u WHERE multipart_uid = 9",
+        )
+        .await,
+        Some(large_meta_base64.clone())
+    );
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_open_multipart_parts_meta_base64(p) AS value
+             FROM shelby_open_multipart_parts p
+             WHERE multipart_uid = 9 AND part_number = 2",
+        )
+        .await,
+        Some(String::new())
+    );
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_open_multipart_parts_meta_base64(p) AS value
+             FROM shelby_open_multipart_parts p
+             WHERE multipart_uid = 9 AND part_number = 1",
+        )
+        .await,
+        Some(META_BASE64.to_string())
+    );
+
+    let mut object = multipart_object("@0x1/big.mp4", 9, 200);
+    object.commit_meta = Some(b"commit-time".to_vec());
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![object],
+                sealed_uploads: vec![SealedUpload {
+                    multipart_uid: 9,
+                    pruned_part_numbers: vec![],
+                }],
+                retired_uploads: vec![UploadRetirement {
+                    multipart_uid: 9,
+                    last_transaction_version: 200,
+                }],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_objects_multipart_meta_base64(o) AS value
+             FROM shelby_objects o WHERE name = '@0x1/big.mp4'",
+        )
+        .await,
+        Some(large_meta_base64)
+    );
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_objects_commit_meta_base64(o) AS value
+             FROM shelby_objects o WHERE name = '@0x1/big.mp4'",
+        )
+        .await,
+        Some("Y29tbWl0LXRpbWU=".to_string())
+    );
+    assert_eq!(
+        base64_value(
+            &pool,
+            "SELECT shelby_object_parts_meta_base64(p) AS value
+             FROM shelby_object_parts p
+             WHERE multipart_uid = 9 AND part_number = 1",
+        )
+        .await,
+        Some(META_BASE64.to_string())
+    );
 }
 
 #[tokio::test]
