@@ -1804,7 +1804,7 @@ async fn metadata_is_exposed_as_unwrapped_base64() {
     let (_db, pool) = setup().await;
     let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
 
-    let large_meta = vec![0xff; 4096];
+    let large_meta = vec![0xFF; 4096];
     let large_meta_base64 = format!("{}w==", "/".repeat(5461));
     let mut staged = upload(9, 100);
     staged.multipart_meta = Some(large_meta);
