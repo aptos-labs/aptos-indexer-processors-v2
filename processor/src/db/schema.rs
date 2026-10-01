@@ -141,6 +141,7 @@ diesel::table! {
         inserted_at -> Timestamp,
         multipart_meta -> Nullable<Bytea>,
         commit_meta -> Nullable<Bytea>,
+        format_version -> Int4,
     }
 }
 
@@ -156,6 +157,7 @@ diesel::table! {
         last_transaction_version -> Int8,
         inserted_at -> Timestamp,
         part_meta -> Nullable<Bytea>,
+        format_version -> Int4,
     }
 }
 

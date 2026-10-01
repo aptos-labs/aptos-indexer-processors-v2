@@ -475,6 +475,7 @@ fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + Qu
         .set((
             owner.eq(excluded(owner)),
             etag.eq(excluded(etag)),
+            format_version.eq(excluded(format_version)),
             encryption.eq(excluded(encryption)),
             encoding.eq(excluded(encoding)),
             location_name.eq(excluded(location_name)),
@@ -534,6 +535,7 @@ fn insert_parts_query(items: Vec<OpenMultipartPart>) -> impl QueryFragment<Pg> +
             plaintext_size.eq(excluded(plaintext_size)),
             stored_size.eq(excluded(stored_size)),
             etag.eq(excluded(etag)),
+            format_version.eq(excluded(format_version)),
             committed_at_micros.eq(excluded(committed_at_micros)),
             last_transaction_version.eq(excluded(last_transaction_version)),
             part_meta.eq(excluded(part_meta)),
