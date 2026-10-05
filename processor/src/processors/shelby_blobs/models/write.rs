@@ -34,6 +34,15 @@ use serde::{Deserialize, Serialize};
 pub const BLOB_METADATA_MODULE: &str = "blob_metadata";
 pub const PLACEMENT_GROUP_MODULE: &str = "placement_group";
 
+/// Write format of a commit through `commit_object`, `commit_object_part` and
+/// `finalize_multipart_object`. The chain derives a single-blob object's etag
+/// from its blob commitment.
+pub const FORMAT_VERSION_1: i32 = 1;
+/// Write format of a commit through `commit_object_v2`, `commit_object_part_v2`
+/// and `finalize_multipart_object_v2`. Adds caller-supplied single-blob etags and
+/// opaque metadata on commits.
+pub const FORMAT_VERSION_2: i32 = 2;
+
 // ─── Diesel models ──────────────────────────────────────────────────────────
 
 /// A live object. Exactly one content variant is populated, matching the
@@ -44,6 +53,10 @@ pub struct ShelbyObject {
     pub name: String,
     pub owner: String,
     pub etag: String,
+    /// The on-chain write format the commit used, one of the `FORMAT_VERSION_*`
+    /// values. Each compatibility transition in the contract's write path adds
+    /// one.
+    pub format_version: i32,
     pub encryption: String,
     pub encoding: String,
     pub location_name: String,
@@ -81,6 +94,9 @@ pub struct OpenMultipartPart {
     pub plaintext_size: i64,
     pub stored_size: i64,
     pub etag: String,
+    /// The on-chain write format the part's commit used, one of the
+    /// `FORMAT_VERSION_*` values.
+    pub format_version: i32,
     pub committed_at_micros: i64,
     pub last_transaction_version: i64,
     pub part_meta: Option<Vec<u8>>,
@@ -258,6 +274,11 @@ impl ShelbyBlobData {
         let activity: Option<(String, String, Option<i64>, Option<i64>)> = match short {
             "ObjectCommittedEvent" => {
                 let commit = deser_versioned_event::<ObjectCommittedEvent>(short, &event.data)?;
+                let format_version = match commit.variant.as_str() {
+                    "V2" => FORMAT_VERSION_1,
+                    "V3" => FORMAT_VERSION_2,
+                    variant => unexpected_variant(short, variant),
+                };
                 let owner = standardize_address(&commit.owner);
                 let (blob_uid, multipart_uid, part_count, plaintext_size, stored_size) =
                     match commit.content {
@@ -315,6 +336,7 @@ impl ShelbyBlobData {
                     name: commit.object_name.clone(),
                     owner: owner.clone(),
                     etag: commit.etag,
+                    format_version,
                     encryption: commit.encryption.variant,
                     encoding: commit.encoding.variant,
                     location_name: commit.location_name,
@@ -328,7 +350,6 @@ impl ShelbyBlobData {
                     multipart_meta: None,
                     commit_meta: commit
                         .passthrough_meta
-                        .into_option()
                         .as_deref()
                         .map(decode_passthrough_meta),
                 });
@@ -366,7 +387,6 @@ impl ShelbyBlobData {
                     last_transaction_version: txn_version,
                     multipart_meta: upload
                         .passthrough_meta
-                        .into_option()
                         .as_deref()
                         .map(decode_passthrough_meta),
                 });
@@ -374,6 +394,11 @@ impl ShelbyBlobData {
             },
             "PartCommittedEvent" => {
                 let part = deser::<PartCommittedEvent>(short, &event.data);
+                let format_version = match part.variant.as_str() {
+                    "V1" => FORMAT_VERSION_1,
+                    "V2" => FORMAT_VERSION_2,
+                    variant => unexpected_variant(short, variant),
+                };
                 self.parts.push(OpenMultipartPart {
                     multipart_uid: to_i64(part.multipart_uid),
                     part_number: i32::from(part.part_number),
@@ -381,11 +406,11 @@ impl ShelbyBlobData {
                     plaintext_size: to_i64(part.plaintext_size),
                     stored_size: to_i64(part.stored_size),
                     etag: part.etag,
+                    format_version,
                     committed_at_micros: to_i64(part.committed_at_micros),
                     last_transaction_version: txn_version,
                     part_meta: part
                         .passthrough_meta
-                        .into_option()
                         .as_deref()
                         .map(decode_passthrough_meta),
                 });
@@ -515,6 +540,10 @@ fn decode_passthrough_meta(passthrough_meta: &str) -> Vec<u8> {
     hex::decode(hex_digits).unwrap_or_else(|e| {
         panic!("shelby passthrough_meta is not hex (transaction stream malformed?): {e}")
     })
+}
+
+fn unexpected_variant(event_type: &str, variant: &str) -> ! {
+    panic!("Unexpected shelby event '{event_type}' variant {variant} (contract schema mismatch?)")
 }
 
 /// Narrows a Move `u64` to the signed column that holds it.

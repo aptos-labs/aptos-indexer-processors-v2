@@ -19,8 +19,9 @@ use crate::{
     MIGRATIONS,
     processors::shelby_blobs::{
         models::{
-            ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PendingBlob,
-            PendingBlobRemoval, SealedUpload, ShelbyBlobData, ShelbyObject, UploadRetirement,
+            FORMAT_VERSION_1, FORMAT_VERSION_2, ObjectActivity, ObjectDeletion, OpenMultipartPart,
+            OpenMultipartUpload, PendingBlob, PendingBlobRemoval, SealedUpload, ShelbyBlobData,
+            ShelbyObject, UploadRetirement,
         },
         shelby_blobs_storer::ShelbyBlobsStorer,
     },
@@ -370,68 +371,44 @@ fn commit_event(variant: &str, extra: &str) -> String {
 }
 
 #[test]
-fn a_commit_without_a_payload_is_indexed_without_metadata() {
+fn a_commit_without_a_payload_is_format_1_without_metadata() {
     let data = parse("ObjectCommittedEvent", &commit_event("V2", ""));
 
     assert_eq!(data.objects.len(), 1);
     let o = &data.objects[0];
     assert_eq!(o.name, "@0x1/a.txt");
     assert_eq!(o.blob_uid, Some(7));
+    assert_eq!(o.format_version, FORMAT_VERSION_1);
     assert_eq!(o.multipart_meta, None);
     assert_eq!(o.commit_meta, None);
 }
 
 #[test]
-fn a_commit_stores_its_payload_verbatim() {
+fn a_commit_with_a_payload_is_format_2_and_stores_it_verbatim() {
     let data = parse(
         "ObjectCommittedEvent",
         &commit_event(
             "V3",
-            &format!(
-                r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
-                meta_payload()
-            ),
+            &format!(r#""passthrough_meta": "{}","#, meta_payload()),
         ),
     );
 
     assert_eq!(data.objects.len(), 1);
+    assert_eq!(data.objects[0].format_version, FORMAT_VERSION_2);
     assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
 }
 
 #[test]
-fn an_additive_later_variant_is_indexed() {
-    let data = parse(
-        "ObjectCommittedEvent",
-        &commit_event(
-            "V4",
-            &format!(
-                r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
-                meta_payload()
-            ),
-        ),
-    );
-
-    assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
-    assert_eq!(data.objects[0].blob_uid, Some(7));
-}
-
-#[test]
-fn an_absent_payload_is_no_metadata() {
-    let data = parse(
-        "ObjectCommittedEvent",
-        &commit_event("V3", r#""passthrough_meta": { "vec": [] },"#),
-    );
-
-    assert_eq!(data.objects.len(), 1);
-    assert_eq!(data.objects[0].commit_meta, None);
+#[should_panic(expected = "Unexpected shelby event 'ObjectCommittedEvent' variant V9")]
+fn an_unknown_commit_variant_is_fatal() {
+    parse("ObjectCommittedEvent", &commit_event("V9", ""));
 }
 
 #[test]
 fn an_explicitly_empty_payload_is_preserved() {
     let data = parse(
         "ObjectCommittedEvent",
-        &commit_event("V3", r#""passthrough_meta": { "vec": ["0x"] },"#),
+        &commit_event("V3", r#""passthrough_meta": "0x","#),
     );
 
     assert_eq!(data.objects.len(), 1);
@@ -444,7 +421,7 @@ fn an_explicitly_empty_payload_is_preserved() {
 fn a_payload_that_is_not_hex_is_fatal() {
     parse(
         "ObjectCommittedEvent",
-        &commit_event("V3", r#""passthrough_meta": { "vec": ["0xnothex"] },"#),
+        &commit_event("V3", r#""passthrough_meta": "0xnothex","#),
     );
 }
 
@@ -460,7 +437,7 @@ fn opening_an_upload_stages_the_payload_its_object_will_take() {
         "encryption": {{ "__variant__": "AES_GCM_V1" }},
         "encoding": {{ "__variant__": "ClayCode_4Total_2Data_3Helper" }},
         "location_name": "us-west",
-        "passthrough_meta": {{ "vec": ["{payload}"] }},
+        "passthrough_meta": "{payload}",
         "created_at_micros": "50"
     }}"#
     );
@@ -492,21 +469,21 @@ fn a_part_carries_a_payload_of_its_own() {
     let data = parse("PartCommittedEvent", &part(""));
     assert_eq!(data.parts.len(), 1);
     assert_eq!(data.parts[0].part_number, 1);
+    assert_eq!(data.parts[0].format_version, FORMAT_VERSION_1);
     assert_eq!(data.parts[0].part_meta, None);
 
     let payload = meta_payload();
     let data = parse(
         "PartCommittedEvent",
-        &part(&format!(
-            r#""passthrough_meta": {{ "vec": ["{payload}"] }},"#
-        )),
+        &part(&format!(r#""passthrough_meta": "{payload}","#)),
     );
     assert_eq!(data.parts.len(), 1);
+    assert_eq!(data.parts[0].format_version, FORMAT_VERSION_2);
     assert_eq!(data.parts[0].part_meta.as_deref(), Some(META_BYTES));
 }
 
-fn multipart_commit_event(extra: &str) -> String {
-    commit_event("V3", extra).replace(
+fn multipart_commit_event(variant: &str, extra: &str) -> String {
+    commit_event(variant, extra).replace(
         r#"{
             "__variant__": "Blob",
             "blob_uid": "7",
@@ -526,12 +503,10 @@ fn multipart_commit_event(extra: &str) -> String {
 
 #[test]
 fn sealing_a_commit_carries_no_payload_of_its_own() {
-    let data = parse(
-        "ObjectCommittedEvent",
-        &multipart_commit_event(r#""passthrough_meta": { "vec": [] },"#),
-    );
+    let data = parse("ObjectCommittedEvent", &multipart_commit_event("V2", ""));
     assert_eq!(data.objects.len(), 1);
     assert_eq!(data.objects[0].multipart_uid, Some(9));
+    assert_eq!(data.objects[0].format_version, FORMAT_VERSION_1);
     assert_eq!(data.objects[0].multipart_meta, None);
     assert_eq!(data.objects[0].commit_meta, None);
     assert_eq!(data.sealed_uploads.len(), 1);
@@ -541,13 +516,14 @@ fn sealing_a_commit_carries_no_payload_of_its_own() {
 fn a_multipart_commit_carries_commit_metadata() {
     let data = parse(
         "ObjectCommittedEvent",
-        &multipart_commit_event(&format!(
-            r#""passthrough_meta": {{ "vec": ["{}"] }},"#,
-            meta_payload()
-        )),
+        &multipart_commit_event(
+            "V3",
+            &format!(r#""passthrough_meta": "{}","#, meta_payload()),
+        ),
     );
     assert_eq!(data.objects.len(), 1);
     assert_eq!(data.objects[0].multipart_uid, Some(9));
+    assert_eq!(data.objects[0].format_version, FORMAT_VERSION_2);
     assert_eq!(data.objects[0].multipart_meta, None);
     assert_eq!(data.objects[0].commit_meta.as_deref(), Some(META_BYTES));
 }
@@ -695,6 +671,7 @@ fn blob_object(name: &str, etag: &str, version: i64) -> ShelbyObject {
         name: name.into(),
         owner: "0x1".into(),
         etag: etag.into(),
+        format_version: FORMAT_VERSION_2,
         encryption: "Unencrypted".into(),
         encoding: "ClayCode_16Total_10Data_13Helper".into(),
         location_name: "us-east".into(),
@@ -715,6 +692,7 @@ fn multipart_object(name: &str, multipart_uid: i64, version: i64) -> ShelbyObjec
         name: name.into(),
         owner: "0x1".into(),
         etag: "0xbeef".into(),
+        format_version: FORMAT_VERSION_2,
         encryption: "Unencrypted".into(),
         encoding: "ClayCode_16Total_10Data_13Helper".into(),
         location_name: "us-east".into(),
@@ -766,6 +744,7 @@ fn sized_part(
         plaintext_size,
         stored_size: plaintext_size + PART_CONTAINER_OVERHEAD,
         etag: format!("0x{part_number:02x}"),
+        format_version: FORMAT_VERSION_2,
         part_meta: None,
         committed_at_micros: 60,
         last_transaction_version: version,
@@ -1478,6 +1457,63 @@ async fn a_replaced_part_overwrites_its_predecessor() {
 struct PartEtag {
     #[diesel(sql_type = Text)]
     etag: String,
+}
+
+#[derive(QueryableByName)]
+struct FormatVersionRow {
+    #[diesel(sql_type = Integer)]
+    format_version: i32,
+}
+
+async fn format_version(pool: &ArcDbPool, query: &str) -> i32 {
+    let mut conn = pool.get().await.unwrap();
+    diesel::sql_query(query)
+        .get_result::<FormatVersionRow>(&mut conn)
+        .await
+        .unwrap()
+        .format_version
+}
+
+#[tokio::test]
+async fn format_version_follows_the_latest_write() {
+    const OBJECT: &str = "SELECT format_version FROM shelby_objects WHERE name = '@0x1/a.txt'";
+    const PART: &str = "SELECT format_version FROM shelby_open_multipart_parts \
+                        WHERE multipart_uid = 9 AND part_number = 1";
+    let (_db, pool) = setup().await;
+    let mut storer = ShelbyBlobsStorer::new(pool.clone(), AHashMap::new());
+    let mut first_object = blob_object("@0x1/a.txt", "0xaaaa", 100);
+    first_object.format_version = FORMAT_VERSION_1;
+    let mut first_part = part(9, 1, 100);
+    first_part.format_version = FORMAT_VERSION_1;
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![first_object],
+                uploads: vec![upload(9, 100)],
+                parts: vec![first_part],
+                ..Default::default()
+            },
+            100,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(format_version(&pool, OBJECT).await, FORMAT_VERSION_1);
+    assert_eq!(format_version(&pool, PART).await, FORMAT_VERSION_1);
+
+    storer
+        .process(ctx(
+            ShelbyBlobData {
+                objects: vec![blob_object("@0x1/a.txt", "0xbbbb", 200)],
+                parts: vec![part(9, 1, 200)],
+                ..Default::default()
+            },
+            200,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(format_version(&pool, OBJECT).await, FORMAT_VERSION_2);
+    assert_eq!(format_version(&pool, PART).await, FORMAT_VERSION_2);
 }
 
 /// Nothing in the object row can find a manifest once the name stops resolving,

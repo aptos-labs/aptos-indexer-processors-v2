@@ -19,16 +19,9 @@ pub(super) struct MoveVariant {
 }
 
 /// Move's `Option<T>` serializes as `{"vec": []}` (None) or `{"vec": [value]}` (Some).
-/// Default is `None`, so an additive field missing on an older variant parses as absent.
 #[derive(Debug, Deserialize)]
 pub(super) struct MoveOption<T> {
     vec: Vec<T>,
-}
-
-impl<T> Default for MoveOption<T> {
-    fn default() -> Self {
-        Self { vec: Vec::new() }
-    }
 }
 
 impl<T> MoveOption<T> {
@@ -87,11 +80,13 @@ pub(super) enum ObjectRef {
 
 /// A name started resolving to something.
 ///
-/// Versioned Move enums are transparent: fields are flat and `__variant__` is
-/// ignored. `V1` cannot fill an object row (no size or encryption) and is
-/// skipped before this struct is parsed.
+/// Versioned Move enums are read flat, with the `__variant__` tag alongside the
+/// fields. `V1` cannot fill an object row (no size or encryption) and is skipped
+/// before this struct is parsed.
 #[derive(Debug, Deserialize)]
 pub(super) struct ObjectCommittedEvent {
+    #[serde(rename = "__variant__")]
+    pub variant: String,
     pub object_name: String,
     pub owner: String,
     pub etag: String,
@@ -104,8 +99,7 @@ pub(super) struct ObjectCommittedEvent {
     /// this is the only place its uid is reported.
     pub previous: MoveOption<ObjectRef>,
     /// Hex-encoded metadata. Absent on variants that do not carry a payload.
-    #[serde(default)]
-    pub passthrough_meta: MoveOption<String>,
+    pub passthrough_meta: Option<String>,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub committed_at_micros: u64,
 }
@@ -130,8 +124,8 @@ pub(super) struct MultipartUploadCreatedEvent {
     pub encryption: MoveVariant,
     pub encoding: MoveVariant,
     pub location_name: String,
-    #[serde(default)]
-    pub passthrough_meta: MoveOption<String>,
+    /// Hex-encoded metadata. Absent on variants that do not carry a payload.
+    pub passthrough_meta: Option<String>,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub created_at_micros: u64,
 }
@@ -142,6 +136,8 @@ pub(super) struct MultipartUploadCreatedEvent {
 /// overwrite of the same primary key, which the upsert handles on its own.
 #[derive(Debug, Deserialize)]
 pub(super) struct PartCommittedEvent {
+    #[serde(rename = "__variant__")]
+    pub variant: String,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub multipart_uid: u64,
     pub part_number: u16,
@@ -152,8 +148,8 @@ pub(super) struct PartCommittedEvent {
     #[serde(deserialize_with = "deserialize_from_string")]
     pub stored_size: u64,
     pub etag: String,
-    #[serde(default)]
-    pub passthrough_meta: MoveOption<String>,
+    /// Hex-encoded metadata. Absent on variants that do not carry a payload.
+    pub passthrough_meta: Option<String>,
     #[serde(deserialize_with = "deserialize_from_string")]
     pub committed_at_micros: u64,
 }
