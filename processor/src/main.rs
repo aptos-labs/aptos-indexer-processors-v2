@@ -13,7 +13,7 @@ use clap::Parser;
 use processor::config::app_config::AppConfig;
 use std::sync::Arc;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "jemalloc"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 

@@ -16,8 +16,9 @@ libpq = ["aptos-indexer-processor-sdk/postgres_full", "diesel/postgres"]
 # When using the default features we enable the diesel/postgres feature. We configure
 # it in a feature so the CLI can opt out, since it cannot tolerate the libpq dep.
 # Recall that features should always be additive.
-default = ["libpq"]
+default = ["libpq", "jemalloc"]
 failpoints = ["dep:failpoints", "failpoints/failpoints"]
+jemalloc = ["dep:tikv-jemallocator"]
 
 [dependencies]
 ahash = { workspace = true }
@@ -80,7 +81,7 @@ unescape = { workspace = true }
 url = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-tikv-jemallocator = { version = "0.6", features = [
+tikv-jemallocator = { version = "0.6", optional = true, features = [
     "profiling",
     "unprefixed_malloc_on_supported_platforms",
 ] }
