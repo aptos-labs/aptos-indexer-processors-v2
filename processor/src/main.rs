@@ -5,7 +5,7 @@ use aptos_indexer_processor_sdk::server_framework::ServerArgs;
 use clap::Parser;
 use processor::config::indexer_processor_config::IndexerProcessorConfig;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "jemalloc"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
