@@ -14,20 +14,31 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.sha || github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   License-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - name: Check license headers
         run: python3 scripts/check_license.py --check
 
   Rust:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       # Ensures to use the Rust toolchain version
-      - uses: dsherret/rust-toolchain-file@v1
+      - uses: dsherret/rust-toolchain-file@3551321aa44dd44a0393eb3b6bdfbc5d25ecf621 # v1
       - name: Install deps and run linter
         run: |
           sudo apt update && sudo apt install libdw-dev protobuf-compiler
