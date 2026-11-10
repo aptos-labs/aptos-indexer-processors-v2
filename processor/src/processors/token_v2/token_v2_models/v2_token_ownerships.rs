@@ -7,6 +7,7 @@
 
 use crate::{
     db::resources::{BURN_ADDR, FromWriteResource},
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::{ObjectAggregatedDataMapping, ObjectWithMetadata},
@@ -26,7 +27,6 @@ use crate::{
     schema::current_token_ownerships_v2,
 };
 use ahash::AHashMap;
-use allocative_derive::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
@@ -693,9 +693,7 @@ impl CurrentTokenOwnershipV2Query {
 }
 
 /// This is the parquet version of CurrentTokenOwnershipV2
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetTokenOwnershipV2 {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -708,7 +706,6 @@ pub struct ParquetTokenOwnershipV2 {
     pub token_properties_mutated_v1: Option<String>,
     pub is_soulbound_v2: Option<bool>,
     pub token_standard: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub non_transferrable_by_owner: Option<bool>,
 }
@@ -745,9 +742,7 @@ impl From<TokenOwnershipV2> for ParquetTokenOwnershipV2 {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentTokenOwnershipV2 {
     pub token_data_id: String,
     pub property_version_v1: u64, // BigDecimal,
@@ -760,7 +755,6 @@ pub struct ParquetCurrentTokenOwnershipV2 {
     pub token_standard: String,
     pub is_fungible_v2: Option<bool>,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
     pub non_transferrable_by_owner: Option<bool>,
 }
@@ -863,3 +857,25 @@ impl From<CurrentTokenOwnershipV2> for PostgresCurrentTokenOwnershipV2 {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetTokenOwnershipV2,
+    token_data_id,
+    owner_address,
+    storage_id,
+    amount,
+    table_type_v1,
+    token_properties_mutated_v1,
+    token_standard
+);
+impl_mem_size!(
+    ParquetCurrentTokenOwnershipV2,
+    token_data_id,
+    owner_address,
+    storage_id,
+    amount,
+    table_type_v1,
+    token_properties_mutated_v1,
+    token_standard
+);

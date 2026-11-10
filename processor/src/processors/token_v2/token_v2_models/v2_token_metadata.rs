@@ -7,6 +7,7 @@
 
 use crate::{
     db::resources::{COIN_ADDR, TOKEN_ADDR, TOKEN_V2_ADDR},
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         default::models::move_resources::MoveResource,
@@ -16,7 +17,6 @@ use crate::{
         },
     },
 };
-use allocative_derive::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::WriteResource,
@@ -123,16 +123,13 @@ impl CurrentTokenV2Metadata {
 }
 
 /// This is the parquet version of CurrentTokenV2Metadata
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentTokenV2Metadata {
     pub object_address: String,
     pub resource_type: String,
     pub data: String,
     pub state_key_hash: String,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
 }
 impl NamedTable for ParquetCurrentTokenV2Metadata {
@@ -160,3 +157,12 @@ impl From<CurrentTokenV2Metadata> for ParquetCurrentTokenV2Metadata {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetCurrentTokenV2Metadata,
+    object_address,
+    resource_type,
+    data,
+    state_key_hash
+);

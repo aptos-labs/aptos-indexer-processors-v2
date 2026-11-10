@@ -12,6 +12,7 @@ pub mod gas_fees;
 pub mod monitoring;
 pub mod objects;
 pub mod processor_status_saver;
+pub mod shelby_blobs;
 pub mod stake;
 pub mod token_v2;
 pub mod user_transaction;

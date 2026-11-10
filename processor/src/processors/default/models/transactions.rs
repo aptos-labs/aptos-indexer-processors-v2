@@ -7,10 +7,10 @@
 
 use super::write_set_changes::{WriteSetChangeDetail, WriteSetChangeModel};
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
         Transaction as TransactionPB, TransactionInfo, TransactionSizeInfo,
@@ -356,9 +356,7 @@ impl Transaction {
 // Prevent conflicts with other things named `Transaction`
 pub type TransactionModel = Transaction;
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetTransaction {
     pub txn_version: i64,
     pub block_height: i64,
@@ -377,7 +375,6 @@ pub struct ParquetTransaction {
     pub state_checkpoint_hash: Option<String>,
     pub accumulator_root_hash: String,
     pub txn_total_bytes: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -417,3 +414,17 @@ impl From<Transaction> for ParquetTransaction {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetTransaction,
+    txn_type,
+    payload,
+    payload_type,
+    vm_status,
+    txn_hash,
+    state_change_hash,
+    event_root_hash,
+    state_checkpoint_hash,
+    accumulator_root_hash
+);

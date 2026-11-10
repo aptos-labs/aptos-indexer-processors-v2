@@ -183,7 +183,7 @@ macro_rules! impl_parquet_trait {
             }
 
             fn calculate_size(&self) -> usize {
-                allocative::size_of_unique(self)
+                crate::parquet_processors::parquet_utils::mem_size::size_of_records(self)
             }
 
             async fn upload_to_gcs(

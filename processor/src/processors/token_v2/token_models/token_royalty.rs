@@ -6,11 +6,11 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::token_v2::token_models::token_utils::TokenWriteSet,
     schema::current_token_royalty_v1,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::aptos_protos::transaction::v1::WriteTableItem;
 use bigdecimal::BigDecimal;
 use field_count::FieldCount;
@@ -100,16 +100,13 @@ impl CurrentTokenRoyaltyV1 {
 }
 
 /// This is a parquet version of CurrentTokenRoyaltyV1
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentTokenRoyaltyV1 {
     pub token_data_id: String,
     pub payee_address: String,
     pub royalty_points_numerator: String, // String format of BigDecimal
     pub royalty_points_denominator: String, // String format of BigDecimal
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
 }
 
@@ -174,3 +171,12 @@ impl From<CurrentTokenRoyaltyV1> for PostgresCurrentTokenRoyaltyV1 {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetCurrentTokenRoyaltyV1,
+    token_data_id,
+    payee_address,
+    royalty_points_numerator,
+    royalty_points_denominator
+);

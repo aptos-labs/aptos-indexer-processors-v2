@@ -6,6 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         ans::models::{
@@ -17,7 +18,6 @@ use crate::{
     schema::{ans_lookup_v2, current_ans_lookup_v2},
 };
 use ahash::AHashMap;
-use allocative::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::WriteResource, utils::convert::standardize_address,
 };
@@ -74,7 +74,7 @@ impl PartialOrd for CurrentAnsLookupV2 {
     }
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetAnsLookupV2 {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -82,12 +82,10 @@ pub struct ParquetAnsLookupV2 {
     pub subdomain: String,
     pub token_standard: String,
     pub registered_address: Option<String>,
-    #[allocative(skip)]
     pub expiration_timestamp: chrono::NaiveDateTime,
     pub token_name: String,
     pub is_deleted: bool,
     pub subdomain_expiration_policy: Option<i64>,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -119,14 +117,13 @@ impl From<AnsLookupV2> for ParquetAnsLookupV2 {
     }
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentAnsLookupV2 {
     pub domain: String,
     pub subdomain: String,
     pub token_standard: String,
     pub registered_address: Option<String>,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub expiration_timestamp: chrono::NaiveDateTime,
     pub token_name: String,
     pub is_deleted: bool,
@@ -333,3 +330,21 @@ impl CurrentAnsLookupV2 {
         Ok(None)
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetAnsLookupV2,
+    domain,
+    subdomain,
+    token_standard,
+    registered_address,
+    token_name
+);
+impl_mem_size!(
+    ParquetCurrentAnsLookupV2,
+    domain,
+    subdomain,
+    token_standard,
+    registered_address,
+    token_name
+);

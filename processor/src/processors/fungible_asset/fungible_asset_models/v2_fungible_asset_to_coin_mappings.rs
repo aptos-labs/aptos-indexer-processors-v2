@@ -7,12 +7,12 @@
 
 use super::v2_fungible_metadata::FungibleAssetMetadataModel;
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_balances::get_paired_metadata_address,
     schema::fungible_asset_to_coin_mappings,
 };
 use ahash::AHashMap;
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::postgres::utils::database::DbPoolConnection;
 use diesel::query_dsl::methods::SelectDsl;
 use diesel_async::RunQueryDsl;
@@ -194,9 +194,7 @@ impl From<FungibleAssetToCoinMapping> for PostgresFungibleAssetToCoinMapping {
 }
 
 // Parquet version of fa_to_coin_mapping
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetFungibleAssetToCoinMapping {
     pub fungible_asset_metadata_address: String,
     pub coin_type: String,
@@ -222,3 +220,10 @@ impl From<FungibleAssetToCoinMapping> for ParquetFungibleAssetToCoinMapping {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetFungibleAssetToCoinMapping,
+    fungible_asset_metadata_address,
+    coin_type
+);

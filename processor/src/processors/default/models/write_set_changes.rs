@@ -10,10 +10,10 @@ use super::{
     },
 };
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::default::models::move_resources::MoveResource,
 };
-use allocative_derive::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
@@ -274,7 +274,7 @@ pub enum WriteSetChangeDetail {
 // Prevent conflicts with other things named `WriteSetChange`
 pub type WriteSetChangeModel = WriteSetChange;
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, Serialize, ParquetRecordWriter)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ParquetRecordWriter)]
 pub struct ParquetWriteSetChange {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -282,7 +282,6 @@ pub struct ParquetWriteSetChange {
     pub change_type: String,
     pub resource_address: String,
     pub block_height: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -309,3 +308,11 @@ impl From<WriteSetChange> for ParquetWriteSetChange {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetWriteSetChange,
+    state_key_hash,
+    change_type,
+    resource_address
+);

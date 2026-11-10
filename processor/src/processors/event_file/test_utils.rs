@@ -6,20 +6,19 @@
 use super::{
     event_file_config::{
         CompressionMode, EventFileFilterConfig, EventFileProcessorConfig, OutputFormat,
-        SingleEventFilter,
+        SingleEventFilter, StorageConfig,
     },
     event_file_processor::{RecoveredState, recover_state},
     event_file_writer::EventFileWriterStep,
     metadata::InternalFolderState,
     models::EventWithContext,
-    storage::FileStore,
+    storage::FileStoreEnum,
 };
 use aptos_indexer_processor_sdk::{
     aptos_protos::{transaction::v1::Event, util::timestamp::Timestamp as AptosTimestamp},
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
 };
-use std::sync::Arc;
 
 pub fn test_config() -> EventFileProcessorConfig {
     EventFileProcessorConfig {
@@ -30,9 +29,11 @@ pub fn test_config() -> EventFileProcessorConfig {
                 event_name: None,
             }],
         },
-        bucket_name: "test".to_string(),
-        bucket_root: "test".to_string(),
-        google_application_credentials: None,
+        storage: StorageConfig::Gcs {
+            bucket_name: "test".to_string(),
+            bucket_root: "test".to_string(),
+            google_application_credentials: None,
+        },
         max_file_size_bytes: 50 * 1024 * 1024,
         max_txns_per_folder: 100,
         max_seconds_between_flushes: 600,
@@ -104,7 +105,7 @@ pub fn make_batch(
 }
 
 pub async fn do_recovery(
-    store: &Arc<dyn FileStore>,
+    store: &FileStoreEnum,
     config: &EventFileProcessorConfig,
 ) -> RecoveredState {
     recover_state(store, config, 0).await.unwrap()
@@ -140,7 +141,7 @@ pub async fn process_batch_with_range(
 
 /// Helper to create a fresh writer for tests.
 pub fn new_writer(
-    store: Arc<dyn FileStore>,
+    store: FileStoreEnum,
     config: EventFileProcessorConfig,
     folder_state: InternalFolderState,
     flushed_version: Option<u64>,

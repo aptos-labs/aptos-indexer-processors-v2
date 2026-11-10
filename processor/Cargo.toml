@@ -16,13 +16,12 @@ libpq = ["aptos-indexer-processor-sdk/postgres_full", "diesel/postgres"]
 # When using the default features we enable the diesel/postgres feature. We configure
 # it in a feature so the CLI can opt out, since it cannot tolerate the libpq dep.
 # Recall that features should always be additive.
-default = ["libpq"]
+default = ["libpq", "jemalloc"]
 failpoints = ["dep:failpoints", "failpoints/failpoints"]
+jemalloc = ["dep:tikv-jemallocator"]
 
 [dependencies]
 ahash = { workspace = true }
-allocative = { workspace = true }
-allocative_derive = { workspace = true }
 anyhow = { workspace = true }
 aptos-indexer-processor-sdk = { workspace = true }
 async-trait = { workspace = true }
@@ -46,11 +45,13 @@ google-cloud-googleapis = { workspace = true }
 google-cloud-pubsub = { workspace = true }
 google-cloud-storage = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 lz4_flex = { workspace = true }
+reqwest = { workspace = true }
 
 # Postgres SSL support
 native-tls = { workspace = true }
@@ -80,7 +81,7 @@ unescape = { workspace = true }
 url = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-tikv-jemallocator = { version = "0.6", features = [
+tikv-jemallocator = { version = "0.6", optional = true, features = [
     "profiling",
     "unprefixed_malloc_on_supported_platforms",
 ] }

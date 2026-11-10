@@ -2,10 +2,10 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     schema::{current_table_items, table_items, table_metadatas},
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteTableItem, WriteTableItem},
     utils::{convert::standardize_address, extract::hash_str},
@@ -94,12 +94,9 @@ impl TableItem {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetTableItem {
     pub txn_version: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub write_set_change_index: i64,
     pub transaction_block_height: i64,
@@ -149,9 +146,7 @@ pub struct CurrentTableItem {
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetCurrentTableItem {
     pub table_handle: String,
     pub key_hash: String,
@@ -160,7 +155,6 @@ pub struct ParquetCurrentTableItem {
     pub decoded_value: Option<String>,
     pub last_transaction_version: i64,
     pub is_deleted: bool,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -207,9 +201,7 @@ impl TableMetadata {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetTableMetadata {
     pub handle: String,
     pub key_type: String,
@@ -318,3 +310,21 @@ impl From<TableMetadata> for PostgresTableMetadata {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetTableItem,
+    table_key,
+    table_handle,
+    decoded_key,
+    decoded_value
+);
+impl_mem_size!(
+    ParquetCurrentTableItem,
+    table_handle,
+    key_hash,
+    key,
+    decoded_key,
+    decoded_value
+);
+impl_mem_size!(ParquetTableMetadata, handle, key_type, value_type);

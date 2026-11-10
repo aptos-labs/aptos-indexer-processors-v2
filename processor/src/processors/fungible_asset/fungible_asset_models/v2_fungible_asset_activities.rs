@@ -10,6 +10,7 @@ use super::{
     v2_fungible_asset_utils::FungibleAssetStoreDeletionEvent,
 };
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         fungible_asset::{
@@ -23,7 +24,6 @@ use crate::{
     schema::fungible_asset_activities,
 };
 use ahash::AHashMap;
-use allocative::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{Event, TransactionInfo, UserTransactionRequest},
@@ -323,9 +323,7 @@ impl FungibleAssetActivity {
 }
 
 // Parquet Model
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetFungibleAssetActivity {
     pub txn_version: i64,
     pub event_index: i64,
@@ -341,7 +339,6 @@ pub struct ParquetFungibleAssetActivity {
     pub entry_function_id_str: Option<String>,
     pub block_height: i64,
     pub token_standard: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub storage_refund_octa: u64,
 }
@@ -424,3 +421,16 @@ impl From<FungibleAssetActivity> for PostgresFungibleAssetActivity {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetFungibleAssetActivity,
+    owner_address,
+    storage_id,
+    asset_type,
+    amount,
+    event_type,
+    gas_fee_payer_address,
+    entry_function_id_str,
+    token_standard
+);

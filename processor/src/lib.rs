@@ -12,6 +12,7 @@ extern crate canonical_json;
 extern crate parquet;
 extern crate parquet_derive;
 
+pub mod alerting;
 pub mod config;
 pub mod db;
 pub mod parquet_processors;

@@ -6,6 +6,7 @@
 #![allow(clippy::unused_unit)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::token_v2::token_models::{
         token_utils::TokenWriteSet,
@@ -13,7 +14,6 @@ use crate::{
     },
     schema::current_token_pending_claims,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteTableItem, WriteTableItem},
     utils::convert::standardize_address,
@@ -253,9 +253,7 @@ impl CurrentTokenPendingClaim {
 }
 
 /// This is a parquet version of CurrentTokenPendingClaim
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentTokenPendingClaim {
     pub token_data_id_hash: String,
     pub property_version: u64,
@@ -268,7 +266,6 @@ pub struct ParquetCurrentTokenPendingClaim {
     pub amount: String, // String format of BigDecimal
     pub table_handle: String,
     pub last_transaction_version: i64,
-    #[allocative(skip)]
     pub last_transaction_timestamp: chrono::NaiveDateTime,
     pub token_data_id: String,
     pub collection_id: String,
@@ -367,3 +364,19 @@ impl From<CurrentTokenPendingClaim> for PostgresCurrentTokenPendingClaim {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetCurrentTokenPendingClaim,
+    token_data_id_hash,
+    from_address,
+    to_address,
+    collection_data_id_hash,
+    creator_address,
+    collection_name,
+    name,
+    amount,
+    table_handle,
+    token_data_id,
+    collection_id
+);

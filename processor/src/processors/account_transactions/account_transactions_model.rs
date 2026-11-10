@@ -7,6 +7,7 @@
 
 use crate::{
     db::resources::FromWriteResource,
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectWithMetadata,
@@ -16,7 +17,6 @@ use crate::{
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
 use ahash::AHashSet;
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{Transaction, transaction::TxnData, write_set_change::Change},
@@ -120,13 +120,10 @@ impl AccountTransaction {
 }
 
 // Parquet Model
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetAccountTransaction {
     pub txn_version: i64,
     pub account_address: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -167,3 +164,6 @@ impl From<AccountTransaction> for PostgresAccountTransaction {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(ParquetAccountTransaction, account_address);

@@ -1,0 +1,585 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
+// `QueryableByName` structs below are populated by diesel from SQL results, never
+// via struct literals; nightly clippy's `redundant_field_names` misfires on the
+// derive expansion (item-level #[allow] does not reach macro-generated code).
+#![allow(clippy::redundant_field_names)]
+
+use crate::{
+    processors::shelby_blobs::models::{
+        ObjectActivity, ObjectDeletion, OpenMultipartPart, OpenMultipartUpload, PendingBlob,
+        PendingBlobRemoval, PlacementGroupSlot, SealedUpload, ShelbyBlobData, ShelbyObject,
+        UploadRetirement,
+    },
+    schema,
+};
+use ahash::AHashMap;
+use anyhow::Result;
+use aptos_indexer_processor_sdk::{
+    postgres::utils::database::{
+        ArcDbPool, MyDbConnection, execute_in_chunks, get_config_table_chunk_size,
+    },
+    traits::{AsyncStep, NamedStep, Processable, async_step::AsyncRunType},
+    types::transaction_context::TransactionContext,
+    utils::errors::ProcessorError,
+};
+use async_trait::async_trait;
+use diesel::{
+    ExpressionMethods,
+    dsl::sql,
+    pg::{Pg, upsert::excluded},
+    query_builder::{QueryFragment, QueryId},
+    query_dsl::methods::FilterDsl,
+    sql_types::{Array, BigInt, Bytea, Integer, Nullable, Text},
+};
+use diesel_async::{AsyncConnection, RunQueryDsl, scoped_futures::ScopedFutureExt};
+use std::{collections::HashMap, hash::Hash};
+
+/// Bounds the array a single hand-written statement binds.
+const DEFAULT_ARRAY_CHUNK_SIZE: usize = 1000;
+
+/// The connection the raw-SQL statements run on, inside the batch's
+/// transaction.
+type DbConn = MyDbConnection;
+
+pub struct ShelbyBlobsStorer
+where
+    Self: Sized + Send + 'static,
+{
+    conn_pool: ArcDbPool,
+    per_table_chunk_sizes: AHashMap<String, usize>,
+}
+
+impl ShelbyBlobsStorer {
+    pub fn new(conn_pool: ArcDbPool, per_table_chunk_sizes: AHashMap<String, usize>) -> Self {
+        Self {
+            conn_pool,
+            per_table_chunk_sizes,
+        }
+    }
+}
+
+#[async_trait]
+impl Processable for ShelbyBlobsStorer {
+    type Input = ShelbyBlobData;
+    type Output = ();
+    type RunType = AsyncRunType;
+
+    async fn process(
+        &mut self,
+        input: TransactionContext<ShelbyBlobData>,
+    ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
+        let ShelbyBlobData {
+            objects,
+            object_deletions,
+            uploads,
+            parts,
+            sealed_uploads,
+            orphaned_manifests,
+            retired_uploads,
+            pending_blobs,
+            pending_blob_removals,
+            activities,
+            pg_slots,
+        } = input.data;
+
+        // Postgres rejects a conflict target touched twice in one do_update statement.
+        let objects =
+            dedup_by_max_version(objects, |o| o.name.clone(), |o| o.last_transaction_version);
+        let (multipart_objects, blob_objects): (Vec<_>, Vec<_>) =
+            objects.into_iter().partition(|o| o.multipart_uid.is_some());
+        let uploads =
+            dedup_by_max_version(uploads, |u| u.multipart_uid, |u| u.last_transaction_version);
+        let parts = dedup_by_max_version(
+            parts,
+            |p| (p.multipart_uid, p.part_number),
+            |p| p.last_transaction_version,
+        );
+        let pg_slots = dedup_by_max_version(
+            pg_slots,
+            |s| (s.placement_group.clone(), s.slot_index.clone()),
+            |s| s.last_transaction_version,
+        );
+        let pending_blobs =
+            dedup_by_max_version(pending_blobs, |b| b.uid, |b| b.last_transaction_version);
+
+        let (start_version, end_version) =
+            (input.metadata.start_version, input.metadata.end_version);
+
+        // Writes before removals, since a batch can hold both a part commit and
+        // the completion that consumes it.
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_uploads_query,
+            &uploads,
+            get_config_table_chunk_size::<OpenMultipartUpload>(
+                "shelby_open_multipart_uploads",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_parts_query,
+            &parts,
+            get_config_table_chunk_size::<OpenMultipartPart>(
+                "shelby_open_multipart_parts",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_objects_query,
+            &blob_objects,
+            get_config_table_chunk_size::<ShelbyObject>(
+                "shelby_objects",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        // A blob registered and committed inside one batch appears in both
+        // lists, so the insert has to land before the removal that cancels it.
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_pending_blobs_query,
+            &pending_blobs,
+            get_config_table_chunk_size::<PendingBlob>(
+                "shelby_pending_blobs",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        // Promotions must precede retirement; orphan deletion must follow them.
+        let object_chunk_size = get_config_table_chunk_size::<ShelbyObject>(
+            "shelby_objects",
+            &self.per_table_chunk_sizes,
+        );
+        let mut conn =
+            self.conn_pool.get().await.map_err(|e| {
+                store_error(start_version, end_version, &format!("pool error: {e}"))
+            })?;
+        conn.transaction(|tx| {
+            async move {
+                insert_objects_in_chunks(tx, &multipart_objects, object_chunk_size).await?;
+                promote_manifests(tx, &sealed_uploads).await?;
+                promote_upload_metadata(tx, &sealed_uploads).await?;
+                drop_orphaned_manifests(tx, &orphaned_manifests).await?;
+                delete_objects(tx, &object_deletions).await?;
+                retire_uploads(tx, &retired_uploads).await?;
+                remove_pending_blobs(tx, &pending_blob_removals).await?;
+                Ok::<(), diesel::result::Error>(())
+            }
+            .scope_boxed()
+        })
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_pg_slots_query,
+            &pg_slots,
+            get_config_table_chunk_size::<PlacementGroupSlot>(
+                "placement_group_slots",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        execute_in_chunks(
+            self.conn_pool.clone(),
+            insert_activities_query,
+            &activities,
+            get_config_table_chunk_size::<ObjectActivity>(
+                "shelby_object_activities",
+                &self.per_table_chunk_sizes,
+            ),
+        )
+        .await
+        .map_err(|e| store_error(start_version, end_version, &e))?;
+
+        Ok(Some(TransactionContext {
+            data: (),
+            metadata: input.metadata,
+        }))
+    }
+}
+
+/// Remove the objects whose names stopped resolving.
+///
+/// Raw SQL because the guard compares against the stored row rather than the
+/// incoming value, which diesel's delete DSL cannot express. Values are passed
+/// as arrays, so the statement uses two bind parameters regardless of batch
+/// size; chunking bounds the size of any one statement.
+async fn delete_objects(
+    conn: &mut DbConn,
+    deletions: &[ObjectDeletion],
+) -> Result<(), diesel::result::Error> {
+    const SQL: &str = "
+        DELETE FROM shelby_objects AS o
+        USING unnest($1, $2) AS v(name, ltv)
+        WHERE o.name = v.name AND o.last_transaction_version <= v.ltv
+    ";
+
+    for chunk in deletions.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        let names: Vec<String> = chunk.iter().map(|d| d.name.clone()).collect();
+        let ltvs: Vec<i64> = chunk.iter().map(|d| d.last_transaction_version).collect();
+
+        diesel::sql_query(SQL)
+            .bind::<Array<Text>, _>(names)
+            .bind::<Array<BigInt>, _>(ltvs)
+            .execute(conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Move each sealed upload's metadata onto the object it became.
+///
+/// Matching by `multipart_uid` prevents an overwrite of the same object name
+/// from receiving the sealed upload's metadata.
+async fn promote_upload_metadata(
+    conn: &mut DbConn,
+    sealed: &[SealedUpload],
+) -> Result<(), diesel::result::Error> {
+    const SQL: &str = "
+        UPDATE shelby_objects o
+        SET multipart_meta = u.multipart_meta
+        FROM shelby_open_multipart_uploads u
+        WHERE u.multipart_uid = o.multipart_uid
+          AND u.multipart_uid = ANY($1)
+          AND u.multipart_meta IS NOT NULL
+    ";
+
+    for chunk in sealed.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        let uids: Vec<i64> = chunk.iter().map(|s| s.multipart_uid).collect();
+
+        diesel::sql_query(SQL)
+            .bind::<Array<BigInt>, _>(uids)
+            .execute(conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Turn each sealed upload's staged parts into the object's manifest, at
+/// offsets that are a running sum over the parts the completion kept.
+///
+/// Raw SQL, and one insert-from-select rather than rows sent from here,
+/// because the sizes it sums are already in the database.
+async fn promote_manifests(
+    conn: &mut DbConn,
+    sealed: &[SealedUpload],
+) -> Result<(), diesel::result::Error> {
+    // DISTINCT: a repeated uid in $1 would join each staged part twice and
+    // silently double every offset.
+    const SQL: &str = "
+            WITH completed AS (
+                SELECT DISTINCT unnest($1::BIGINT[]) AS multipart_uid
+            ), pruned AS (
+                SELECT * FROM unnest($2::BIGINT[], $3::INTEGER[])
+                    AS t(multipart_uid, part_number)
+            ), located AS (
+                SELECT
+                    p.multipart_uid,
+                    p.part_number,
+                    p.blob_uid,
+                    p.stored_size,
+                    p.part_meta,
+                    COALESCE(
+                        SUM(p.plaintext_size) OVER (
+                            PARTITION BY p.multipart_uid
+                            ORDER BY p.part_number
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        ),
+                        0
+                    ) AS offset_in_object,
+                    SUM(p.plaintext_size) OVER (
+                        PARTITION BY p.multipart_uid
+                        ORDER BY p.part_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS end_offset
+                FROM shelby_open_multipart_parts p
+                JOIN completed c ON c.multipart_uid = p.multipart_uid
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM pruned
+                    WHERE pruned.multipart_uid = p.multipart_uid
+                      AND pruned.part_number = p.part_number
+                )
+            )
+            INSERT INTO shelby_object_parts (
+                multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
+                stored_size, part_meta
+            )
+            SELECT multipart_uid, part_number, blob_uid, offset_in_object, end_offset,
+                   stored_size, part_meta
+            FROM located
+            ON CONFLICT (multipart_uid, part_number) DO NOTHING
+        ";
+
+    for chunk in sealed.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        let uids: Vec<i64> = chunk.iter().map(|s| s.multipart_uid).collect();
+        let (pruned_uids, pruned_numbers): (Vec<i64>, Vec<i32>) = chunk
+            .iter()
+            .flat_map(|s| s.pruned_part_numbers.iter().map(|n| (s.multipart_uid, *n)))
+            .unzip();
+
+        diesel::sql_query(SQL)
+            .bind::<Array<BigInt>, _>(uids)
+            .bind::<Array<BigInt>, _>(pruned_uids)
+            .bind::<Array<Integer>, _>(pruned_numbers)
+            .execute(conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Remove the manifests of multipart records nothing resolves to any more.
+///
+/// No version guard, unlike the other removals here: a multipart uid is never
+/// reused, so no later write can land under one already disposed of.
+async fn drop_orphaned_manifests(
+    conn: &mut DbConn,
+    multipart_uids: &[i64],
+) -> Result<(), diesel::result::Error> {
+    const SQL: &str = "DELETE FROM shelby_object_parts WHERE multipart_uid = ANY($1)";
+
+    for chunk in multipart_uids.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        diesel::sql_query(SQL)
+            .bind::<Array<BigInt>, _>(chunk.to_vec())
+            .execute(conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Drop the rows of blobs that stopped waiting to be committed.
+///
+/// Raw SQL for the same reason as `delete_objects`: the guard compares against
+/// the stored row. A uid that was never pending matches nothing, which is the
+/// ordinary case for a committed blob's teardown.
+async fn remove_pending_blobs(
+    conn: &mut DbConn,
+    removals: &[PendingBlobRemoval],
+) -> Result<(), diesel::result::Error> {
+    const SQL: &str = "
+        DELETE FROM shelby_pending_blobs AS b
+        USING unnest($1, $2) AS v(uid, ltv)
+        WHERE b.uid = v.uid AND b.last_transaction_version <= v.ltv
+    ";
+
+    for chunk in removals.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        let uids: Vec<i64> = chunk.iter().map(|r| r.uid).collect();
+        let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
+
+        diesel::sql_query(SQL)
+            .bind::<Array<BigInt>, _>(uids)
+            .bind::<Array<BigInt>, _>(ltvs)
+            .execute(conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Drop the staging rows of uploads that completed or were abandoned, parts
+/// included.
+async fn retire_uploads(
+    conn: &mut DbConn,
+    retirements: &[UploadRetirement],
+) -> Result<(), diesel::result::Error> {
+    const DELETE_PARTS_SQL: &str = "
+        DELETE FROM shelby_open_multipart_parts AS p
+        USING unnest($1, $2) AS v(multipart_uid, ltv)
+        WHERE p.multipart_uid = v.multipart_uid AND p.last_transaction_version <= v.ltv
+    ";
+    const DELETE_UPLOADS_SQL: &str = "
+        DELETE FROM shelby_open_multipart_uploads AS u
+        USING unnest($1, $2) AS v(multipart_uid, ltv)
+        WHERE u.multipart_uid = v.multipart_uid AND u.last_transaction_version <= v.ltv
+    ";
+
+    for chunk in retirements.chunks(DEFAULT_ARRAY_CHUNK_SIZE) {
+        let uids: Vec<i64> = chunk.iter().map(|r| r.multipart_uid).collect();
+        let ltvs: Vec<i64> = chunk.iter().map(|r| r.last_transaction_version).collect();
+
+        for sql in [DELETE_PARTS_SQL, DELETE_UPLOADS_SQL] {
+            diesel::sql_query(sql)
+                .bind::<Array<BigInt>, _>(uids.clone())
+                .bind::<Array<BigInt>, _>(ltvs.clone())
+                .execute(conn)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+impl NamedStep for ShelbyBlobsStorer {
+    fn name(&self) -> String {
+        "shelby_blobs_storer".to_string()
+    }
+}
+
+impl AsyncStep for ShelbyBlobsStorer {}
+
+fn store_error(start_version: u64, end_version: u64, e: &dyn std::fmt::Debug) -> ProcessorError {
+    ProcessorError::DBStoreError {
+        message: format!("Failed to store versions {start_version} to {end_version}: {e:?}"),
+        query: None,
+    }
+}
+
+/// Keeps, per key, only the row with the highest transaction version.
+fn dedup_by_max_version<T, K, Key, V>(items: Vec<T>, key: K, version: V) -> Vec<T>
+where
+    K: Fn(&T) -> Key,
+    Key: Hash + Eq,
+    V: Fn(&T) -> i64,
+{
+    let mut by_key: HashMap<Key, T> = HashMap::new();
+    for item in items {
+        let k = key(&item);
+        match by_key.get(&k) {
+            Some(existing) if version(existing) >= version(&item) => {},
+            _ => {
+                by_key.insert(k, item);
+            },
+        }
+    }
+    by_key.into_values().collect()
+}
+
+/// Preserve promoted multipart metadata when its commit is replayed. A newer
+/// binding clears it before a new multipart upload can be promoted.
+const MULTIPART_METADATA_ON_CONFLICT: &str = "\
+    CASE WHEN excluded.last_transaction_version > shelby_objects.last_transaction_version \
+         THEN NULL \
+         ELSE shelby_objects.multipart_meta \
+    END";
+
+fn insert_objects_query(items: Vec<ShelbyObject>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_objects::dsl::*;
+    diesel::insert_into(schema::shelby_objects::table)
+        .values(items)
+        .on_conflict(name)
+        .do_update()
+        .set((
+            owner.eq(excluded(owner)),
+            etag.eq(excluded(etag)),
+            format_version.eq(excluded(format_version)),
+            encryption.eq(excluded(encryption)),
+            encoding.eq(excluded(encoding)),
+            location_name.eq(excluded(location_name)),
+            plaintext_size.eq(excluded(plaintext_size)),
+            stored_size.eq(excluded(stored_size)),
+            blob_uid.eq(excluded(blob_uid)),
+            multipart_uid.eq(excluded(multipart_uid)),
+            part_count.eq(excluded(part_count)),
+            committed_at_micros.eq(excluded(committed_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+            multipart_meta.eq(sql::<Nullable<Bytea>>(MULTIPART_METADATA_ON_CONFLICT)),
+            commit_meta.eq(excluded(commit_meta)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+async fn insert_objects_in_chunks(
+    conn: &mut DbConn,
+    objects: &[ShelbyObject],
+    chunk_size: usize,
+) -> Result<(), diesel::result::Error> {
+    for chunk in objects.chunks(chunk_size) {
+        insert_objects_query(chunk.to_vec()).execute(conn).await?;
+    }
+    Ok(())
+}
+
+fn insert_uploads_query(
+    items: Vec<OpenMultipartUpload>,
+) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_open_multipart_uploads::dsl::*;
+    diesel::insert_into(schema::shelby_open_multipart_uploads::table)
+        .values(items)
+        .on_conflict(multipart_uid)
+        .do_update()
+        .set((
+            object_name.eq(excluded(object_name)),
+            owner.eq(excluded(owner)),
+            encryption.eq(excluded(encryption)),
+            encoding.eq(excluded(encoding)),
+            location_name.eq(excluded(location_name)),
+            created_at_micros.eq(excluded(created_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+            multipart_meta.eq(excluded(multipart_meta)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_parts_query(items: Vec<OpenMultipartPart>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_open_multipart_parts::dsl::*;
+    diesel::insert_into(schema::shelby_open_multipart_parts::table)
+        .values(items)
+        .on_conflict((multipart_uid, part_number))
+        .do_update()
+        .set((
+            blob_uid.eq(excluded(blob_uid)),
+            plaintext_size.eq(excluded(plaintext_size)),
+            stored_size.eq(excluded(stored_size)),
+            etag.eq(excluded(etag)),
+            format_version.eq(excluded(format_version)),
+            committed_at_micros.eq(excluded(committed_at_micros)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+            part_meta.eq(excluded(part_meta)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_pending_blobs_query(items: Vec<PendingBlob>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_pending_blobs::dsl::*;
+    diesel::insert_into(schema::shelby_pending_blobs::table)
+        .values(items)
+        .on_conflict(uid)
+        .do_update()
+        .set((
+            owner.eq(excluded(owner)),
+            location_name.eq(excluded(location_name)),
+            creation_micros.eq(excluded(creation_micros)),
+            stored_size.eq(excluded(stored_size)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_pg_slots_query(
+    items: Vec<PlacementGroupSlot>,
+) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::placement_group_slots::dsl::*;
+    diesel::insert_into(schema::placement_group_slots::table)
+        .values(items)
+        .on_conflict((placement_group, slot_index))
+        .do_update()
+        .set((
+            storage_provider.eq(excluded(storage_provider)),
+            status.eq(excluded(status)),
+            updated_at.eq(excluded(updated_at)),
+            last_transaction_version.eq(excluded(last_transaction_version)),
+        ))
+        .filter(last_transaction_version.le(excluded(last_transaction_version)))
+}
+
+fn insert_activities_query(items: Vec<ObjectActivity>) -> impl QueryFragment<Pg> + QueryId + Send {
+    use schema::shelby_object_activities::dsl::*;
+    diesel::insert_into(schema::shelby_object_activities::table)
+        .values(items)
+        .on_conflict((transaction_version, event_index))
+        .do_nothing()
+}

@@ -3,8 +3,10 @@
 
 #![allow(clippy::extra_unused_lifetimes)]
 
-use crate::parquet_processors::parquet_utils::util::{HasVersion, NamedTable};
-use allocative_derive::Allocative;
+use crate::{
+    impl_mem_size,
+    parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
+};
 use anyhow::{Context, Result};
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
@@ -169,14 +171,11 @@ impl MoveStructTag {
  * This is the ParquetMoveResource model struct which shouldn't be handled directly.
  * It should be transfromed from the MoveResource struct.
  */
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, Serialize, ParquetRecordWriter)]
 pub struct ParquetMoveResource {
     pub txn_version: i64,
     pub write_set_change_index: i64,
     pub block_height: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
     pub resource_address: String,
     pub resource_type: String,
@@ -226,3 +225,15 @@ impl From<MoveResource> for ParquetMoveResource {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetMoveResource,
+    resource_address,
+    resource_type,
+    module,
+    fun,
+    generic_type_params,
+    data,
+    state_key_hash
+);

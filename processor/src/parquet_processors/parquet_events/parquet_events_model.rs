@@ -4,10 +4,10 @@
 #![allow(clippy::extra_unused_lifetimes)]
 
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     utils::counters::PROCESSOR_UNKNOWN_TYPE_COUNT,
 };
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::transaction::v1::{
@@ -77,7 +77,7 @@ pub fn parse_events(txn: &Transaction, processor_name: &str) -> Vec<ParquetEvent
         .collect::<Vec<ParquetEvent>>()
 }
 
-#[derive(Allocative, Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, ParquetRecordWriter, Serialize)]
 pub struct ParquetEvent {
     pub txn_version: i64,
     pub account_address: String,
@@ -90,7 +90,6 @@ pub struct ParquetEvent {
     pub indexed_type: String,
     pub type_tag_bytes: i64,
     pub total_bytes: i64,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -135,3 +134,12 @@ impl HasVersion for ParquetEvent {
         self.txn_version
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetEvent,
+    account_address,
+    event_type,
+    data,
+    indexed_type
+);

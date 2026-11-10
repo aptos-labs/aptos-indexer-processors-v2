@@ -37,6 +37,7 @@ use crate::{
             objects_processor::ObjectsProcessorConfig,
             v2_objects_models::{ParquetCurrentObject, ParquetObject},
         },
+        shelby_blobs::shelby_blobs_processor::ShelbyBlobsProcessorConfig,
         stake::{
             models::{
                 delegator_activities::ParquetDelegatedStakingActivity,
@@ -109,6 +110,7 @@ pub enum ProcessorConfig {
     StakeProcessor(StakeProcessorConfig),
     TokenV2Processor(TokenV2ProcessorConfig),
     ObjectsProcessor(ObjectsProcessorConfig),
+    ShelbyBlobsProcessor(ShelbyBlobsProcessorConfig),
     MonitoringProcessor(DefaultProcessorConfig),
     GasFeeProcessor(DefaultProcessorConfig),
     // Event file processor (GCS-based, no DB)

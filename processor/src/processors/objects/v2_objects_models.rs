@@ -7,12 +7,12 @@
 
 use super::v2_object_utils::{CurrentObjectPK, ObjectAggregatedDataMapping};
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::default::models::move_resources::MoveResource,
     schema::{current_objects, objects},
 };
 use ahash::AHashMap;
-use allocative_derive::Allocative;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{DeleteResource, WriteResource},
     postgres::utils::database::{DbContext, DbPoolConnection},
@@ -299,9 +299,7 @@ impl CurrentObjectQuery {
 
 /// Parquet
 ///
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetObject {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -312,7 +310,6 @@ pub struct ParquetObject {
     pub allow_ungated_transfer: bool,
     pub is_deleted: bool,
     pub untransferrable: bool,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -343,9 +340,7 @@ impl From<Object> for ParquetObject {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentObject {
     pub object_address: String,
     pub owner_address: String,
@@ -355,7 +350,6 @@ pub struct ParquetCurrentObject {
     pub last_transaction_version: i64,
     pub is_deleted: bool,
     pub untransferrable: bool,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -445,3 +439,12 @@ impl From<CurrentObject> for PostgresCurrentObject {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(ParquetObject, object_address, owner_address, state_key_hash);
+impl_mem_size!(
+    ParquetCurrentObject,
+    object_address,
+    owner_address,
+    state_key_hash
+);

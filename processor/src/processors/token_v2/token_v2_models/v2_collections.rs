@@ -4,9 +4,14 @@
 // This is required because a diesel macro makes clippy sad
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
+// `QueryableByName` structs below are populated by diesel from SQL results, never
+// via struct literals; nightly clippy's `redundant_field_names` misfires on the
+// derive expansion (item-level #[allow] does not reach macro-generated code).
+#![allow(clippy::redundant_field_names)]
 
 use crate::{
     db::resources::FromWriteResource,
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         objects::v2_object_utils::ObjectAggregatedDataMapping,
@@ -20,7 +25,6 @@ use crate::{
     },
     schema::{collections_v2, current_collections_v2},
 };
-use allocative_derive::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{WriteResource, WriteTableItem},
@@ -352,9 +356,7 @@ impl CollectionV2 {
     }
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCollectionV2 {
     pub txn_version: i64,
     pub write_set_change_index: i64,
@@ -371,7 +373,6 @@ pub struct ParquetCollectionV2 {
     pub table_handle_v1: Option<String>,
     pub collection_properties: Option<String>, // json
     pub token_standard: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -408,3 +409,19 @@ impl From<CollectionV2> for ParquetCollectionV2 {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetCollectionV2,
+    collection_id,
+    creator_address,
+    collection_name,
+    description,
+    uri,
+    current_supply,
+    max_supply,
+    total_minted_v2,
+    table_handle_v1,
+    collection_properties,
+    token_standard
+);

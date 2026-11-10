@@ -4,6 +4,7 @@
 // This is required because a diesel macro makes clippy sad
 #![allow(clippy::extra_unused_lifetimes)]
 use crate::{
+    impl_mem_size,
     parquet_processors::parquet_utils::util::{HasVersion, NamedTable},
     processors::{
         default::models::table_items::{PostgresTableItem, TableItem},
@@ -14,7 +15,6 @@ use crate::{
     schema::{current_delegator_balances, delegator_balances},
 };
 use ahash::AHashMap;
-use allocative::Allocative;
 use anyhow::Context;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
@@ -563,9 +563,7 @@ impl CurrentDelegatorBalanceQuery {
 }
 
 // Parquet models
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetCurrentDelegatorBalance {
     pub delegator_address: String,
     pub pool_address: String,
@@ -574,7 +572,6 @@ pub struct ParquetCurrentDelegatorBalance {
     pub last_transaction_version: i64,
     pub shares: String, // BigDecimal
     pub parent_table_handle: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -603,9 +600,7 @@ impl NamedTable for ParquetCurrentDelegatorBalance {
     const TABLE_NAME: &'static str = "current_delegator_balances";
 }
 
-#[derive(
-    Allocative, Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize,
-)]
+#[derive(Clone, Debug, Default, Deserialize, FieldCount, ParquetRecordWriter, Serialize)]
 pub struct ParquetDelegatorBalance {
     pub transaction_version: i64,
     pub write_set_change_index: i64,
@@ -615,7 +610,6 @@ pub struct ParquetDelegatorBalance {
     pub table_handle: String,
     pub shares: String, // BigDecimal
     pub parent_table_handle: String,
-    #[allocative(skip)]
     pub block_timestamp: chrono::NaiveDateTime,
 }
 
@@ -701,3 +695,23 @@ impl From<DelegatorBalance> for PostgresDelegatorBalance {
         }
     }
 }
+
+// MemSize impls for the GCS buffer flush threshold (replaces `allocative`).
+impl_mem_size!(
+    ParquetCurrentDelegatorBalance,
+    delegator_address,
+    pool_address,
+    pool_type,
+    table_handle,
+    shares,
+    parent_table_handle
+);
+impl_mem_size!(
+    ParquetDelegatorBalance,
+    delegator_address,
+    pool_address,
+    pool_type,
+    table_handle,
+    shares,
+    parent_table_handle
+);

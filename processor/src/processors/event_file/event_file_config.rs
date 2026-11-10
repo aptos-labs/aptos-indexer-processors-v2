@@ -1,7 +1,10 @@
 // Copyright (c) Aptos Foundation
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
+use super::storage::{FileStoreEnum, GcsFileStore, LocalFileStore};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 const fn default_max_file_size_bytes() -> usize {
     50 * 1024 * 1024 // 50 MiB
@@ -26,10 +29,7 @@ pub struct EventFileProcessorConfig {
     pub event_filter_config: EventFileFilterConfig,
 
     // Storage
-    pub bucket_name: String,
-    pub bucket_root: String,
-    #[serde(default)]
-    pub google_application_credentials: Option<String>,
+    pub storage: StorageConfig,
 
     // Flush triggers
     #[serde(default = "default_max_file_size_bytes")]
@@ -86,6 +86,55 @@ impl EventFileProcessorConfig {
             (OutputFormat::Protobuf, CompressionMode::None) => ".pb",
             (OutputFormat::Json, CompressionMode::Lz4) => ".json.lz4",
             (OutputFormat::Json, CompressionMode::None) => ".json",
+        }
+    }
+}
+
+/// Where the processor writes event files. Tagged by `type` so operators can
+/// select either backend in production config, e.g.:
+///
+/// ```yaml
+/// storage:
+///   type: gcs
+///   bucket_name: my-bucket
+///   bucket_root: v2
+/// ```
+///
+/// ```yaml
+/// storage:
+///   type: local
+///   path: /var/lib/event-files
+/// ```
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StorageConfig {
+    Gcs {
+        bucket_name: String,
+        bucket_root: String,
+        #[serde(default)]
+        google_application_credentials: Option<String>,
+    },
+    Local {
+        path: PathBuf,
+    },
+}
+
+impl StorageConfig {
+    /// Construct the concrete file store backend described by this config.
+    pub async fn build_file_store(&self) -> Result<FileStoreEnum> {
+        match self {
+            StorageConfig::Gcs {
+                bucket_name,
+                bucket_root,
+                google_application_credentials,
+            } => Ok(GcsFileStore::new(
+                bucket_name.clone(),
+                bucket_root.clone(),
+                google_application_credentials.clone(),
+            )
+            .await?
+            .into()),
+            StorageConfig::Local { path } => Ok(LocalFileStore::new(path.clone()).into()),
         }
     }
 }

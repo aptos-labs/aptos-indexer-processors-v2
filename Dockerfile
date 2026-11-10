@@ -2,7 +2,7 @@
 
 # Stage 1: Build the binary
 
-FROM rust:slim-bullseye as builder
+FROM rust:slim-bookworm as builder
 
 WORKDIR /app
 
@@ -24,19 +24,19 @@ ENV GIT_SHA ${GIT_SHA}
 
 # Stage 2: Create the final image
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 COPY --from=builder /usr/local/bin/processor /usr/local/bin
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install --no-install-recommends -y \
-        libssl1.1 \
+        libssl3 \
         ca-certificates \
         net-tools \
         tcpdump \
         iproute2 \
-        netcat \
+        netcat-openbsd \
         libdw-dev \
         libpq-dev \
         curl
