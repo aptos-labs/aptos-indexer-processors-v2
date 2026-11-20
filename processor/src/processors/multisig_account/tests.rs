@@ -5,7 +5,10 @@
 //! batches are refused. Storage, checkpoints and the run as a whole are tested
 //! against Postgres in `integration-tests`.
 
-use super::multisig_account_extractor::{MultisigAccountExtractor, Snapshot};
+use super::{
+    multisig_account_extractor::{MultisigAccountExtractor, Snapshot},
+    multisig_account_processor::validate_version_range,
+};
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
         DeleteResource, MoveStructTag, Transaction, TransactionInfo, WriteResource, WriteSetChange,
@@ -291,4 +294,20 @@ async fn latest_change_per_account_wins_in_any_delivery_order() {
     let deleted = &snapshots[&padded("0x20")];
     assert_eq!((deleted.version, deleted.change_index), (9, 2));
     assert!(deleted.state.is_none());
+}
+
+#[test]
+fn only_ranges_the_stream_can_represent_are_accepted() {
+    const MAX: u64 = i64::MAX as u64;
+
+    assert!(validate_version_range(0, None).is_ok());
+    assert!(validate_version_range(MAX, None).is_ok());
+    assert!(validate_version_range(7, Some(7)).is_ok());
+    assert!(validate_version_range(1, Some(MAX)).is_ok());
+
+    assert!(validate_version_range(MAX + 1, None).is_err());
+    assert!(validate_version_range(8, Some(7)).is_err());
+    assert!(validate_version_range(7, Some(MAX + 1)).is_err());
+    // One transaction more than a signed count can hold.
+    assert!(validate_version_range(0, Some(MAX)).is_err());
 }

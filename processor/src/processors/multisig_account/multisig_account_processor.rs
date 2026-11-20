@@ -149,7 +149,10 @@ impl MultisigAccountProcessor {
 }
 
 /// Rejects a range the transaction stream cannot represent, before it is opened.
-fn validate_version_range(starting_version: u64, ending_version: Option<u64>) -> Result<()> {
+pub(super) fn validate_version_range(
+    starting_version: u64,
+    ending_version: Option<u64>,
+) -> Result<()> {
     ensure!(
         starting_version <= MAX_STREAM_VERSION,
         "Starting version {starting_version} is above the largest version the transaction stream \

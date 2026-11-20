@@ -689,6 +689,75 @@ mod sdk_multisig_account_processor_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn backfill_fails_unless_its_checkpoint_is_stored_complete() {
+        // The first run creates the tables the triggers below attach to.
+        let first = transaction(V, true, vec![write_multisig("0x10", &["0xa"], "1")]);
+        let (db, test_context) = setup_test_environment(&[&first]).await;
+        let db_url = db.get_db_url();
+        run_context(&test_context, &db_url, Mode::Testing)
+            .await
+            .unwrap();
+
+        // In this test's database only: one backfill's checkpoint writes are
+        // dropped, another's never become complete.
+        let conn = &mut connect(&db_url);
+        for statement in [
+            "CREATE FUNCTION spoil_checkpoint() RETURNS trigger AS $$
+             BEGIN
+                 IF NEW.backfill_alias = 'multisig_account_processor_dropped' THEN
+                     RETURN NULL;
+                 END IF;
+                 IF NEW.backfill_alias = 'multisig_account_processor_stuck' THEN
+                     NEW.backfill_status := 'in_progress';
+                 END IF;
+                 RETURN NEW;
+             END $$ LANGUAGE plpgsql",
+            "CREATE TRIGGER spoil_checkpoint BEFORE INSERT OR UPDATE
+             ON backfill_processor_status FOR EACH ROW EXECUTE FUNCTION spoil_checkpoint()",
+        ] {
+            diesel::sql_query(statement).execute(conn).unwrap();
+        }
+
+        // Each batch is stored and acknowledged, so only the stored checkpoint
+        // can show the backfill did not finish.
+        let second = transaction(V + 1, true, vec![write_multisig("0x20", &["0xa"], "1")]);
+        let error = run(&db_url, &[&second], Mode::Backfill("dropped"))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("saved no checkpoint"), "{error}");
+        assert_eq!(owners_of(conn, "0x20"), vec![owner_row(
+            "0x20",
+            "0xa",
+            1,
+            V + 1
+        )]);
+
+        let third = transaction(V + 2, true, vec![write_multisig("0x30", &["0xa"], "1")]);
+        let error = run(&db_url, &[&third], Mode::Backfill("stuck"))
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("multisig_account_processor_stuck"),
+            "{error}"
+        );
+        assert_eq!(owners_of(conn, "0x30"), vec![owner_row(
+            "0x30",
+            "0xa",
+            1,
+            V + 2
+        )]);
+        assert_eq!(
+            backfill_checkpoint(conn, "multisig_account_processor_stuck"),
+            Some(Checkpoint {
+                backfill_status: "in_progress".to_string(),
+                last_success_version: (V + 2) as i64,
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn non_postgres_database_is_refused_without_printing_its_config() {
         let mut test_context = SdkTestContext::new(&[MAINNET_CREATION_7345859301]);
         test_context.init_mock_grpc().await.unwrap();
