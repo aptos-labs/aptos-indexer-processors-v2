@@ -5,18 +5,23 @@
 -- version of the last `MultisigAccount` resource write or delete applied, and
 -- guards every write to this account's memberships. A null quorum marks a
 -- deleted resource: the row stays so an older write cannot resurrect it.
+-- `inserted_at` is when the indexer wrote the current state.
 CREATE TABLE multisig_account_states (
     multisig_address VARCHAR(66) COLLATE "C" PRIMARY KEY,
     last_transaction_version NUMERIC(20,0) NOT NULL
         CHECK (last_transaction_version BETWEEN 0 AND 18446744073709551615),
     num_signatures_required NUMERIC(20,0)
-        CHECK (num_signatures_required BETWEEN 1 AND 18446744073709551615)
+        CHECK (num_signatures_required BETWEEN 1 AND 18446744073709551615),
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- `inserted_at` is when the indexer first stored the owner; a later write that
+-- keeps the owner leaves the row alone.
 CREATE TABLE multisig_account_memberships (
     multisig_address VARCHAR(66) COLLATE "C" NOT NULL
         REFERENCES multisig_account_states(multisig_address),
     owner_address VARCHAR(66) COLLATE "C" NOT NULL,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (multisig_address, owner_address)
 );
 

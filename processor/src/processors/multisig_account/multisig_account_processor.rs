@@ -167,7 +167,9 @@ fn validate_version_range(starting_version: u64, ending_version: Option<u64>) ->
         );
         // The stream requests `ending - starting + 1` transactions.
         ensure!(
-            ending_version - starting_version < MAX_STREAM_VERSION,
+            ending_version
+                .checked_sub(starting_version)
+                .is_some_and(|transactions| transactions < MAX_STREAM_VERSION),
             "Versions {starting_version} to {ending_version} are more transactions than the \
              transaction stream can request at once; split the range"
         );

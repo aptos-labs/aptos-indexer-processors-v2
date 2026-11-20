@@ -786,6 +786,7 @@ diesel::table! {
         multisig_address -> Varchar,
         #[max_length = 66]
         owner_address -> Varchar,
+        inserted_at -> Timestamp,
     }
 }
 
@@ -795,6 +796,7 @@ diesel::table! {
         multisig_address -> Varchar,
         last_transaction_version -> Numeric,
         num_signatures_required -> Nullable<Numeric>,
+        inserted_at -> Timestamp,
     }
 }
 

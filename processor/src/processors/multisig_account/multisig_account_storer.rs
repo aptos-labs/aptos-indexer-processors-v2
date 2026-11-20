@@ -23,7 +23,8 @@ const ADVANCE_STATE_SQL: &str = "
     VALUES ($1, $2, $3)
     ON CONFLICT (multisig_address) DO UPDATE SET
         last_transaction_version = EXCLUDED.last_transaction_version,
-        num_signatures_required = EXCLUDED.num_signatures_required
+        num_signatures_required = EXCLUDED.num_signatures_required,
+        inserted_at = EXCLUDED.inserted_at
     WHERE multisig_account_states.last_transaction_version < EXCLUDED.last_transaction_version
 ";
 
