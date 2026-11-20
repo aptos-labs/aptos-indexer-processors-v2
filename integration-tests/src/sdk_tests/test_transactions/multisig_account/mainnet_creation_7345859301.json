@@ -1,0 +1,64 @@
+{
+  "version": "7345859301",
+  "info": {
+    "success": true,
+    "changes": [
+      {
+        "type": "TYPE_WRITE_RESOURCE",
+        "writeResource": {
+          "address": "0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162",
+          "stateKeyHash": "V+iVMH4saO9EN6ITCYGAVc91mw6P4F8wP3II4NeHj80=",
+          "type": {
+            "address": "0x1",
+            "module": "multisig_account",
+            "name": "MultisigAccount"
+          },
+          "typeStr": "0x1::multisig_account::MultisigAccount",
+          "data": "{\"add_owners_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"2\"}}},\"create_transaction_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"5\"}}},\"execute_rejected_transaction_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"7\"}}},\"execute_transaction_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"8\"}}},\"last_executed_sequence_number\":\"0\",\"metadata\":{\"data\":[]},\"metadata_updated_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"10\"}}},\"next_sequence_number\":\"1\",\"num_signatures_required\":\"1\",\"owners\":[\"0xc476707d8a2d5c00242096332855ab0968225cbdc1cce0e25532b1df33f98eb0\",\"0xa363172195e6d9df2015ff6e640342d2c5c794b469bf8e79f10783ad2b543716\"],\"remove_owners_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"3\"}}},\"signer_cap\":{\"vec\":[{\"account\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\"}]},\"transaction_execution_failed_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"9\"}}},\"transactions\":{\"handle\":\"0xf1e210c1191c376db6a0b74938651c0b535db7546fede568a443da9f7aa8d97e\"},\"update_signature_required_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"4\"}}},\"vote_events\":{\"counter\":\"0\",\"guid\":{\"id\":{\"addr\":\"0xafb026bab856645f9906ae85ce8cbd1300b70ee86fc1384a89393ec5ea274162\",\"creation_num\":\"6\"}}}}"
+        }
+      }
+    ]
+  },
+  "type": "TRANSACTION_TYPE_USER",
+  "user": {
+    "request": {
+      "sender": "0xa363172195e6d9df2015ff6e640342d2c5c794b469bf8e79f10783ad2b543716",
+      "payload": {
+        "type": "TYPE_ENTRY_FUNCTION_PAYLOAD",
+        "entryFunctionPayload": {
+          "function": {
+            "module": {
+              "address": "0x1",
+              "name": "multisig_account"
+            },
+            "name": "create_with_owners"
+          },
+          "arguments": [
+            "[\"0xc476707d8a2d5c00242096332855ab0968225cbdc1cce0e25532b1df33f98eb0\"]",
+            "\"1\"",
+            "[]",
+            "[]"
+          ],
+          "entryFunctionIdStr": "0x1::multisig_account::create_with_owners"
+        }
+      }
+    },
+    "events": [
+      {
+        "key": {
+          "accountAddress": "0x0"
+        },
+        "type": {
+          "type": "MOVE_TYPES_STRUCT",
+          "struct": {
+            "address": "0x1",
+            "module": "transaction_fee",
+            "name": "FeeStatement"
+          }
+        },
+        "typeStr": "0x1::transaction_fee::FeeStatement",
+        "data": "{\"execution_gas_units\":\"48\",\"io_gas_units\":\"37\",\"storage_fee_octas\":\"1178800\",\"storage_fee_refund_octas\":\"0\",\"total_charge_gas_units\":\"11873\"}"
+      }
+    ]
+  }
+}

@@ -33,6 +33,7 @@ use crate::{
             v2_fungible_asset_to_coin_mappings::ParquetFungibleAssetToCoinMapping,
             v2_fungible_metadata::ParquetFungibleAssetMetadataModel,
         },
+        multisig_account::multisig_account_processor::MultisigAccountProcessorConfig,
         objects::{
             objects_processor::ObjectsProcessorConfig,
             v2_objects_models::{ParquetCurrentObject, ParquetObject},
@@ -113,6 +114,7 @@ pub enum ProcessorConfig {
     ShelbyBlobsProcessor(ShelbyBlobsProcessorConfig),
     MonitoringProcessor(DefaultProcessorConfig),
     GasFeeProcessor(DefaultProcessorConfig),
+    MultisigAccountProcessor(MultisigAccountProcessorConfig),
     // Event file processor (GCS-based, no DB)
     EventFileProcessor(EventFileProcessorConfig),
     // ParquetProcessor
