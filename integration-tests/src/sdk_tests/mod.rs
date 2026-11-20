@@ -14,6 +14,8 @@ pub mod event_file_processor_tests;
 #[cfg(test)]
 pub mod fungible_asset_processor_tests;
 #[cfg(test)]
+pub mod multisig_account_processor_tests;
+#[cfg(test)]
 pub mod objects_processor_tests;
 #[cfg(test)]
 pub mod stake_processor_tests;

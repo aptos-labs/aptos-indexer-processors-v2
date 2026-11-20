@@ -781,6 +781,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    multisig_account_memberships (multisig_address, owner_address) {
+        #[max_length = 66]
+        multisig_address -> Varchar,
+        #[max_length = 66]
+        owner_address -> Varchar,
+    }
+}
+
+diesel::table! {
+    multisig_account_states (multisig_address) {
+        #[max_length = 66]
+        multisig_address -> Varchar,
+        last_transaction_version -> Numeric,
+        num_signatures_required -> Nullable<Numeric>,
+    }
+}
+
+diesel::table! {
     nft_points (transaction_version) {
         transaction_version -> Int8,
         #[max_length = 66]
@@ -1052,6 +1070,8 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(multisig_account_memberships -> multisig_account_states (multisig_address));
+
 diesel::allow_tables_to_appear_in_same_query!(
     account_transactions,
     ans_lookup_v2,
@@ -1090,6 +1110,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     indexer_status,
     ledger_infos,
     move_modules,
+    multisig_account_memberships,
+    multisig_account_states,
     nft_points,
     objects,
     placement_group_slots,
