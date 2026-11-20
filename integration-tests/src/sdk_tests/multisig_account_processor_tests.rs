@@ -54,6 +54,7 @@ mod sdk_multisig_account_processor_tests {
     };
     use futures::Stream;
     use processor::config::{
+        db_config::{DbConfig, ParquetConfig},
         indexer_processor_config::IndexerProcessorConfig,
         processor_mode::{BackfillConfig, ProcessorMode, TestingConfig},
     };
@@ -630,6 +631,88 @@ mod sdk_multisig_account_processor_tests {
         assert_eq!(
             backfill_checkpoint(conn, "multisig_account_processor_overlong"),
             None
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn backfill_without_an_end_stops_at_the_live_checkpoint() {
+        let first = transaction(V, true, vec![write_multisig("0x10", &["0xa"], "1")]);
+        let second = transaction(V + 1, true, vec![write_multisig("0x20", &["0xa"], "1")]);
+        let (db, test_context) = setup_test_environment(&[&first, &second]).await;
+        let db_url = db.get_db_url();
+        let config = setup_multisig_account_processor_config(
+            &test_context,
+            &db_url,
+            ProcessorMode::Backfill(BackfillConfig {
+                backfill_id: "open".to_string(),
+                initial_starting_version: V,
+                ending_version: None,
+                overwrite_checkpoint: false,
+            }),
+        );
+
+        // With no live checkpoint there is nowhere to stop, and the error
+        // names the setting that fixes it.
+        let error = run_config(&config).await.unwrap_err();
+        assert!(
+            error.to_string().contains("processor_mode.ending_version"),
+            "{error}"
+        );
+        let conn = &mut connect(&db_url);
+        assert_eq!(all_owner_rows(conn), vec![]);
+        assert_eq!(
+            backfill_checkpoint(conn, "multisig_account_processor_open"),
+            None
+        );
+
+        // Once the live processor has a checkpoint, the same backfill runs up
+        // to it and is marked complete there.
+        diesel::sql_query(
+            "INSERT INTO processor_metadata.processor_status (processor, last_success_version) \
+             VALUES ('multisig_account_processor', $1)",
+        )
+        .bind::<BigInt, _>((V + 1) as i64)
+        .execute(conn)
+        .unwrap();
+        run_config(&config).await.unwrap();
+        assert_eq!(all_owner_rows(conn), vec![
+            owner_row("0x10", "0xa", 1, V),
+            owner_row("0x20", "0xa", 1, V + 1),
+        ]);
+        assert_eq!(
+            backfill_checkpoint(conn, "multisig_account_processor_open"),
+            Some(Checkpoint {
+                backfill_status: "complete".to_string(),
+                last_success_version: (V + 1) as i64,
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn non_postgres_database_is_refused_without_printing_its_config() {
+        let mut test_context = SdkTestContext::new(&[MAINNET_CREATION_7345859301]);
+        test_context.init_mock_grpc().await.unwrap();
+        let mut config = setup_multisig_account_processor_config(
+            &test_context,
+            "unused",
+            ProcessorMode::Testing(TestingConfig {
+                override_starting_version: 7_345_859_301,
+                ending_version: None,
+            }),
+        );
+        config.db_config = DbConfig::ParquetConfig(ParquetConfig {
+            connection_string: "postgres://indexer:hunter2@db.internal/indexer".to_string(),
+            db_pool_size: 10,
+            google_application_credentials: Some("/secrets/gcs.json".to_string()),
+            bucket_name: "bucket".to_string(),
+            bucket_root: "root".to_string(),
+        });
+
+        let error = format!("{:?}", run_config(&config).await.unwrap_err());
+        assert!(error.contains("postgres_config"), "{error}");
+        assert!(
+            !error.contains("hunter2") && !error.contains("/secrets/gcs.json"),
+            "{error}"
         );
     }
 }

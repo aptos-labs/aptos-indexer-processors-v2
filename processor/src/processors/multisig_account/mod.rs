@@ -4,3 +4,6 @@
 mod multisig_account_extractor;
 pub mod multisig_account_processor;
 mod multisig_account_storer;
+
+#[cfg(test)]
+mod tests;
