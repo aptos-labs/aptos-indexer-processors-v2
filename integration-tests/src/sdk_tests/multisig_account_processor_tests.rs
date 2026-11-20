@@ -40,6 +40,10 @@ mod sdk_multisig_account_processor_tests {
     use super::setup_multisig_account_processor_config;
     use crate::sdk_tests::test_helpers::setup_test_environment;
     use aptos_indexer_processor_sdk::{
+        aptos_protos::indexer::v1::{
+            GetTransactionsRequest, ProcessedRange, TransactionsResponse,
+            raw_data_server::{RawData, RawDataServer},
+        },
         server_framework::RunnableConfig,
         testing_framework::{database::TestDatabase, sdk_test_context::SdkTestContext},
     };
@@ -48,9 +52,19 @@ mod sdk_multisig_account_processor_tests {
         Connection, PgConnection, QueryableByName, RunQueryDsl,
         sql_types::{BigInt, Numeric, Text},
     };
-    use processor::config::processor_mode::{BackfillConfig, ProcessorMode, TestingConfig};
+    use futures::Stream;
+    use processor::config::{
+        indexer_processor_config::IndexerProcessorConfig,
+        processor_mode::{BackfillConfig, ProcessorMode, TestingConfig},
+    };
     use serde_json::{Value, json};
-    use std::time::Duration;
+    use std::{pin::Pin, time::Duration};
+    use tonic::{
+        Request, Response, Status,
+        codec::CompressionEncoding,
+        transport::{Server, server::TcpIncoming},
+    };
+    use url::Url;
 
     /// A public mainnet transaction: `create_with_owners` names an owner who
     /// did not sign it and has never had to send a transaction.
@@ -188,8 +202,12 @@ mod sdk_multisig_account_processor_tests {
         .pop()
     }
 
-    /// Runs the processor over the stream's whole range, once: a failure is
-    /// returned, not retried.
+    /// Runs the processor once: a failure is returned, not retried.
+    async fn run_config(config: &IndexerProcessorConfig) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(60), config.run()).await?
+    }
+
+    /// Runs the processor over the stream's whole range.
     async fn run_context(
         test_context: &SdkTestContext,
         db_url: &str,
@@ -210,8 +228,12 @@ mod sdk_multisig_account_processor_tests {
                 overwrite_checkpoint: false,
             }),
         };
-        let config = setup_multisig_account_processor_config(test_context, db_url, processor_mode);
-        tokio::time::timeout(Duration::from_secs(60), config.run()).await?
+        run_config(&setup_multisig_account_processor_config(
+            test_context,
+            db_url,
+            processor_mode,
+        ))
+        .await
     }
 
     /// Streams `transactions`, which must have contiguous versions, as one
@@ -220,6 +242,40 @@ mod sdk_multisig_account_processor_tests {
         let mut test_context = SdkTestContext::new(transactions);
         test_context.init_mock_grpc().await?;
         run_context(&test_context, db_url, mode).await
+    }
+
+    /// A data service that answers every request with the same response,
+    /// whatever range was asked for.
+    struct FixedResponse(TransactionsResponse);
+
+    #[tonic::async_trait]
+    impl RawData for FixedResponse {
+        type GetTransactionsStream =
+            Pin<Box<dyn Stream<Item = Result<TransactionsResponse, Status>> + Send>>;
+
+        async fn get_transactions(
+            &self,
+            _request: Request<GetTransactionsRequest>,
+        ) -> Result<Response<Self::GetTransactionsStream>, Status> {
+            Ok(Response::new(Box::pin(futures::stream::iter([Ok(self
+                .0
+                .clone())]))))
+        }
+    }
+
+    /// Serves `response` on a free local port and returns its address.
+    async fn serve_fixed_response(response: TransactionsResponse) -> Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = RawDataServer::new(FixedResponse(response))
+            .accept_compressed(CompressionEncoding::Zstd)
+            .send_compressed(CompressionEncoding::Zstd);
+        tokio::spawn(
+            Server::builder()
+                .add_service(service)
+                .serve_with_incoming(TcpIncoming::from_listener(listener, true, None).unwrap()),
+        );
+        Url::parse(&format!("http://{address}")).unwrap()
     }
 
     /// A synthetic user transaction that calls a wrapper module and emits no
@@ -536,5 +592,44 @@ mod sdk_multisig_account_processor_tests {
             owner_row("0x10", "0xb", 1, V + 9),
             owner_row("0x20", "0xa", 1, V + 9),
         ]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn batch_beyond_backfill_end_is_rejected() {
+        // Asked for version V alone, the data service returns a batch that
+        // runs one version further and carries a multisig write there.
+        let beyond_end = transaction(V + 1, true, vec![write_multisig("0x10", &["0xa"], "1")]);
+        let (db, test_context) = setup_test_environment(&[&beyond_end]).await;
+        let db_url = db.get_db_url();
+        let mut config = setup_multisig_account_processor_config(
+            &test_context,
+            &db_url,
+            ProcessorMode::Backfill(BackfillConfig {
+                backfill_id: "overlong".to_string(),
+                initial_starting_version: V,
+                ending_version: Some(V),
+                overwrite_checkpoint: false,
+            }),
+        );
+        config
+            .transaction_stream_config
+            .indexer_grpc_data_service_address = serve_fixed_response(TransactionsResponse {
+            transactions: vec![serde_json::from_slice(&beyond_end).unwrap()],
+            chain_id: Some(1),
+            processed_range: Some(ProcessedRange {
+                first_version: V,
+                last_version: V + 1,
+            }),
+        })
+        .await;
+        run_config(&config).await.unwrap_err();
+
+        // Nothing past the requested end is stored or checkpointed.
+        let conn = &mut connect(&db_url);
+        assert_eq!(all_owner_rows(conn), vec![]);
+        assert_eq!(
+            backfill_checkpoint(conn, "multisig_account_processor_overlong"),
+            None
+        );
     }
 }

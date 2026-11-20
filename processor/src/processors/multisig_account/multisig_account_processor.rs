@@ -231,7 +231,14 @@ impl ProcessorTrait for MultisigAccountProcessor {
         let (_, buffer_receiver) = ProcessorBuilder::new_with_inputless_first_step(
             transaction_stream.into_runnable_step(),
         )
-        .connect_to(MultisigAccountExtractor.into_runnable_step(), channel_size)
+        .connect_to(
+            MultisigAccountExtractor {
+                starting_version,
+                ending_version,
+            }
+            .into_runnable_step(),
+            channel_size,
+        )
         .connect_to(
             MultisigAccountStorer::new(self.db_pool.clone()).into_runnable_step(),
             channel_size,
