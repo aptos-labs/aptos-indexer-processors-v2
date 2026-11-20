@@ -8,6 +8,7 @@
 use super::{
     multisig_account_extractor::{MultisigAccountExtractor, Snapshot},
     multisig_account_processor::validate_version_range,
+    multisig_account_storer::MultisigAccountStorer,
 };
 use aptos_indexer_processor_sdk::{
     aptos_protos::transaction::v1::{
@@ -15,10 +16,13 @@ use aptos_indexer_processor_sdk::{
         WriteTableItem,
         write_set_change::{Change, Type as ChangeType},
     },
+    postgres::utils::database::MyDbConnection,
     traits::Processable,
     types::transaction_context::{TransactionContext, TransactionMetadata},
+    utils::errors::ProcessorError,
 };
-use std::collections::BTreeMap;
+use diesel_async::pooled_connection::{AsyncDieselConnectionManager, bb8::Pool};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 const MULTISIG_TYPE: &str = "0x1::multisig_account::MultisigAccount";
 const ACCOUNT_TYPE: &str = "0x1::account::Account";
@@ -310,4 +314,41 @@ fn only_ranges_the_stream_can_represent_are_accepted() {
     assert!(validate_version_range(7, Some(MAX + 1)).is_err());
     // One transaction more than a signed count can hold.
     assert!(validate_version_range(0, Some(MAX)).is_err());
+}
+
+#[tokio::test]
+async fn batch_fails_when_no_database_connection_is_available() {
+    // Nothing listens on this port, so the pool can never hand out a
+    // connection.
+    let pool = Pool::builder()
+        .max_size(1)
+        .connection_timeout(Duration::from_millis(200))
+        .build_unchecked(AsyncDieselConnectionManager::<MyDbConnection>::new(
+            "postgres://postgres@127.0.0.1:1/postgres",
+        ));
+    let snapshots = BTreeMap::from([(padded("0x10"), Snapshot {
+        version: 7,
+        change_index: 0,
+        state: None,
+    })]);
+
+    let result = MultisigAccountStorer::new(Arc::new(pool))
+        .process(TransactionContext {
+            data: snapshots,
+            metadata: TransactionMetadata {
+                start_version: 7,
+                end_version: 9,
+                ..Default::default()
+            },
+        })
+        .await;
+
+    // No success context, and the error says which versions were not stored.
+    match result {
+        Err(ProcessorError::DBStoreError { message, .. }) => {
+            assert!(message.contains('7') && message.contains('9'), "{message}");
+        },
+        Err(other) => panic!("unexpected error: {other}"),
+        Ok(_) => panic!("reported a batch as stored without a database"),
+    }
 }
