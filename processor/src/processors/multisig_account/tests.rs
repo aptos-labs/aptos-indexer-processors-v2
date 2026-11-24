@@ -106,17 +106,17 @@ async fn extract(transactions: Vec<Transaction>) -> Result<BTreeMap<String, Snap
     let versions = transactions.iter().map(|transaction| transaction.version);
     let (start_version, end_version) = (versions.clone().min().unwrap(), versions.max().unwrap());
     MultisigAccountExtractor
-    .process(TransactionContext {
-        data: transactions,
-        metadata: TransactionMetadata {
-            start_version,
-            end_version,
-            ..Default::default()
-        },
-    })
-    .await
-    .map(|output| output.unwrap().data)
-    .map_err(|e| e.to_string())
+        .process(TransactionContext {
+            data: transactions,
+            metadata: TransactionMetadata {
+                start_version,
+                end_version,
+                ..Default::default()
+            },
+        })
+        .await
+        .map(|output| output.unwrap().data)
+        .map_err(|e| e.to_string())
 }
 
 #[tokio::test]
