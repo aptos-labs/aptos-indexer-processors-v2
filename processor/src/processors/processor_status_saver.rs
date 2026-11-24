@@ -165,8 +165,12 @@ impl ProcessorRun {
             .await
             .context("Failed to query backfill_processor_status table")?;
             ensure!(
-                status.is_some_and(|status| status.backfill_status == BackfillStatus::Complete),
-                "{processor_name} processed backfill {backfill_id} through version {ending_version}, but did not save it as complete: see the error above"
+                status.is_some_and(|status| {
+                    status.backfill_status == BackfillStatus::Complete
+                        && u64::try_from(status.last_success_version)
+                            .is_ok_and(|saved| saved >= ending_version)
+                }),
+                "{processor_name} processed backfill {backfill_id} through version {ending_version}, but did not save it as complete through that version"
             );
         }
         info!("{processor_name} processed through its ending version {ending_version}");
@@ -336,7 +340,15 @@ async fn resolve_backfill(
         // `backfill_config.initial_starting_version` is NOT respected.
         // Continue after the checkpoint. A backfill that already reached its ending version only
         // processes that version again, which marks it complete.
-        let starting_version = (status.last_success_version as u64 + 1).min(ending_version);
+        let saved_version = u64::try_from(status.last_success_version).map_err(|_| {
+            ProcessorError::ProcessError {
+                message: format!(
+                    "Backfill {} has a negative last_success_version: {}",
+                    status.backfill_alias, status.last_success_version
+                ),
+            }
+        })?;
+        let starting_version = (saved_version + 1).min(ending_version);
         log_ascii_warning(starting_version);
         return Ok((starting_version, ending_version));
     }

@@ -187,6 +187,59 @@ async fn backfill_fails_when_its_final_checkpoint_is_not_saved() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extending_a_completed_backfill_requires_a_new_durable_checkpoint() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    let previous_end = VERSION as i64 - 1;
+    let conn = &mut connect(&db_url);
+    diesel::insert_into(backfill_processor_status::table)
+        .values((
+            backfill_processor_status::backfill_alias.eq(format!("{PROCESSOR_NAME}_extended")),
+            backfill_processor_status::backfill_status.eq("complete"),
+            backfill_processor_status::last_success_version.eq(previous_end),
+            backfill_processor_status::backfill_start_version.eq(previous_end),
+            backfill_processor_status::backfill_end_version.eq(previous_end),
+        ))
+        .execute(conn)
+        .unwrap();
+    diesel::sql_query(format!(
+        "ALTER TABLE backfill_processor_status ADD CHECK (last_success_version <= {previous_end})"
+    ))
+    .execute(conn)
+    .unwrap();
+
+    let error = run(&test_context, &db_url, backfill("extended", Some(VERSION)))
+        .await
+        .expect_err("a stale complete row cannot confirm the extended backfill");
+    assert!(
+        error.to_string().contains("did not save it as complete"),
+        "{error:#}"
+    );
+    assert_eq!(
+        backfill_checkpoint(&db_url, "extended"),
+        Some(("complete".to_string(), previous_end, Some(previous_end)))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_negative_checkpoint_cannot_resume_a_backfill() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    let mode = backfill("negative", Some(VERSION));
+    run(&test_context, &db_url, mode.clone()).await.unwrap();
+    diesel::update(backfill_processor_status::table)
+        .set(backfill_processor_status::last_success_version.eq(-1_i64))
+        .execute(&mut connect(&db_url))
+        .unwrap();
+
+    let error = run(&test_context, &db_url, mode).await.unwrap_err();
+    assert!(
+        error.to_string().contains("negative last_success_version"),
+        "{error:#}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_processor_fails_when_a_step_fails() {
     let (db, test_context) = setup().await;
     let db_url = db.get_db_url();
