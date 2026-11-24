@@ -7,7 +7,6 @@
 
 use super::{
     multisig_account_extractor::{MultisigAccountExtractor, Snapshot},
-    multisig_account_processor::validate_version_range,
     multisig_account_storer::MultisigAccountStorer,
 };
 use aptos_indexer_processor_sdk::{
@@ -106,10 +105,7 @@ fn transaction(version: u64, changes: Vec<WriteSetChange>) -> Transaction {
 async fn extract(transactions: Vec<Transaction>) -> Result<BTreeMap<String, Snapshot>, String> {
     let versions = transactions.iter().map(|transaction| transaction.version);
     let (start_version, end_version) = (versions.clone().min().unwrap(), versions.max().unwrap());
-    MultisigAccountExtractor {
-        starting_version: start_version,
-        ending_version: Some(end_version),
-    }
+    MultisigAccountExtractor
     .process(TransactionContext {
         data: transactions,
         metadata: TransactionMetadata {
@@ -307,51 +303,6 @@ async fn latest_change_per_account_wins_in_any_delivery_order() {
     let deleted = &snapshots[&padded("0x20")];
     assert_eq!((deleted.version, deleted.change_index), (9, 2));
     assert!(deleted.state.is_none());
-}
-
-#[tokio::test]
-async fn batch_outside_the_requested_versions_fails() {
-    let run = |starting_version: u64,
-               ending_version: Option<u64>,
-               start_version: u64,
-               end_version: u64| async move {
-        MultisigAccountExtractor {
-            starting_version,
-            ending_version,
-        }
-        .process(TransactionContext {
-            data: vec![],
-            metadata: TransactionMetadata {
-                start_version,
-                end_version,
-                ..Default::default()
-            },
-        })
-        .await
-    };
-
-    assert!(run(7, Some(9), 7, 9).await.is_ok());
-    assert!(run(7, None, 7, u64::MAX).await.is_ok());
-    // Before the requested start, and past the requested end.
-    assert!(run(7, Some(9), 6, 9).await.is_err());
-    assert!(run(7, None, 6, 9).await.is_err());
-    assert!(run(7, Some(9), 7, 10).await.is_err());
-}
-
-#[test]
-fn only_ranges_the_stream_can_represent_are_accepted() {
-    const MAX: u64 = i64::MAX as u64;
-
-    assert!(validate_version_range(0, None).is_ok());
-    assert!(validate_version_range(MAX, None).is_ok());
-    assert!(validate_version_range(7, Some(7)).is_ok());
-    assert!(validate_version_range(1, Some(MAX)).is_ok());
-
-    assert!(validate_version_range(MAX + 1, None).is_err());
-    assert!(validate_version_range(8, Some(7)).is_err());
-    assert!(validate_version_range(7, Some(MAX + 1)).is_err());
-    // One transaction more than a signed count can hold.
-    assert!(validate_version_range(0, Some(MAX)).is_err());
 }
 
 #[tokio::test]

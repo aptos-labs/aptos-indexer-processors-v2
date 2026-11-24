@@ -46,15 +46,7 @@ struct MultisigAccountResource {
 ///
 /// Membership comes only from committed resource changes, so it does not matter
 /// which transaction kind, entry function or wrapper module produced them.
-pub(super) struct MultisigAccountExtractor {
-    /// The versions the stream was asked for; `ending_version` is inclusive
-    /// and `None` while following the chain. The pinned stream passes on
-    /// whatever range the data service reports, even past the requested end,
-    /// so a batch outside these bounds is rejected here, before anything
-    /// stores or checkpoints it.
-    pub starting_version: u64,
-    pub ending_version: Option<u64>,
-}
+pub(super) struct MultisigAccountExtractor;
 
 #[async_trait]
 impl Processable for MultisigAccountExtractor {
@@ -66,26 +58,6 @@ impl Processable for MultisigAccountExtractor {
         &mut self,
         transactions: TransactionContext<Vec<Transaction>>,
     ) -> Result<Option<TransactionContext<Self::Output>>, ProcessorError> {
-        let (start_version, end_version) = (
-            transactions.metadata.start_version,
-            transactions.metadata.end_version,
-        );
-        if start_version < self.starting_version
-            || self
-                .ending_version
-                .is_some_and(|ending_version| end_version > ending_version)
-        {
-            return Err(ProcessorError::ProcessError {
-                message: format!(
-                    "MultisigAccountExtractor: batch range [{start_version}, {end_version}] is \
-                     outside the requested versions, {} to {}",
-                    self.starting_version,
-                    self.ending_version
-                        .map_or("the chain head".to_string(), |v| v.to_string()),
-                ),
-            });
-        }
-
         let mut snapshots = BTreeMap::new();
         for transaction in &transactions.data {
             let version = transaction.version;

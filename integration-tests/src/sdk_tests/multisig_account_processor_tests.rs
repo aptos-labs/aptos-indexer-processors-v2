@@ -38,12 +38,11 @@ pub fn setup_multisig_account_processor_config(
 #[cfg(test)]
 mod sdk_multisig_account_processor_tests {
     use super::setup_multisig_account_processor_config;
-    use crate::sdk_tests::test_helpers::setup_test_environment;
+    use crate::sdk_tests::{
+        fixed_response_server::serve_fixed_response, test_helpers::setup_test_environment,
+    };
     use aptos_indexer_processor_sdk::{
-        aptos_protos::indexer::v1::{
-            GetTransactionsRequest, ProcessedRange, TransactionsResponse,
-            raw_data_server::{RawData, RawDataServer},
-        },
+        aptos_protos::indexer::v1::{ProcessedRange, TransactionsResponse},
         server_framework::RunnableConfig,
         testing_framework::{database::TestDatabase, sdk_test_context::SdkTestContext},
     };
@@ -51,20 +50,13 @@ mod sdk_multisig_account_processor_tests {
         Connection, PgConnection, QueryableByName, RunQueryDsl,
         sql_types::{BigInt, Text},
     };
-    use futures::Stream;
     use processor::config::{
         db_config::{DbConfig, ParquetConfig},
         indexer_processor_config::IndexerProcessorConfig,
         processor_mode::{BackfillConfig, ProcessorMode, TestingConfig},
     };
     use serde_json::{Value, json};
-    use std::{pin::Pin, time::Duration};
-    use tonic::{
-        Request, Response, Status,
-        codec::CompressionEncoding,
-        transport::{Server, server::TcpIncoming},
-    };
-    use url::Url;
+    use std::time::Duration;
 
     /// A public mainnet transaction: `create_with_owners` names an owner who
     /// did not sign it and has never had to send a transaction.
@@ -248,40 +240,6 @@ mod sdk_multisig_account_processor_tests {
         let mut test_context = SdkTestContext::new(transactions);
         test_context.init_mock_grpc().await?;
         run_context(&test_context, db_url, mode).await
-    }
-
-    /// A data service that answers every request with the same response,
-    /// whatever range was asked for.
-    struct FixedResponse(TransactionsResponse);
-
-    #[tonic::async_trait]
-    impl RawData for FixedResponse {
-        type GetTransactionsStream =
-            Pin<Box<dyn Stream<Item = Result<TransactionsResponse, Status>> + Send>>;
-
-        async fn get_transactions(
-            &self,
-            _request: Request<GetTransactionsRequest>,
-        ) -> Result<Response<Self::GetTransactionsStream>, Status> {
-            Ok(Response::new(Box::pin(futures::stream::iter([Ok(self
-                .0
-                .clone())]))))
-        }
-    }
-
-    /// Serves `response` on a free local port and returns its address.
-    async fn serve_fixed_response(response: TransactionsResponse) -> Url {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let service = RawDataServer::new(FixedResponse(response))
-            .accept_compressed(CompressionEncoding::Zstd)
-            .send_compressed(CompressionEncoding::Zstd);
-        tokio::spawn(
-            Server::builder()
-                .add_service(service)
-                .serve_with_incoming(TcpIncoming::from_listener(listener, true, None).unwrap()),
-        );
-        Url::parse(&format!("http://{address}")).unwrap()
     }
 
     /// A synthetic user transaction that calls a wrapper module and emits no
@@ -524,9 +482,11 @@ mod sdk_multisig_account_processor_tests {
         )]);
         let (db, test_context) = setup_test_environment(&[&good, &missing_quorum]).await;
         let db_url = db.get_db_url();
-        run_context(&test_context, &db_url, Mode::Backfill("undecodable"))
-            .await
-            .unwrap();
+        assert!(
+            run_context(&test_context, &db_url, Mode::Backfill("undecodable"))
+                .await
+                .is_err()
+        );
 
         let conn = &mut connect(&db_url);
         assert_eq!(all_owner_rows(conn), vec![]);
@@ -549,9 +509,11 @@ mod sdk_multisig_account_processor_tests {
             write_multisig("0x10", &["0xa"], "1"),
             write_multisig("0x20", &["0xbad"], "1"),
         ]);
-        run(&db_url, &[&rejected], Mode::Backfill("rejected"))
-            .await
-            .unwrap();
+        assert!(
+            run(&db_url, &[&rejected], Mode::Backfill("rejected"))
+                .await
+                .is_err()
+        );
         assert_eq!(all_owner_rows(conn), vec![]);
         assert_eq!(
             backfill_checkpoint(conn, "multisig_account_processor_rejected"),
@@ -599,7 +561,7 @@ mod sdk_multisig_account_processor_tests {
             }),
         })
         .await;
-        run_config(&config).await.unwrap();
+        assert!(run_config(&config).await.is_err());
 
         // Nothing past the requested end is stored or checkpointed.
         let conn = &mut connect(&db_url);

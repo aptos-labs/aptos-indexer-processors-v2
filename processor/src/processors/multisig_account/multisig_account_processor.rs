@@ -12,17 +12,12 @@ use crate::{
         indexer_processor_config::IndexerProcessorConfig,
         processor_config::{DefaultProcessorConfig, ProcessorConfig},
     },
-    processors::processor_status_saver::{
-        PostgresProcessorStatusSaver, get_end_version, get_starting_version,
-    },
+    processors::processor_status_saver::ProcessorRun,
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
-    common_steps::{
-        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
-    },
+    common_steps::{DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, VersionTrackerStep},
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
         database::{ArcDbPool, new_db_pool, run_migrations},
@@ -32,11 +27,6 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
-
-/// The transaction stream and the shared checkpoint tables do signed 64-bit
-/// arithmetic on versions.
-const MAX_STREAM_VERSION: u64 = i64::MAX as u64;
 
 /// The backing tables are one projection, written together or not at all, so
 /// there is no per-table switch or chunk size to configure.
@@ -88,38 +78,6 @@ impl MultisigAccountProcessor {
     }
 }
 
-/// Rejects a range the transaction stream cannot represent, before it is opened.
-pub(super) fn validate_version_range(
-    starting_version: u64,
-    ending_version: Option<u64>,
-) -> Result<()> {
-    ensure!(
-        starting_version <= MAX_STREAM_VERSION,
-        "Starting version {starting_version} is above the largest version the transaction stream \
-         supports, {MAX_STREAM_VERSION}"
-    );
-    if let Some(ending_version) = ending_version {
-        ensure!(
-            starting_version <= ending_version,
-            "Starting version {starting_version} is after ending version {ending_version}"
-        );
-        ensure!(
-            ending_version <= MAX_STREAM_VERSION,
-            "Ending version {ending_version} is above the largest version the transaction stream \
-             supports, {MAX_STREAM_VERSION}"
-        );
-        // The stream requests `ending - starting + 1` transactions.
-        ensure!(
-            ending_version
-                .checked_sub(starting_version)
-                .is_some_and(|transactions| transactions < MAX_STREAM_VERSION),
-            "Versions {starting_version} to {ending_version} are more transactions than the \
-             transaction stream can request at once; split the range"
-        );
-    }
-    Ok(())
-}
-
 #[async_trait]
 impl ProcessorTrait for MultisigAccountProcessor {
     fn name(&self) -> &'static str {
@@ -147,11 +105,7 @@ impl ProcessorTrait for MultisigAccountProcessor {
             ),
         };
 
-        let starting_version = get_starting_version(&self.config, self.db_pool.clone())
-            .await?
-            .context("No starting version")?;
-        let ending_version = get_end_version(&self.config, self.db_pool.clone()).await?;
-        validate_version_range(starting_version, ending_version)?;
+        let run = ProcessorRun::resolve(&self.config, self.db_pool.clone()).await?;
 
         // Check and update the ledger chain id to ensure we're indexing the correct chain.
         check_or_update_chain_id(
@@ -161,29 +115,17 @@ impl ProcessorTrait for MultisigAccountProcessor {
         .await?;
 
         // Define processor steps.
-        let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version: Some(starting_version),
-            request_ending_version: ending_version,
-            ..self.config.transaction_stream_config.clone()
-        })
-        .await?;
-        let version_tracker = VersionTrackerStep::new(
-            PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
-            DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
-        );
+        let transaction_stream = run
+            .transaction_stream(&self.config.transaction_stream_config)
+            .await?;
+        let version_tracker =
+            VersionTrackerStep::new(run.status_saver(), DEFAULT_UPDATE_PROCESSOR_STATUS_SECS);
 
         // Connect processor steps together.
         let (_, buffer_receiver) = ProcessorBuilder::new_with_inputless_first_step(
             transaction_stream.into_runnable_step(),
         )
-        .connect_to(
-            MultisigAccountExtractor {
-                starting_version,
-                ending_version,
-            }
-            .into_runnable_step(),
-            channel_size,
-        )
+        .connect_to(MultisigAccountExtractor.into_runnable_step(), channel_size)
         .connect_to(
             MultisigAccountStorer::new(self.db_pool.clone()).into_runnable_step(),
             channel_size,
@@ -191,23 +133,6 @@ impl ProcessorTrait for MultisigAccountProcessor {
         .connect_to(version_tracker.into_runnable_step(), channel_size)
         .end_and_return_output_receiver(channel_size);
 
-        loop {
-            match buffer_receiver.recv().await {
-                Ok(txn_context) => {
-                    let (start_version, end_version) = (
-                        txn_context.metadata.start_version,
-                        txn_context.metadata.end_version,
-                    );
-                    debug!(
-                        "Finished processing transactions from versions [{:?}, {:?}]",
-                        start_version, end_version,
-                    );
-                },
-                Err(e) => {
-                    info!("No more transactions in channel: {:?}", e);
-                    break Ok(());
-                },
-            }
-        }
+        run.wait_for_completion(buffer_receiver).await
     }
 }
