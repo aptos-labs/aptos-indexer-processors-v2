@@ -9,12 +9,15 @@ use crate::{
     },
 };
 use anyhow::Result;
-use hyper::{
-    Body, Method, Request, Response, Server, StatusCode,
-    service::{make_service_fn, service_fn},
+use axum::{
+    Router,
+    body::Body,
+    http::{Method, Request, StatusCode, header::CONTENT_TYPE},
+    response::Response,
 };
 use prometheus::{Encoder, TextEncoder};
-use std::{convert::Infallible, net::SocketAddr};
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 use tracing::info;
 
 /// Encode the global `prometheus` (tikv) registry — where the alerting
@@ -28,18 +31,18 @@ fn render_metrics() -> Vec<u8> {
     buf
 }
 
-async fn handle(req: Request<Body>) -> std::result::Result<Response<Body>, Infallible> {
+async fn handle(req: Request<Body>) -> Response {
     if req.method() == Method::GET && req.uri().path() == "/metrics" {
-        Ok(Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
-            .header("Content-Type", TextEncoder::new().format_type())
+            .header(CONTENT_TYPE, TextEncoder::new().format_type())
             .body(Body::from(render_metrics()))
-            .expect("building /metrics response is infallible"))
+            .expect("building /metrics response is infallible")
     } else {
-        Ok(Response::builder()
+        Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::empty())
-            .expect("building 404 response is infallible"))
+            .expect("building 404 response is infallible")
     }
 }
 
@@ -48,12 +51,13 @@ async fn handle(req: Request<Body>) -> std::result::Result<Response<Body>, Infal
 /// the pipeline.
 pub async fn serve_metrics(port: u16) -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
+    let listener = TcpListener::bind(addr).await?;
+    let app = Router::new().fallback(handle);
     info!(
         port,
         "Prometheus sink metrics endpoint listening on /metrics"
     );
-    Server::bind(&addr).serve(make_svc).await?;
+    axum::serve(listener, app).await?;
     Ok(())
 }
 
@@ -183,5 +187,30 @@ mod tests {
             body.contains(&instance),
             "rendered metrics missing the just-incremented series (instance={instance})"
         );
+    }
+
+    #[tokio::test]
+    async fn handle_serves_get_metrics_and_404s_other_requests() {
+        let get_metrics = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = handle(get_metrics).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let post_metrics = Request::builder()
+            .method(Method::POST)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(handle(post_metrics).await.status(), StatusCode::NOT_FOUND);
+
+        let get_other = Request::builder()
+            .method(Method::GET)
+            .uri("/healthz")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(handle(get_other).await.status(), StatusCode::NOT_FOUND);
     }
 }

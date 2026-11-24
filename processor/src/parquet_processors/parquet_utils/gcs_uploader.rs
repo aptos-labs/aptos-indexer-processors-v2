@@ -11,12 +11,12 @@ use crate::{
 use anyhow::{Context, Result};
 use aptos_indexer_processor_sdk::utils::errors::ProcessorError;
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{Datelike, Timelike};
-use google_cloud_storage::{
+use gcloud_storage::{
     client::Client as GCSClient,
     http::objects::upload::{Media, UploadObjectRequest, UploadType},
 };
-use hyper::{Body, body::HttpBody};
 use parquet::{
     file::{properties::WriterProperties, writer::SerializedFileWriter},
     record::RecordWriter,
@@ -233,20 +233,19 @@ pub async fn upload_parquet_to_gcs(
         ..Default::default()
     };
 
+    let size = buffer.len() as i64;
+    let buffer = Bytes::from(buffer);
     let mut retry_count = 0;
     let mut delay = INITIAL_DELAY_MS;
 
     loop {
-        let data = Body::from(buffer.clone());
-        let size_hint = data.size_hint();
-        let size = size_hint.exact().context("Failed to get size hint")?;
         PARQUET_BUFFER_SIZE
-            .with_label_values(&[&processor_name, table_name])
-            .set(size as i64);
+            .with_label_values(&[processor_name.as_str(), table_name])
+            .set(size);
 
         let upload_result = timeout(
             Duration::from_secs(TIMEOUT_SECONDS),
-            client.upload_object(&upload_request, data, &upload_type),
+            client.upload_object(&upload_request, buffer.clone(), &upload_type),
         )
         .await;
 

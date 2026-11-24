@@ -178,10 +178,10 @@ pub fn log_match_counter_summary(instance_label: &str) {
             let mut event_type = "";
             let mut instance = "";
             for label in m.get_label() {
-                match label.get_name() {
-                    "rule" => rule = label.get_value(),
-                    "event_type" => event_type = label.get_value(),
-                    "instance" => instance = label.get_value(),
+                match label.name() {
+                    "rule" => rule = label.value(),
+                    "event_type" => event_type = label.value(),
+                    "instance" => instance = label.value(),
                     _ => {},
                 }
             }

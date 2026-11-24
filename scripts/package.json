@@ -12,7 +12,7 @@
     "license": "ISC",
     "devDependencies": {
       "typescript": "=4.8.4",
-      "zx": "^7.1.1"
+      "zx": "^8.8.5"
     },
     "peerDependencies": {}
   }
