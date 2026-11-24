@@ -10,6 +10,7 @@ pub mod event_file;
 pub mod fungible_asset;
 pub mod gas_fees;
 pub mod monitoring;
+pub mod multisig_account;
 pub mod objects;
 pub mod processor_status_saver;
 pub mod shelby_blobs;

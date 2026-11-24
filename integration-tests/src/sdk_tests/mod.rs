@@ -16,6 +16,8 @@ pub mod fixed_response_server;
 #[cfg(test)]
 pub mod fungible_asset_processor_tests;
 #[cfg(test)]
+pub mod multisig_account_processor_tests;
+#[cfg(test)]
 pub mod objects_processor_tests;
 #[cfg(test)]
 pub mod processor_run_tests;

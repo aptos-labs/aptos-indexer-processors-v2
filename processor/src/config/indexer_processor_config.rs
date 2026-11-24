@@ -27,6 +27,7 @@ use crate::{
         fungible_asset::fungible_asset_processor::FungibleAssetProcessor,
         gas_fees::gas_fee_processor::GasFeeProcessor,
         monitoring::monitoring_processor::MonitoringProcessor,
+        multisig_account::multisig_account_processor::MultisigAccountProcessor,
         objects::objects_processor::ObjectsProcessor,
         shelby_blobs::shelby_blobs_processor::ShelbyBlobsProcessor,
         stake::stake_processor::StakeProcessor, token_v2::token_v2_processor::TokenV2Processor,
@@ -113,6 +114,12 @@ impl RunnableConfig for IndexerProcessorConfig {
             ProcessorConfig::ShelbyBlobsProcessor(_) => {
                 let shelby_blobs_processor = ShelbyBlobsProcessor::new(self.clone()).await?;
                 shelby_blobs_processor.run_processor().await
+            },
+            ProcessorConfig::MultisigAccountProcessor(_) => {
+                MultisigAccountProcessor::new(self.clone())
+                    .await?
+                    .run_processor()
+                    .await
             },
             ProcessorConfig::EventFileProcessor(_) => {
                 let event_file_processor = EventFileProcessor::new(self.clone()).await?;
