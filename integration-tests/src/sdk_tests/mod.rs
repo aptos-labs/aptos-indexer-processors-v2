@@ -16,6 +16,8 @@ pub mod fungible_asset_processor_tests;
 #[cfg(test)]
 pub mod objects_processor_tests;
 #[cfg(test)]
+pub mod processor_run_tests;
+#[cfg(test)]
 pub mod stake_processor_tests;
 #[cfg(test)]
 pub mod token_v2_processor_tests;

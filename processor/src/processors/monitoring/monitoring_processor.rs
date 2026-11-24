@@ -7,9 +7,7 @@ use crate::{
         db_config::DbConfig, indexer_processor_config::IndexerProcessorConfig,
         processor_config::ProcessorConfig,
     },
-    processors::processor_status_saver::{
-        PostgresProcessorStatusSaver, get_end_version, get_starting_version,
-    },
+    processors::processor_status_saver::ProcessorRun,
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
@@ -25,7 +23,6 @@ use aptos_indexer_processor_sdk::{
     traits::{IntoRunnableStep, processor_trait::ProcessorTrait},
     utils::chain_id_check::check_or_update_chain_id,
 };
-use tracing::{debug, info};
 
 pub struct MonitoringProcessor {
     pub config: IndexerProcessorConfig,
@@ -79,11 +76,8 @@ impl ProcessorTrait for MonitoringProcessor {
             .await;
         }
 
-        //  Merge the starting version from config and the latest processed version from the DB
-        let (starting_version, ending_version) = (
-            get_starting_version(&self.config, self.db_pool.clone()).await?,
-            get_end_version(&self.config, self.db_pool.clone()).await?,
-        );
+        // Resolve the versions to process from the processor mode and the checkpoints in the DB.
+        let run = ProcessorRun::resolve(&self.config, self.db_pool.clone()).await?;
 
         // Check and update the ledger chain id to ensure we're indexing the correct chain
         check_or_update_chain_id(
@@ -105,15 +99,13 @@ impl ProcessorTrait for MonitoringProcessor {
 
         // Define processor steps
         let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version,
-            request_ending_version: ending_version,
+            starting_version: Some(run.starting_version),
+            request_ending_version: run.ending_version,
             ..self.config.transaction_stream_config.clone()
         })
         .await?;
-        let version_tracker = VersionTrackerStep::new(
-            PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
-            DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
-        );
+        let version_tracker =
+            VersionTrackerStep::new(run.status_saver(), DEFAULT_UPDATE_PROCESSOR_STATUS_SECS);
 
         // Connect processor steps together
         let (_, buffer_receiver) = ProcessorBuilder::new_with_inputless_first_step(
@@ -122,19 +114,6 @@ impl ProcessorTrait for MonitoringProcessor {
         .connect_to(version_tracker.into_runnable_step(), channel_size)
         .end_and_return_output_receiver(channel_size);
 
-        loop {
-            match buffer_receiver.recv().await {
-                Ok(txn_context) => {
-                    debug!(
-                        "Monitoring versions [{:?}, {:?}]",
-                        txn_context.metadata.start_version, txn_context.metadata.end_version,
-                    );
-                },
-                Err(e) => {
-                    info!("No more transactions in channel: {:?}", e);
-                    break Ok(());
-                },
-            }
-        }
+        run.wait_for_completion(buffer_receiver).await
     }
 }

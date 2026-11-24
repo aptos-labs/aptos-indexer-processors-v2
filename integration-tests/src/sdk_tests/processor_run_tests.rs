@@ -1,0 +1,208 @@
+// Copyright (c) Aptos Foundation
+// Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
+
+//! How a Postgres processor run ends, shown through the account transactions processor: a
+//! backfill without `ending_version` completes at the live checkpoint, and a run whose pipeline
+//! stops early returns an error instead of succeeding.
+
+use crate::sdk_tests::{
+    account_transaction_processor_tests::setup_acc_txn_processor_config,
+    test_helpers::setup_test_environment,
+};
+use aptos_indexer_processor_sdk::{
+    postgres::{
+        processor_metadata_schema::processor_metadata::processor_status,
+        utils::database::{new_db_pool, run_migrations},
+    },
+    server_framework::RunnableConfig,
+    testing_framework::{
+        database::{PostgresTestDatabase, TestDatabase},
+        sdk_test_context::SdkTestContext,
+    },
+};
+use aptos_indexer_test_transactions::json_transactions::generated_transactions::IMPORTED_MAINNET_TXNS_145959468_ACCOUNT_TRANSACTION;
+use diesel::{
+    Connection, ExpressionMethods, OptionalExtension, PgConnection, QueryDsl, RunQueryDsl,
+};
+use processor::{
+    MIGRATIONS,
+    config::processor_mode::{BackfillConfig, BootStrapConfig, ProcessorMode},
+    schema::backfill_processor_status,
+};
+use std::time::Duration;
+
+/// The only transaction the mock stream serves.
+const VERSION: u64 = 145959468;
+const PROCESSOR_NAME: &str = "account_transactions_processor";
+/// Rejects every row the account transactions storer writes, so that step fails.
+const REJECT_ACCOUNT_TRANSACTIONS: &str = "ALTER TABLE account_transactions \
+     ADD CONSTRAINT reject_all CHECK (transaction_version < 0)";
+
+/// Starts a migrated database and a mock stream, so a test can change the database before the
+/// processor runs.
+async fn setup() -> (PostgresTestDatabase, SdkTestContext) {
+    let (db, test_context) =
+        setup_test_environment(&[IMPORTED_MAINNET_TXNS_145959468_ACCOUNT_TRANSACTION]).await;
+    let db_url = db.get_db_url();
+    let db_pool = new_db_pool(&db_url, Some(1)).await.unwrap();
+    run_migrations(db_url, db_pool, MIGRATIONS).await;
+    (db, test_context)
+}
+
+fn connect(db_url: &str) -> PgConnection {
+    PgConnection::establish(db_url).unwrap()
+}
+
+/// Runs the processor once. The test harness's retries would hide a failed run, and its timeout
+/// turns a pipeline that never stops into a failure instead of a hang.
+async fn run(
+    test_context: &SdkTestContext,
+    db_url: &str,
+    processor_mode: ProcessorMode,
+) -> anyhow::Result<()> {
+    let (mut config, processor_name) = setup_acc_txn_processor_config(test_context, db_url);
+    assert_eq!(processor_name, PROCESSOR_NAME);
+    config.processor_mode = processor_mode;
+    tokio::time::timeout(Duration::from_secs(60), config.run())
+        .await
+        .expect("the processor did not stop")
+}
+
+fn backfill(backfill_id: &str, ending_version: Option<u64>) -> ProcessorMode {
+    ProcessorMode::Backfill(BackfillConfig {
+        backfill_id: backfill_id.to_string(),
+        initial_starting_version: VERSION,
+        ending_version,
+        overwrite_checkpoint: false,
+    })
+}
+
+/// The stored backfill checkpoint as `(backfill_status, last_success_version,
+/// backfill_end_version)`.
+fn backfill_checkpoint(db_url: &str, backfill_id: &str) -> Option<(String, i64, Option<i64>)> {
+    backfill_processor_status::table
+        .filter(
+            backfill_processor_status::backfill_alias.eq(format!("{PROCESSOR_NAME}_{backfill_id}")),
+        )
+        .select((
+            backfill_processor_status::backfill_status,
+            backfill_processor_status::last_success_version,
+            backfill_processor_status::backfill_end_version,
+        ))
+        .first(&mut connect(db_url))
+        .optional()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn open_ended_backfill_completes_at_the_live_checkpoint() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    // The live processor is past the only transaction, so the backfill must stream empty
+    // versions up to its checkpoint.
+    let live_version = VERSION + 10;
+    diesel::insert_into(processor_status::table)
+        .values((
+            processor_status::processor.eq(PROCESSOR_NAME),
+            processor_status::last_success_version.eq(live_version as i64),
+        ))
+        .execute(&mut connect(&db_url))
+        .unwrap();
+
+    run(&test_context, &db_url, backfill("open_ended", None))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        backfill_checkpoint(&db_url, "open_ended"),
+        Some((
+            "complete".to_string(),
+            live_version as i64,
+            Some(live_version as i64)
+        )),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn open_ended_backfill_without_a_live_checkpoint_fails_at_startup() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+
+    let error = run(&test_context, &db_url, backfill("no_end", None))
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("ending_version"), "{error:#}");
+    assert_eq!(backfill_checkpoint(&db_url, "no_end"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backfill_fails_when_a_step_fails() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    diesel::sql_query(REJECT_ACCOUNT_TRANSACTIONS)
+        .execute(&mut connect(&db_url))
+        .unwrap();
+
+    let error = run(
+        &test_context,
+        &db_url,
+        backfill("step_failure", Some(VERSION)),
+    )
+    .await
+    .expect_err("the run succeeded although its storer failed");
+
+    assert!(
+        error.to_string().contains("before its ending version"),
+        "{error:#}"
+    );
+    assert_eq!(backfill_checkpoint(&db_url, "step_failure"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backfill_fails_when_its_final_checkpoint_is_not_saved() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    // Every batch is stored, but the version tracker cannot mark the backfill complete.
+    diesel::sql_query(
+        "ALTER TABLE backfill_processor_status \
+         ADD CONSTRAINT reject_completion CHECK (backfill_status <> 'complete')",
+    )
+    .execute(&mut connect(&db_url))
+    .unwrap();
+
+    let error = run(
+        &test_context,
+        &db_url,
+        backfill("checkpoint_failure", Some(VERSION)),
+    )
+    .await
+    .expect_err("the run succeeded although its checkpoint was not saved");
+
+    assert!(
+        error.to_string().contains("did not save it as complete"),
+        "{error:#}"
+    );
+    assert_eq!(backfill_checkpoint(&db_url, "checkpoint_failure"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_processor_fails_when_a_step_fails() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    diesel::sql_query(REJECT_ACCOUNT_TRANSACTIONS)
+        .execute(&mut connect(&db_url))
+        .unwrap();
+
+    let error = run(
+        &test_context,
+        &db_url,
+        ProcessorMode::Default(BootStrapConfig {
+            initial_starting_version: VERSION,
+        }),
+    )
+    .await
+    .expect_err("the run succeeded although its storer failed");
+
+    assert!(error.to_string().contains("no ending version"), "{error:#}");
+}
