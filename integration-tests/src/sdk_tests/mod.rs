@@ -32,6 +32,7 @@ pub mod user_transaction_processor_tests;
 pub mod test_helpers {
     use crate::diff_test_helper::tests::remove_transaction_timestamp;
     use aptos_indexer_processor_sdk::{
+        aptos_indexer_transaction_stream::TransactionStreamConfig,
         testing_framework::{
             database::{PostgresTestDatabase, TestDatabase},
             sdk_test_context::{SdkTestContext, remove_inserted_at},
@@ -62,6 +63,21 @@ pub mod test_helpers {
                 Err(anyhow::anyhow!("Failed to read file: {}", e))
             },
         }
+    }
+
+    /// Stream config bounded by the fixtures' real last version. The SDK default ends at
+    /// `start + count - 1`, which stops short of sparse fixtures (e.g. versions 100 and 250).
+    /// The mock server only returns the supplied fixtures, so this widens no stream work.
+    pub fn create_fixture_transaction_stream_config(
+        test_context: &SdkTestContext,
+    ) -> TransactionStreamConfig {
+        let mut config = test_context.create_transaction_stream_config();
+        config.request_ending_version = test_context
+            .get_test_transaction_versions()
+            .into_iter()
+            .max()
+            .or(config.request_ending_version);
+        config
     }
 
     // Common setup for database and test context

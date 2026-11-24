@@ -16,11 +16,8 @@ use crate::{
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
-    common_steps::{
-        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
-    },
+    common_steps::{DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, VersionTrackerStep},
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
         database::{ArcDbPool, new_db_pool, run_migrations},
@@ -113,12 +110,9 @@ impl ProcessorTrait for AnsProcessor {
         let channel_size = processor_config.default.channel_size;
         let opt_in_tables = TableFlags::from_set(&processor_config.default.tables_to_write);
         // Define processor steps.
-        let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version: Some(run.starting_version),
-            request_ending_version: run.ending_version,
-            ..self.config.transaction_stream_config.clone()
-        })
-        .await?;
+        let transaction_stream = run
+            .transaction_stream(&self.config.transaction_stream_config)
+            .await?;
         let acc_txns_extractor = AnsExtractor::new(self.config.processor_config.clone());
         let acc_txns_storer = AnsStorer::new(self.db_pool.clone(), processor_config, opt_in_tables);
         let version_tracker =

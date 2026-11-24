@@ -13,14 +13,16 @@ use crate::{
 };
 use anyhow::{Context, Result, bail, ensure};
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
-    common_steps::ProcessorStatusSaver,
+    aptos_indexer_transaction_stream::{TransactionStreamConfig, utils::time::parse_timestamp},
+    aptos_protos::transaction::v1::Transaction,
+    common_steps::{ProcessorStatusSaver, TransactionStreamStep},
     instrumented_channel::InstrumentedAsyncReceiver,
     postgres::{
         models::processor_status::{ProcessorStatus, ProcessorStatusQuery},
         processor_metadata_schema::processor_metadata::processor_status,
         utils::database::{ArcDbPool, DbPoolConnection, execute_with_better_error},
     },
+    traits::{NamedStep, PollableAsyncRunType, PollableAsyncStep, Processable},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
@@ -28,19 +30,23 @@ use async_trait::async_trait;
 use diesel::{ExpressionMethods, query_dsl::methods::FilterDsl, upsert::excluded};
 use tracing::{debug, info};
 
+/// The transaction stream does signed 64-bit arithmetic on versions, and the checkpoints store
+/// them as `i64`.
+const MAX_STREAM_VERSION: u64 = i64::MAX as u64;
+
 /// One run of a Postgres processor: the versions it streams, resolved once at startup from its
 /// processor mode and the checkpoints in the DB.
 ///
-/// The transaction stream, the status saver and [`Self::wait_for_completion`] must share this
+/// The run's transaction stream, status saver and [`Self::wait_for_completion`] all come from this
 /// value. A backfill without `ending_version` ends at the live processor's checkpoint, which keeps
 /// moving, so resolving it again later would not give the end the stream stops at.
 pub struct ProcessorRun {
     processor_name: &'static str,
     /// The configured mode, with the ending version of a backfill filled in.
     processor_mode: ProcessorMode,
-    pub starting_version: u64,
+    starting_version: u64,
     /// `None` only in default mode, which keeps processing new transactions.
-    pub ending_version: Option<u64>,
+    ending_version: Option<u64>,
     db_pool: ArcDbPool,
 }
 
@@ -102,6 +108,23 @@ impl ProcessorRun {
                 ),
             });
         }
+        // The stream does `i64` arithmetic on these versions and on the number of transactions it
+        // requests, `ending_version - starting_version + 1`.
+        let streamable = match ending_version {
+            Some(ending_version) => {
+                ending_version <= MAX_STREAM_VERSION
+                    && ending_version - starting_version < MAX_STREAM_VERSION
+            },
+            None => starting_version <= MAX_STREAM_VERSION,
+        };
+        if !streamable {
+            return Err(ProcessorError::ProcessError {
+                message: format!(
+                    "{processor_name} cannot stream versions {starting_version} to {}: the transaction stream supports versions up to {MAX_STREAM_VERSION}, at most {MAX_STREAM_VERSION} at a time",
+                    ending_version.map_or_else(|| "the latest".to_string(), |v| v.to_string())
+                ),
+            });
+        }
 
         Ok(Self {
             processor_name,
@@ -109,6 +132,25 @@ impl ProcessorRun {
             starting_version,
             ending_version,
             db_pool,
+        })
+    }
+
+    /// Opens the transaction stream of this run's versions, which rejects a batch from outside
+    /// them. The versions in `config` are replaced with the run's.
+    pub async fn transaction_stream(
+        &self,
+        config: &TransactionStreamConfig,
+    ) -> Result<BoundedTransactionStreamStep, ProcessorError> {
+        let stream = TransactionStreamStep::new(TransactionStreamConfig {
+            starting_version: Some(self.starting_version),
+            request_ending_version: self.ending_version,
+            ..config.clone()
+        })
+        .await?;
+        Ok(BoundedTransactionStreamStep {
+            stream,
+            starting_version: self.starting_version,
+            last_version: self.ending_version.unwrap_or(MAX_STREAM_VERSION),
         })
     }
 
@@ -175,6 +217,94 @@ impl ProcessorRun {
         }
         info!("{processor_name} processed through its ending version {ending_version}");
         Ok(())
+    }
+}
+
+/// The transaction stream of a [`ProcessorRun`]. It passes a batch on only if the batch's range,
+/// and every transaction in the batch, lie within the run's versions.
+///
+/// The SDK stream passes on whatever range the data service reports, even past the requested end,
+/// and does not compare the transactions with that range. A batch rejected here, as it is polled,
+/// never reaches a later step, so nothing from it is stored or checkpointed: the SDK stops
+/// polling, closes the pipeline once the batches before it are through, and
+/// [`ProcessorRun::wait_for_completion`] reports that the run stopped early.
+pub struct BoundedTransactionStreamStep {
+    stream: TransactionStreamStep,
+    starting_version: u64,
+    /// The run's ending version, or in default mode the last version the stream supports.
+    last_version: u64,
+}
+
+impl BoundedTransactionStreamStep {
+    fn check(&self, batch: &TransactionContext<Vec<Transaction>>) -> Result<(), ProcessorError> {
+        let (start_version, end_version) =
+            (batch.metadata.start_version, batch.metadata.end_version);
+        if start_version < self.starting_version
+            || end_version < start_version
+            || end_version > self.last_version
+        {
+            return Err(ProcessorError::PollError {
+                message: format!(
+                    "The data service sent versions {start_version} to {end_version}, outside this run's versions {} to {}",
+                    self.starting_version, self.last_version
+                ),
+            });
+        }
+        // The checkpoint covers the batch's range, so each of its transactions must lie in it.
+        for transaction in &batch.data {
+            if !(start_version..=end_version).contains(&transaction.version) {
+                return Err(ProcessorError::PollError {
+                    message: format!(
+                        "The data service sent transaction {} in a batch of versions {start_version} to {end_version}",
+                        transaction.version
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Processable for BoundedTransactionStreamStep {
+    type Input = ();
+    type Output = Vec<Transaction>;
+    type RunType = PollableAsyncRunType;
+
+    /// The stream starts the pipeline and has no input: it only polls.
+    async fn process(
+        &mut self,
+        _item: TransactionContext<()>,
+    ) -> Result<Option<TransactionContext<Vec<Transaction>>>, ProcessorError> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl PollableAsyncStep for BoundedTransactionStreamStep {
+    fn poll_interval(&self) -> std::time::Duration {
+        self.stream.poll_interval()
+    }
+
+    async fn poll(
+        &mut self,
+    ) -> Result<Option<Vec<TransactionContext<Vec<Transaction>>>>, ProcessorError> {
+        let batches = self.stream.poll().await?;
+        for batch in batches.iter().flatten() {
+            self.check(batch)?;
+        }
+        Ok(batches)
+    }
+
+    async fn should_continue_polling(&mut self) -> bool {
+        self.stream.should_continue_polling().await
+    }
+}
+
+impl NamedStep for BoundedTransactionStreamStep {
+    /// The SDK stream's name, which labels the step's metrics.
+    fn name(&self) -> String {
+        self.stream.name()
     }
 }
 

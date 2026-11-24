@@ -18,11 +18,8 @@ use crate::{
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
-    common_steps::{
-        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
-    },
+    common_steps::{DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, VersionTrackerStep},
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
         database::{ArcDbPool, new_db_pool, run_migrations},
@@ -121,12 +118,9 @@ impl ProcessorTrait for ObjectsProcessor {
         let per_table_chunk_sizes = &processor_config.default_config.per_table_chunk_sizes;
 
         // Define processor steps
-        let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version: Some(run.starting_version),
-            request_ending_version: run.ending_version,
-            ..self.config.transaction_stream_config.clone()
-        })
-        .await?;
+        let transaction_stream = run
+            .transaction_stream(&self.config.transaction_stream_config)
+            .await?;
         let objects_extractor = ObjectsExtractor::new(
             processor_config.query_retries,
             processor_config.query_retry_delay_ms,
