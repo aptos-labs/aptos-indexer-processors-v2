@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
-use google_cloud_storage::{
+use gcloud_storage::{
     client::{Client as GCSClient, ClientConfig as GcsClientConfig},
     http::{
         Error as GcsError,
@@ -144,10 +144,9 @@ impl FileStore for GcsFileStore {
         let mut retry_count = 0;
         let mut delay = INITIAL_RETRY_DELAY;
         loop {
-            let body = hyper::Body::from(data.clone());
             match self
                 .client
-                .upload_object(&upload_request, body, &upload_type)
+                .upload_object(&upload_request, data.clone(), &upload_type)
                 .await
             {
                 Ok(_) => return Ok(()),

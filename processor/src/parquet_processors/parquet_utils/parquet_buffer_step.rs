@@ -302,7 +302,7 @@ mod tests {
         traits::Processable,
         types::transaction_context::{TransactionContext, TransactionMetadata},
     };
-    use google_cloud_storage::client::{Client as GCSClient, ClientConfig as GcsClientConfig};
+    use gcloud_storage::client::{Client as GCSClient, ClientConfig as GcsClientConfig};
     use parquet::schema::types::Type;
     use std::{collections::HashMap, sync::Arc, time::Duration};
 

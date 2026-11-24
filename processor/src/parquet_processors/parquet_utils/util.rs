@@ -7,7 +7,7 @@ use crate::{
     utils::table_flags::TableFlags,
 };
 use ahash::AHashMap;
-use google_cloud_storage::http::Error as StorageError;
+use gcloud_storage::http::Error as StorageError;
 use lazy_static::lazy_static;
 use parquet::{record::RecordWriter, schema::types::Type};
 use serde::{Deserialize, Serialize};

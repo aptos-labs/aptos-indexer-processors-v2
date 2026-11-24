@@ -25,6 +25,7 @@ ahash = { workspace = true }
 anyhow = { workspace = true }
 aptos-indexer-processor-sdk = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
 bcs = { workspace = true }
 bigdecimal = { workspace = true }
 bitflags = { workspace = true }
@@ -41,12 +42,9 @@ failpoints = { workspace = true, optional = true }
 field_count = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
-google-cloud-googleapis = { workspace = true }
-google-cloud-pubsub = { workspace = true }
-google-cloud-storage = { workspace = true }
+gcloud-storage = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
-hyper = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }

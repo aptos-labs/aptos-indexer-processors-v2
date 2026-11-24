@@ -394,6 +394,8 @@ mod tests {
                 additional_headers: AdditionalHeaders::default(),
                 transaction_filter: None,
                 backup_endpoints: vec![],
+                primary_failback_interval_secs:
+                    TransactionStreamConfig::default_primary_failback_interval(),
             },
             progress_health_config: None,
         }
