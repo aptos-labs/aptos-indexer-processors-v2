@@ -9,8 +9,7 @@ use aptos_indexer_processor_sdk::{
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
-use bigdecimal::BigDecimal;
-use diesel::sql_types::{Array, Nullable, Numeric, Text};
+use diesel::sql_types::{Array, BigInt, Nullable, Text};
 use diesel_async::{AsyncConnection, RunQueryDsl, scoped_futures::ScopedFutureExt};
 use std::collections::BTreeMap;
 
@@ -109,14 +108,20 @@ impl NamedStep for MultisigAccountStorer {
     }
 }
 
+/// Postgres BIGINT is signed: a value it cannot hold fails the batch rather
+/// than wrapping, and the rollback undoes the accounts already written.
+fn to_bigint(value: u64) -> Result<i64, diesel::result::Error> {
+    i64::try_from(value).map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))
+}
+
 async fn store_snapshot(
     conn: &mut MyDbConnection,
     multisig_address: &str,
     snapshot: &Snapshot,
 ) -> Result<(), diesel::result::Error> {
-    let (num_signatures_required, owners): (Option<BigDecimal>, &[String]) = match &snapshot.state {
+    let (num_signatures_required, owners): (Option<i64>, &[String]) = match &snapshot.state {
         Some(state) => (
-            Some(BigDecimal::from(state.num_signatures_required)),
+            Some(to_bigint(state.num_signatures_required)?),
             &state.owners,
         ),
         None => (None, &[]),
@@ -124,8 +129,8 @@ async fn store_snapshot(
 
     let advanced = diesel::sql_query(ADVANCE_STATE_SQL)
         .bind::<Text, _>(multisig_address)
-        .bind::<Numeric, _>(BigDecimal::from(snapshot.version))
-        .bind::<Nullable<Numeric>, _>(num_signatures_required)
+        .bind::<BigInt, _>(to_bigint(snapshot.version)?)
+        .bind::<Nullable<BigInt>, _>(num_signatures_required)
         .execute(conn)
         .await?;
     if advanced == 0 {

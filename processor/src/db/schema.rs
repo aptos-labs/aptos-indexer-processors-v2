@@ -794,8 +794,8 @@ diesel::table! {
     multisig_account_states (multisig_address) {
         #[max_length = 66]
         multisig_address -> Varchar,
-        last_transaction_version -> Numeric,
-        num_signatures_required -> Nullable<Numeric>,
+        last_transaction_version -> Int8,
+        num_signatures_required -> Nullable<Int8>,
         inserted_at -> Timestamp,
     }
 }

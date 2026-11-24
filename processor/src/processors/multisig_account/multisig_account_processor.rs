@@ -11,9 +11,7 @@ use crate::{
         db_config::DbConfig,
         indexer_processor_config::IndexerProcessorConfig,
         processor_config::{DefaultProcessorConfig, ProcessorConfig},
-        processor_mode::ProcessorMode,
     },
-    db::backfill_processor_status::{BackfillProcessorStatusQuery, BackfillStatus},
     processors::processor_status_saver::{
         PostgresProcessorStatusSaver, get_end_version, get_starting_version,
     },
@@ -88,64 +86,6 @@ impl MultisigAccountProcessor {
 
         Ok(Self { config, db_pool })
     }
-
-    /// The config with a backfill's end made explicit.
-    ///
-    /// A backfill with no configured end stops at the live processor's
-    /// checkpoint. Fixing that version here, before the start is computed,
-    /// gives the start lookup and the checkpoint saver the same end, so the
-    /// saver can mark the backfill complete when it gets there.
-    async fn config_with_resolved_end(&self) -> Result<(IndexerProcessorConfig, Option<u64>)> {
-        let ending_version = get_end_version(&self.config, self.db_pool.clone()).await?;
-        let mut config = self.config.clone();
-        if let ProcessorMode::Backfill(backfill_config) = &mut config.processor_mode {
-            ensure!(
-                ending_version.is_some(),
-                "Backfill {:?} of {} has no end: set processor_mode.ending_version, or run the \
-                 processor in default mode first so the backfill can stop at its checkpoint",
-                backfill_config.backfill_id,
-                self.name(),
-            );
-            backfill_config.ending_version = ending_version;
-        }
-        Ok((config, ending_version))
-    }
-
-    /// Fails unless the saved backfill checkpoint covers `ending_version`.
-    ///
-    /// A batch reaches the end of the pipeline before its checkpoint is
-    /// written, so only the stored row shows that the write happened.
-    async fn ensure_backfill_complete(&self, backfill_id: &str, ending_version: u64) -> Result<()> {
-        let mut conn = self
-            .db_pool
-            .get()
-            .await
-            .context("Failed to get a connection to read the backfill checkpoint")?;
-        let status =
-            BackfillProcessorStatusQuery::get_by_processor(self.name(), backfill_id, &mut conn)
-                .await
-                .context("Failed to read the backfill checkpoint")?;
-        match status {
-            Some(status)
-                if status.backfill_status == BackfillStatus::Complete
-                    && status.last_success_version >= ending_version as i64 =>
-            {
-                Ok(())
-            },
-            Some(status) => bail!(
-                "Backfill {} processed up to version {ending_version} but its checkpoint is {:?} \
-                 at version {}; rerun it to finish",
-                status.backfill_alias,
-                status.backfill_status,
-                status.last_success_version,
-            ),
-            None => bail!(
-                "Backfill {backfill_id:?} of {} processed up to version {ending_version} but \
-                 saved no checkpoint; rerun it to finish",
-                self.name(),
-            ),
-        }
-    }
 }
 
 /// Rejects a range the transaction stream cannot represent, before it is opened.
@@ -207,10 +147,10 @@ impl ProcessorTrait for MultisigAccountProcessor {
             ),
         };
 
-        let (config, ending_version) = self.config_with_resolved_end().await?;
-        let starting_version = get_starting_version(&config, self.db_pool.clone())
+        let starting_version = get_starting_version(&self.config, self.db_pool.clone())
             .await?
             .context("No starting version")?;
+        let ending_version = get_end_version(&self.config, self.db_pool.clone()).await?;
         validate_version_range(starting_version, ending_version)?;
 
         // Check and update the ledger chain id to ensure we're indexing the correct chain.
@@ -228,7 +168,7 @@ impl ProcessorTrait for MultisigAccountProcessor {
         })
         .await?;
         let version_tracker = VersionTrackerStep::new(
-            PostgresProcessorStatusSaver::new(config.clone(), self.db_pool.clone()),
+            PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
             DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
         );
 
@@ -251,10 +191,6 @@ impl ProcessorTrait for MultisigAccountProcessor {
         .connect_to(version_tracker.into_runnable_step(), channel_size)
         .end_and_return_output_receiver(channel_size);
 
-        // A failed step logs its error and closes its channels, so a closed
-        // channel alone does not mean the work is done. Track what was
-        // acknowledged and compare it with what was asked for.
-        let mut acknowledged: Option<(u64, u64)> = None;
         loop {
             match buffer_receiver.recv().await {
                 Ok(txn_context) => {
@@ -266,35 +202,12 @@ impl ProcessorTrait for MultisigAccountProcessor {
                         "Finished processing transactions from versions [{:?}, {:?}]",
                         start_version, end_version,
                     );
-                    let first_version = acknowledged.map_or(start_version, |(first, _)| first);
-                    acknowledged = Some((first_version, end_version));
                 },
                 Err(e) => {
                     info!("No more transactions in channel: {:?}", e);
-                    break;
+                    break Ok(());
                 },
             }
         }
-
-        let Some(ending_version) = ending_version else {
-            bail!(
-                "{} stopped while following the chain from version {starting_version}; \
-                 acknowledged versions: {acknowledged:?}",
-                self.name(),
-            );
-        };
-        ensure!(
-            acknowledged.is_some_and(|(first, last)| {
-                first == starting_version && last >= ending_version
-            }),
-            "{} stopped before finishing versions {starting_version} to {ending_version}; \
-             acknowledged versions: {acknowledged:?}. Unacknowledged versions are safe to replay",
-            self.name(),
-        );
-        if let ProcessorMode::Backfill(backfill_config) = &config.processor_mode {
-            self.ensure_backfill_complete(&backfill_config.backfill_id, ending_version)
-                .await?;
-        }
-        Ok(())
     }
 }

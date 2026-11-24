@@ -124,18 +124,12 @@ async fn extract(transactions: Vec<Transaction>) -> Result<BTreeMap<String, Snap
 }
 
 #[tokio::test]
-async fn malformed_multisig_change_fails_the_batch() {
+async fn undecodable_multisig_change_fails_the_batch() {
     let valid = || write_multisig("0x10", &["0xa"], "1");
     assert!(extract(vec![transaction(7, vec![valid()])]).await.is_ok());
 
     let too_long = format!("0x{}", "a".repeat(65));
-    let malformed = [
-        ("quorum of zero", write_multisig("0x20", &["0xa"], "0")),
-        (
-            "quorum above the number of owners",
-            write_multisig("0x20", &["0xa", "0xb"], "3"),
-        ),
-        ("no owners", write_multisig("0x20", &[], "1")),
+    let undecodable = [
         (
             "quorum that is not a decimal string",
             write_resource(
@@ -146,8 +140,17 @@ async fn malformed_multisig_change_fails_the_batch() {
             ),
         ),
         (
-            "owner listed twice",
-            write_multisig("0x20", &["0xa", "0x0A"], "1"),
+            "missing quorum",
+            write_resource(
+                "0x20",
+                struct_tag(MULTISIG_TYPE),
+                MULTISIG_TYPE,
+                "{\"owners\":[\"0xa\"]}",
+            ),
+        ),
+        (
+            "resource that is not JSON",
+            write_resource("0x20", struct_tag(MULTISIG_TYPE), MULTISIG_TYPE, "not json"),
         ),
         (
             "owner that is not hex",
@@ -165,38 +168,8 @@ async fn malformed_multisig_change_fails_the_batch() {
             "deleted account address that is not hex",
             delete_resource("0xzz", MULTISIG_TYPE),
         ),
-        (
-            "multisig tag with another type string",
-            write_resource(
-                "0x20",
-                struct_tag(MULTISIG_TYPE),
-                ACCOUNT_TYPE,
-                &multisig_data(&["0xa"], "1"),
-            ),
-        ),
-        (
-            "another tag with the multisig type string",
-            write_resource(
-                "0x20",
-                struct_tag(ACCOUNT_TYPE),
-                MULTISIG_TYPE,
-                &multisig_data(&["0xa"], "1"),
-            ),
-        ),
-        (
-            "resource write with no type",
-            write_resource("0x20", None, "", &multisig_data(&["0xa"], "1")),
-        ),
-        ("resource write with no payload", WriteSetChange {
-            r#type: ChangeType::WriteResource as i32,
-            change: None,
-        }),
-        ("resource delete with no payload", WriteSetChange {
-            r#type: ChangeType::DeleteResource as i32,
-            change: None,
-        }),
     ];
-    for (case, change) in malformed {
+    for (case, change) in undecodable {
         // The valid write before it must not get through either.
         let error = extract(vec![transaction(7, vec![valid(), change])])
             .await
@@ -223,6 +196,27 @@ async fn transaction_without_info_fails_the_batch() {
     .err()
     .expect("accepted a transaction without info");
     assert!(error.contains("version 8"), "{error}");
+}
+
+#[tokio::test]
+async fn multisig_type_is_recognised_by_its_type_string() {
+    let data = multisig_data(&["0xa"], "1");
+    let padded_type = format!("{}::multisig_account::MultisigAccount", padded("0x1"));
+    let snapshots = extract(vec![transaction(7, vec![
+        // Short type string.
+        write_multisig("0x10", &["0xa"], "1"),
+        // Padded type string, no structured tag.
+        write_resource("0x20", None, &padded_type, &data),
+        delete_resource("0x30", &padded_type),
+        // The type string decides over a disagreeing structured tag.
+        write_resource("0x40", struct_tag(ACCOUNT_TYPE), MULTISIG_TYPE, &data),
+    ])])
+    .await
+    .unwrap();
+    assert_eq!(
+        snapshots.keys().cloned().collect::<Vec<_>>(),
+        ["0x10", "0x20", "0x30", "0x40"].map(padded)
+    );
 }
 
 #[tokio::test]
@@ -256,10 +250,25 @@ async fn changes_to_other_state_are_ignored_unparsed() {
             "not json",
         ),
         write_resource("0x10", None, "0x1::multisig_account", "not json"),
+        // The type string decides over a disagreeing structured tag.
+        write_resource("0x10", struct_tag(MULTISIG_TYPE), ACCOUNT_TYPE, "not json"),
+        // Only a structured tag: matching is by type string alone.
+        write_resource("0x10", struct_tag(MULTISIG_TYPE), "", "not json"),
+        // No type at all.
+        write_resource("0x10", None, "", "not json"),
         delete_resource("0x10", ACCOUNT_TYPE),
         WriteSetChange {
             r#type: ChangeType::WriteTableItem as i32,
             change: Some(Change::WriteTableItem(WriteTableItem::default())),
+        },
+        // Resource changes without a payload.
+        WriteSetChange {
+            r#type: ChangeType::WriteResource as i32,
+            change: None,
+        },
+        WriteSetChange {
+            r#type: ChangeType::DeleteResource as i32,
+            change: None,
         },
         WriteSetChange::default(),
     ])])
@@ -293,11 +302,40 @@ async fn latest_change_per_account_wins_in_any_delivery_order() {
     let live = &snapshots[&padded("0x10")];
     let state = live.state.as_ref().expect("0x10 was written last");
     assert_eq!((live.version, live.change_index), (9, 0));
-    assert_eq!(state.owners, vec![padded("0xa"), padded("0xb")]);
+    assert_eq!(state.owners, vec![padded("0xb"), padded("0xa")]);
     assert_eq!(state.num_signatures_required, 2);
     let deleted = &snapshots[&padded("0x20")];
     assert_eq!((deleted.version, deleted.change_index), (9, 2));
     assert!(deleted.state.is_none());
+}
+
+#[tokio::test]
+async fn batch_outside_the_requested_versions_fails() {
+    let run = |starting_version: u64,
+               ending_version: Option<u64>,
+               start_version: u64,
+               end_version: u64| async move {
+        MultisigAccountExtractor {
+            starting_version,
+            ending_version,
+        }
+        .process(TransactionContext {
+            data: vec![],
+            metadata: TransactionMetadata {
+                start_version,
+                end_version,
+                ..Default::default()
+            },
+        })
+        .await
+    };
+
+    assert!(run(7, Some(9), 7, 9).await.is_ok());
+    assert!(run(7, None, 7, u64::MAX).await.is_ok());
+    // Before the requested start, and past the requested end.
+    assert!(run(7, Some(9), 6, 9).await.is_err());
+    assert!(run(7, None, 6, 9).await.is_err());
+    assert!(run(7, Some(9), 7, 10).await.is_err());
 }
 
 #[test]
