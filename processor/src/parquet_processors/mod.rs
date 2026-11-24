@@ -62,7 +62,7 @@ use aptos_indexer_processor_sdk::{
 };
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
-use google_cloud_storage::client::{Client as GCSClient, ClientConfig as GcsClientConfig};
+use gcloud_storage::client::{Client as GCSClient, ClientConfig as GcsClientConfig};
 use parquet::schema::types::Type;
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};

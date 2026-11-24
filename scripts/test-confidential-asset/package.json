@@ -9,16 +9,16 @@
   "dependencies": {
     "@aptos-labs/confidential-assets": "^0.8.0",
     "@aptos-labs/forklift": "^1.1.1",
-    "@aptos-labs/ts-sdk": "^6.1.0",
-    "pg": "^8.13.0"
+    "@aptos-labs/ts-sdk": "^6.3.1",
+    "pg": "^8.20.0"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/pg": "^8.11.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.0"
+    "@types/node": "^22.19.15",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }

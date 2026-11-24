@@ -15,7 +15,6 @@ use crate::{
     processors::fungible_asset::fungible_asset_models::v2_fungible_asset_utils::FeeStatement,
     schema::user_transactions,
 };
-use anyhow::Result;
 use aptos_indexer_processor_sdk::{
     aptos_indexer_transaction_stream::utils::time::parse_timestamp,
     aptos_protos::{
