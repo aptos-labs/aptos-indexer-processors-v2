@@ -32,6 +32,7 @@ If you want to index a custom contract, we recommend using the [Quickstart Guide
             initial_starting_version: 0
         ```
     - Backfill mode: Running in backfill mode will track the backfill status in `backfill_processor_status` table. Give your backfill a unique identifier, `backfill_id`. If the backfill restarts, it will continue from `backfill_processor_status.last_success_version`. 
+      Without `ending_version`, a Postgres processor reads `processor_status.last_success_version` once when the backfill starts and stores it as `backfill_processor_status.backfill_end_version`, which a restart keeps; it fails to start if there is no such checkpoint. It exits successfully only after processing through the ending version and saving the backfill as `complete`.
         ```
         processor_mode:
             type: backfill

@@ -12,19 +12,14 @@ use crate::{
     },
     processors::{
         objects::{objects_extractor::ObjectsExtractor, objects_storer::ObjectsStorer},
-        processor_status_saver::{
-            PostgresProcessorStatusSaver, get_end_version, get_starting_version,
-        },
+        processor_status_saver::ProcessorRun,
     },
     utils::table_flags::TableFlags,
 };
 use anyhow::Result;
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::TransactionStreamConfig,
     builder::ProcessorBuilder,
-    common_steps::{
-        DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, TransactionStreamStep, VersionTrackerStep,
-    },
+    common_steps::{DEFAULT_UPDATE_PROCESSOR_STATUS_SECS, VersionTrackerStep},
     postgres::utils::{
         checkpoint::PostgresChainIdChecker,
         database::{ArcDbPool, new_db_pool, run_migrations},
@@ -33,7 +28,6 @@ use aptos_indexer_processor_sdk::{
     utils::chain_id_check::check_or_update_chain_id,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -106,11 +100,8 @@ impl ProcessorTrait for ObjectsProcessor {
             .await;
         }
 
-        // Merge the starting version from config and the latest processed version from the DB
-        let (starting_version, ending_version) = (
-            get_starting_version(&self.config, self.db_pool.clone()).await?,
-            get_end_version(&self.config, self.db_pool.clone()).await?,
-        );
+        // Resolve the versions to process from the processor mode and the checkpoints in the DB.
+        let run = ProcessorRun::resolve(&self.config, self.db_pool.clone()).await?;
 
         // Check and update the ledger chain id to ensure we're indexing the correct chain
         check_or_update_chain_id(
@@ -127,12 +118,9 @@ impl ProcessorTrait for ObjectsProcessor {
         let per_table_chunk_sizes = &processor_config.default_config.per_table_chunk_sizes;
 
         // Define processor steps
-        let transaction_stream = TransactionStreamStep::new(TransactionStreamConfig {
-            starting_version,
-            request_ending_version: ending_version,
-            ..self.config.transaction_stream_config.clone()
-        })
-        .await?;
+        let transaction_stream = run
+            .transaction_stream(&self.config.transaction_stream_config)
+            .await?;
         let objects_extractor = ObjectsExtractor::new(
             processor_config.query_retries,
             processor_config.query_retry_delay_ms,
@@ -145,10 +133,8 @@ impl ProcessorTrait for ObjectsProcessor {
             opt_in_tables,
         );
 
-        let version_tracker = VersionTrackerStep::new(
-            PostgresProcessorStatusSaver::new(self.config.clone(), self.db_pool.clone()),
-            DEFAULT_UPDATE_PROCESSOR_STATUS_SECS,
-        );
+        let version_tracker =
+            VersionTrackerStep::new(run.status_saver(), DEFAULT_UPDATE_PROCESSOR_STATUS_SECS);
         // Connect processor steps together
         let (_, buffer_receiver) = ProcessorBuilder::new_with_inputless_first_step(
             transaction_stream.into_runnable_step(),
@@ -158,19 +144,6 @@ impl ProcessorTrait for ObjectsProcessor {
         .connect_to(version_tracker.into_runnable_step(), channel_size)
         .end_and_return_output_receiver(channel_size);
 
-        loop {
-            match buffer_receiver.recv().await {
-                Ok(txn_context) => {
-                    debug!(
-                        "Finished processing versions [{:?}, {:?}]",
-                        txn_context.metadata.start_version, txn_context.metadata.end_version,
-                    );
-                },
-                Err(e) => {
-                    info!("No more transactions in channel: {:?}", e);
-                    break Ok(());
-                },
-            }
-        }
+        run.wait_for_completion(buffer_receiver).await
     }
 }

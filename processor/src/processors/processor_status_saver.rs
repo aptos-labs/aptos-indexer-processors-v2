@@ -11,31 +11,308 @@ use crate::{
     },
     schema::backfill_processor_status,
 };
-use anyhow::Result;
+use anyhow::{Context, Result, bail, ensure};
 use aptos_indexer_processor_sdk::{
-    aptos_indexer_transaction_stream::utils::time::parse_timestamp,
-    common_steps::ProcessorStatusSaver,
+    aptos_indexer_transaction_stream::{TransactionStreamConfig, utils::time::parse_timestamp},
+    aptos_protos::transaction::v1::Transaction,
+    common_steps::{ProcessorStatusSaver, TransactionStreamStep},
+    instrumented_channel::InstrumentedAsyncReceiver,
     postgres::{
         models::processor_status::{ProcessorStatus, ProcessorStatusQuery},
         processor_metadata_schema::processor_metadata::processor_status,
-        utils::database::{ArcDbPool, execute_with_better_error},
+        utils::database::{ArcDbPool, DbPoolConnection, execute_with_better_error},
     },
+    traits::{NamedStep, PollableAsyncRunType, PollableAsyncStep, Processable},
     types::transaction_context::TransactionContext,
     utils::errors::ProcessorError,
 };
 use async_trait::async_trait;
 use diesel::{ExpressionMethods, query_dsl::methods::FilterDsl, upsert::excluded};
+use tracing::{debug, info};
 
-/// A trait implementation of ProcessorStatusSaver for Postgres.
-pub struct PostgresProcessorStatusSaver {
-    pub config: IndexerProcessorConfig,
-    pub db_pool: ArcDbPool,
+/// The transaction stream does signed 64-bit arithmetic on versions, and the checkpoints store
+/// them as `i64`.
+const MAX_STREAM_VERSION: u64 = i64::MAX as u64;
+
+/// One run of a Postgres processor: the versions it streams, resolved once at startup from its
+/// processor mode and the checkpoints in the DB.
+///
+/// The run's transaction stream, status saver and [`Self::wait_for_completion`] all come from this
+/// value. A backfill without `ending_version` ends at the live processor's checkpoint, which keeps
+/// moving, so resolving it again later would not give the end the stream stops at.
+pub struct ProcessorRun {
+    processor_name: &'static str,
+    /// The configured mode, with the ending version of a backfill filled in.
+    processor_mode: ProcessorMode,
+    starting_version: u64,
+    /// `None` only in default mode, which keeps processing new transactions.
+    ending_version: Option<u64>,
+    db_pool: ArcDbPool,
 }
 
-impl PostgresProcessorStatusSaver {
-    pub fn new(config: IndexerProcessorConfig, db_pool: ArcDbPool) -> Self {
-        Self { config, db_pool }
+impl ProcessorRun {
+    pub async fn resolve(
+        config: &IndexerProcessorConfig,
+        db_pool: ArcDbPool,
+    ) -> Result<Self, ProcessorError> {
+        let processor_name = config.processor_config.name();
+        let (processor_mode, starting_version, ending_version) = {
+            let mut conn = db_pool
+                .get()
+                .await
+                .map_err(|e| ProcessorError::ProcessError {
+                    message: format!("Failed to get database connection. {e:?}"),
+                })?;
+            match &config.processor_mode {
+                ProcessorMode::Default(BootStrapConfig {
+                    initial_starting_version,
+                }) => {
+                    // If there's no last success version saved, start with the version from config
+                    let starting_version = get_last_success_version(processor_name, &mut conn)
+                        .await?
+                        .map_or(*initial_starting_version, |version| {
+                            version.max(*initial_starting_version)
+                        });
+                    (config.processor_mode.clone(), starting_version, None)
+                },
+                ProcessorMode::Backfill(backfill_config) => {
+                    let (starting_version, ending_version) =
+                        resolve_backfill(processor_name, backfill_config, &mut conn, &db_pool)
+                            .await?;
+                    let processor_mode = ProcessorMode::Backfill(BackfillConfig {
+                        ending_version: Some(ending_version),
+                        ..backfill_config.clone()
+                    });
+                    (processor_mode, starting_version, Some(ending_version))
+                },
+                ProcessorMode::Testing(TestingConfig {
+                    override_starting_version,
+                    ending_version,
+                }) => {
+                    // If no ending version is provided, use the override_starting_version so testing mode only processes 1 transaction at a time.
+                    let ending_version = ending_version.unwrap_or(*override_starting_version);
+                    (
+                        config.processor_mode.clone(),
+                        *override_starting_version,
+                        Some(ending_version),
+                    )
+                },
+            }
+        };
+        if let Some(ending_version) = ending_version
+            && starting_version > ending_version
+        {
+            return Err(ProcessorError::ProcessError {
+                message: format!(
+                    "{processor_name} would start at version {starting_version}, after its ending version {ending_version}"
+                ),
+            });
+        }
+        // The stream does `i64` arithmetic on these versions and on the number of transactions it
+        // requests, `ending_version - starting_version + 1`.
+        let streamable = match ending_version {
+            Some(ending_version) => {
+                ending_version <= MAX_STREAM_VERSION
+                    && ending_version - starting_version < MAX_STREAM_VERSION
+            },
+            None => starting_version <= MAX_STREAM_VERSION,
+        };
+        if !streamable {
+            return Err(ProcessorError::ProcessError {
+                message: format!(
+                    "{processor_name} cannot stream versions {starting_version} to {}: the transaction stream supports versions up to {MAX_STREAM_VERSION}, at most {MAX_STREAM_VERSION} at a time",
+                    ending_version.map_or_else(|| "the latest".to_string(), |v| v.to_string())
+                ),
+            });
+        }
+
+        Ok(Self {
+            processor_name,
+            processor_mode,
+            starting_version,
+            ending_version,
+            db_pool,
+        })
     }
+
+    /// Opens the transaction stream of this run's versions, which rejects a batch from outside
+    /// them. The versions in `config` are replaced with the run's.
+    pub async fn transaction_stream(
+        &self,
+        config: &TransactionStreamConfig,
+    ) -> Result<BoundedTransactionStreamStep, ProcessorError> {
+        let stream = TransactionStreamStep::new(TransactionStreamConfig {
+            starting_version: Some(self.starting_version),
+            request_ending_version: self.ending_version,
+            ..config.clone()
+        })
+        .await?;
+        Ok(BoundedTransactionStreamStep {
+            stream,
+            starting_version: self.starting_version,
+            last_version: self.ending_version.unwrap_or(MAX_STREAM_VERSION),
+        })
+    }
+
+    /// The saver for this run's `VersionTrackerStep`.
+    pub fn status_saver(&self) -> PostgresProcessorStatusSaver {
+        PostgresProcessorStatusSaver {
+            processor_name: self.processor_name,
+            processor_mode: self.processor_mode.clone(),
+            db_pool: self.db_pool.clone(),
+        }
+    }
+
+    /// Receives from the pipeline until it closes, then checks that the run finished.
+    ///
+    /// The SDK closes the channels when the stream reaches the ending version, but also when a
+    /// step fails, which it only logs. `receiver` must be the output of the run's
+    /// `VersionTrackerStep`, which passes every batch on in version order.
+    pub async fn wait_for_completion<T: Send + 'static>(
+        &self,
+        receiver: InstrumentedAsyncReceiver<TransactionContext<T>>,
+    ) -> Result<()> {
+        let mut last_success_version = None;
+        while let Ok(txn_context) = receiver.recv().await {
+            debug!(
+                "Finished processing transactions from versions [{:?}, {:?}]",
+                txn_context.metadata.start_version, txn_context.metadata.end_version,
+            );
+            last_success_version = Some(txn_context.metadata.end_version);
+        }
+
+        let processor_name = self.processor_name;
+        let Some(ending_version) = self.ending_version else {
+            bail!(
+                "{processor_name} stopped after version {last_success_version:?} although it has no ending version: a step failed, see its error above"
+            );
+        };
+        ensure!(
+            last_success_version.is_some_and(|version| version >= ending_version),
+            "{processor_name} stopped after version {last_success_version:?}, before its ending version {ending_version}: a step failed, see its error above"
+        );
+        if let ProcessorMode::Backfill(BackfillConfig { backfill_id, .. }) = &self.processor_mode {
+            // The version tracker saves the last checkpoint after passing the last batch on, and
+            // the SDK only logs a failed save.
+            let mut conn = self
+                .db_pool
+                .get()
+                .await
+                .context("Failed to get database connection")?;
+            let status = BackfillProcessorStatusQuery::get_by_processor(
+                processor_name,
+                backfill_id,
+                &mut conn,
+            )
+            .await
+            .context("Failed to query backfill_processor_status table")?;
+            ensure!(
+                status.is_some_and(|status| {
+                    status.backfill_status == BackfillStatus::Complete
+                        && u64::try_from(status.last_success_version)
+                            .is_ok_and(|saved| saved >= ending_version)
+                }),
+                "{processor_name} processed backfill {backfill_id} through version {ending_version}, but did not save it as complete through that version"
+            );
+        }
+        info!("{processor_name} processed through its ending version {ending_version}");
+        Ok(())
+    }
+}
+
+/// The transaction stream of a [`ProcessorRun`]. It passes a batch on only if the batch's range,
+/// and every transaction in the batch, lie within the run's versions.
+///
+/// The SDK stream passes on whatever range the data service reports, even past the requested end,
+/// and does not compare the transactions with that range. A batch rejected here, as it is polled,
+/// never reaches a later step, so nothing from it is stored or checkpointed: the SDK stops
+/// polling, closes the pipeline once the batches before it are through, and
+/// [`ProcessorRun::wait_for_completion`] reports that the run stopped early.
+pub struct BoundedTransactionStreamStep {
+    stream: TransactionStreamStep,
+    starting_version: u64,
+    /// The run's ending version, or in default mode the last version the stream supports.
+    last_version: u64,
+}
+
+impl BoundedTransactionStreamStep {
+    fn check(&self, batch: &TransactionContext<Vec<Transaction>>) -> Result<(), ProcessorError> {
+        let (start_version, end_version) =
+            (batch.metadata.start_version, batch.metadata.end_version);
+        if start_version < self.starting_version
+            || end_version < start_version
+            || end_version > self.last_version
+        {
+            return Err(ProcessorError::PollError {
+                message: format!(
+                    "The data service sent versions {start_version} to {end_version}, outside this run's versions {} to {}",
+                    self.starting_version, self.last_version
+                ),
+            });
+        }
+        // The checkpoint covers the batch's range, so each of its transactions must lie in it.
+        for transaction in &batch.data {
+            if !(start_version..=end_version).contains(&transaction.version) {
+                return Err(ProcessorError::PollError {
+                    message: format!(
+                        "The data service sent transaction {} in a batch of versions {start_version} to {end_version}",
+                        transaction.version
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Processable for BoundedTransactionStreamStep {
+    type Input = ();
+    type Output = Vec<Transaction>;
+    type RunType = PollableAsyncRunType;
+
+    /// The stream starts the pipeline and has no input: it only polls.
+    async fn process(
+        &mut self,
+        _item: TransactionContext<()>,
+    ) -> Result<Option<TransactionContext<Vec<Transaction>>>, ProcessorError> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl PollableAsyncStep for BoundedTransactionStreamStep {
+    fn poll_interval(&self) -> std::time::Duration {
+        self.stream.poll_interval()
+    }
+
+    async fn poll(
+        &mut self,
+    ) -> Result<Option<Vec<TransactionContext<Vec<Transaction>>>>, ProcessorError> {
+        let batches = self.stream.poll().await?;
+        for batch in batches.iter().flatten() {
+            self.check(batch)?;
+        }
+        Ok(batches)
+    }
+
+    async fn should_continue_polling(&mut self) -> bool {
+        self.stream.should_continue_polling().await
+    }
+}
+
+impl NamedStep for BoundedTransactionStreamStep {
+    /// The SDK stream's name, which labels the step's metrics.
+    fn name(&self) -> String {
+        self.stream.name()
+    }
+}
+
+/// Saves the checkpoints of a [`ProcessorRun`].
+pub struct PostgresProcessorStatusSaver {
+    processor_name: &'static str,
+    processor_mode: ProcessorMode,
+    db_pool: ArcDbPool,
 }
 
 #[async_trait]
@@ -45,8 +322,8 @@ impl ProcessorStatusSaver for PostgresProcessorStatusSaver {
         last_success_batch: &TransactionContext<()>,
     ) -> Result<(), ProcessorError> {
         save_processor_status(
-            self.config.processor_config.name(),
-            self.config.processor_mode.clone(),
+            self.processor_name,
+            self.processor_mode.clone(),
             last_success_batch,
             self.db_pool.clone(),
         )
@@ -160,161 +437,118 @@ pub async fn save_processor_status(
     Ok(())
 }
 
-pub async fn get_starting_version(
-    config: &IndexerProcessorConfig,
-    db_pool: ArcDbPool,
-) -> Result<Option<u64>, ProcessorError> {
-    let processor_name = config.processor_config.name();
-    let mut conn = db_pool
-        .get()
-        .await
-        .map_err(|e| ProcessorError::ProcessError {
-            message: format!("Failed to get database connection. {e:?}"),
-        })?;
-
-    match &config.processor_mode {
-        ProcessorMode::Default(BootStrapConfig {
-            initial_starting_version,
-        }) => {
-            let status = ProcessorStatusQuery::get_by_processor(processor_name, &mut conn)
-                .await
-                .map_err(|e| ProcessorError::ProcessError {
-                    message: format!("Failed to query processor_status table. {e:?}"),
-                })?;
-
-            // If there's no last success version saved, start with the version from config
-            Ok(Some(status.map_or(*initial_starting_version, |status| {
-                std::cmp::max(
-                    status.last_success_version as u64,
-                    *initial_starting_version,
-                )
-            })))
-        },
-        ProcessorMode::Backfill(BackfillConfig {
-            backfill_id,
-            initial_starting_version,
-            ending_version,
-            overwrite_checkpoint,
-        }) => {
-            let backfill_status_option = BackfillProcessorStatusQuery::get_by_processor(
-                processor_name,
-                backfill_id,
-                &mut conn,
-            )
+/// Resolves the versions a backfill processes. A backfill that is already checkpointed resumes
+/// after its checkpoint and keeps the ending version it stored, so restarting it does not move
+/// its end to wherever the live processor is now.
+async fn resolve_backfill(
+    processor_name: &str,
+    BackfillConfig {
+        backfill_id,
+        initial_starting_version,
+        ending_version,
+        overwrite_checkpoint,
+    }: &BackfillConfig,
+    conn: &mut DbPoolConnection<'_>,
+    db_pool: &ArcDbPool,
+) -> Result<(u64, u64), ProcessorError> {
+    let backfill_status_option =
+        BackfillProcessorStatusQuery::get_by_processor(processor_name, backfill_id, conn)
             .await
             .map_err(|e| ProcessorError::ProcessError {
                 message: format!("Failed to query backfill_processor_status table. {e:?}"),
             })?;
 
-            // Return None if there is no checkpoint, if the backfill is old (complete), or if overwrite_checkpoint is true.
-            // Otherwise, return the checkpointed version + 1.
-            if let Some(status) = backfill_status_option {
-                // If the backfill is complete and overwrite_checkpoint is false, return the ending_version to end the backfill.
-                if status.backfill_status == BackfillStatus::Complete && !overwrite_checkpoint {
-                    return Ok(*ending_version);
-                }
-                // If status is Complete or overwrite_checkpoint is true, this is the start of a new backfill job.
-                if *overwrite_checkpoint {
-                    let backfill_alias = status.backfill_alias.clone();
-
-                    // If the ending_version is provided, use it. If not, compute the ending_version from processor_status.last_success_version.
-                    let backfill_end_version = match *ending_version {
-                        Some(e) => Some(e as i64),
-                        None => get_end_version(config, db_pool.clone())
-                            .await?
-                            .map(|v| v as i64),
-                    };
-                    let status = BackfillProcessorStatus {
-                        backfill_alias,
-                        backfill_status: BackfillStatus::InProgress,
-                        last_success_version: 0,
-                        last_transaction_timestamp: None,
-                        backfill_start_version: *initial_starting_version as i64,
-                        backfill_end_version,
-                    };
-                    execute_with_better_error(
-                        db_pool.clone(),
-                        diesel::insert_into(backfill_processor_status::table)
-                            .values(&status)
-                            .on_conflict(backfill_processor_status::backfill_alias)
-                            .do_update()
-                            .set((
-                                backfill_processor_status::backfill_status
-                                    .eq(excluded(backfill_processor_status::backfill_status)),
-                                backfill_processor_status::last_success_version
-                                    .eq(excluded(backfill_processor_status::last_success_version)),
-                                backfill_processor_status::last_updated
-                                    .eq(excluded(backfill_processor_status::last_updated)),
-                                backfill_processor_status::last_transaction_timestamp.eq(excluded(
-                                    backfill_processor_status::last_transaction_timestamp,
-                                )),
-                                backfill_processor_status::backfill_start_version.eq(excluded(
-                                    backfill_processor_status::backfill_start_version,
-                                )),
-                                backfill_processor_status::backfill_end_version
-                                    .eq(excluded(backfill_processor_status::backfill_end_version)),
-                            )),
-                    )
-                    .await?;
-                    return Ok(Some(*initial_starting_version));
-                }
-
-                // `backfill_config.initial_starting_version` is NOT respected.
-                // Return the last success version + 1.
-                let starting_version = status.last_success_version as u64 + 1;
-                log_ascii_warning(starting_version);
-                Ok(Some(starting_version))
-            } else {
-                Ok(Some(*initial_starting_version))
+    if let Some(status) = &backfill_status_option
+        && !overwrite_checkpoint
+    {
+        let stored_ending_version = status.backfill_end_version.map(|v| v as u64);
+        let ending_version = match ending_version.or(stored_ending_version) {
+            Some(ending_version) => ending_version,
+            // The backfill was checkpointed before backfills stored their ending version.
+            None => get_live_ending_version(processor_name, backfill_id, conn).await?,
+        };
+        // `backfill_config.initial_starting_version` is NOT respected.
+        // Continue after the checkpoint. A backfill that already reached its ending version only
+        // processes that version again, which marks it complete.
+        let saved_version = u64::try_from(status.last_success_version).map_err(|_| {
+            ProcessorError::ProcessError {
+                message: format!(
+                    "Backfill {} has a negative last_success_version: {}",
+                    status.backfill_alias, status.last_success_version
+                ),
             }
-        },
-        ProcessorMode::Testing(TestingConfig {
-            override_starting_version,
-            ..
-        }) => {
-            // Always start from the override_starting_version.
-            Ok(Some(*override_starting_version))
-        },
+        })?;
+        let starting_version = (saved_version + 1).min(ending_version);
+        log_ascii_warning(starting_version);
+        return Ok((starting_version, ending_version));
     }
+
+    let ending_version = match ending_version {
+        Some(ending_version) => *ending_version,
+        None => get_live_ending_version(processor_name, backfill_id, conn).await?,
+    };
+    // If overwrite_checkpoint is true, this is the start of a new backfill job.
+    if let Some(status) = backfill_status_option {
+        let status = BackfillProcessorStatus {
+            backfill_alias: status.backfill_alias,
+            backfill_status: BackfillStatus::InProgress,
+            last_success_version: 0,
+            last_transaction_timestamp: None,
+            backfill_start_version: *initial_starting_version as i64,
+            backfill_end_version: Some(ending_version as i64),
+        };
+        execute_with_better_error(
+            db_pool.clone(),
+            diesel::insert_into(backfill_processor_status::table)
+                .values(&status)
+                .on_conflict(backfill_processor_status::backfill_alias)
+                .do_update()
+                .set((
+                    backfill_processor_status::backfill_status
+                        .eq(excluded(backfill_processor_status::backfill_status)),
+                    backfill_processor_status::last_success_version
+                        .eq(excluded(backfill_processor_status::last_success_version)),
+                    backfill_processor_status::last_updated
+                        .eq(excluded(backfill_processor_status::last_updated)),
+                    backfill_processor_status::last_transaction_timestamp.eq(excluded(
+                        backfill_processor_status::last_transaction_timestamp,
+                    )),
+                    backfill_processor_status::backfill_start_version
+                        .eq(excluded(backfill_processor_status::backfill_start_version)),
+                    backfill_processor_status::backfill_end_version
+                        .eq(excluded(backfill_processor_status::backfill_end_version)),
+                )),
+        )
+        .await?;
+    }
+    Ok((*initial_starting_version, ending_version))
 }
 
-pub async fn get_end_version(
-    config: &IndexerProcessorConfig,
-    db_pool: ArcDbPool,
+/// Where a backfill without `ending_version` ends: the live processor's checkpoint.
+async fn get_live_ending_version(
+    processor_name: &str,
+    backfill_id: &str,
+    conn: &mut DbPoolConnection<'_>,
+) -> Result<u64, ProcessorError> {
+    get_last_success_version(processor_name, conn)
+        .await?
+        .ok_or_else(|| ProcessorError::ProcessError {
+            message: format!(
+                "Backfill {backfill_id} has no ending_version, and {processor_name} has no processor_status checkpoint to end at instead. Set processor_mode.ending_version."
+            ),
+        })
+}
+
+async fn get_last_success_version(
+    processor_name: &str,
+    conn: &mut DbPoolConnection<'_>,
 ) -> Result<Option<u64>, ProcessorError> {
-    let processor_name = config.processor_config.name();
-    let processor_mode = &config.processor_mode;
-    match processor_mode {
-        ProcessorMode::Default(_) => Ok(None),
-        ProcessorMode::Backfill(BackfillConfig { ending_version, .. }) => {
-            match ending_version {
-                Some(ending_version) => Ok(Some(*ending_version)),
-                None => {
-                    // If there is no ending version in the config, use the processor_status.last_success_version
-                    let mut conn =
-                        db_pool
-                            .get()
-                            .await
-                            .map_err(|e| ProcessorError::ProcessError {
-                                message: format!("Failed to get database connection. {e:?}"),
-                            })?;
-                    let status = ProcessorStatusQuery::get_by_processor(processor_name, &mut conn)
-                        .await
-                        .map_err(|e| ProcessorError::ProcessError {
-                            message: format!("Failed to query processor_status table. {e:?}"),
-                        })?;
-                    Ok(status.map(|status| status.last_success_version as u64))
-                },
-            }
-        },
-        ProcessorMode::Testing(TestingConfig {
-            override_starting_version,
-            ending_version,
-        }) => {
-            // If no ending version is provided, use the override_starting_version so testing mode only processes 1 transaction at a time.
-            Ok(Some(ending_version.unwrap_or(*override_starting_version)))
-        },
-    }
+    let status = ProcessorStatusQuery::get_by_processor(processor_name, conn)
+        .await
+        .map_err(|e| ProcessorError::ProcessError {
+            message: format!("Failed to query processor_status table. {e:?}"),
+        })?;
+    Ok(status.map(|status| status.last_success_version as u64))
 }
 
 pub fn log_ascii_warning(version: u64) {
@@ -357,6 +591,7 @@ mod tests {
             utils::database::{new_db_pool, run_migrations},
         },
         testing_framework::database::{PostgresTestDatabase, TestDatabase},
+        types::transaction_context::TransactionMetadata,
     };
     use diesel_async::RunQueryDsl;
     use std::collections::HashSet;
@@ -401,6 +636,47 @@ mod tests {
         }
     }
 
+    async fn resolve_versions(
+        config: &IndexerProcessorConfig,
+        conn_pool: ArcDbPool,
+    ) -> (u64, Option<u64>) {
+        let run = ProcessorRun::resolve(config, conn_pool).await.unwrap();
+        (run.starting_version, run.ending_version)
+    }
+
+    /// Saves the checkpoint the run's version tracker saves after processing up to `end_version`.
+    async fn save_checkpoint(run: &ProcessorRun, end_version: u64) {
+        run.status_saver()
+            .save_processor_status(&TransactionContext {
+                data: (),
+                metadata: TransactionMetadata {
+                    end_version,
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap();
+    }
+
+    async fn set_live_checkpoint(
+        config: &IndexerProcessorConfig,
+        conn_pool: &ArcDbPool,
+        last_success_version: i64,
+    ) {
+        diesel::insert_into(processor_status::table)
+            .values(ProcessorStatus {
+                processor: config.processor_config.name().to_string(),
+                last_success_version,
+                last_transaction_timestamp: None,
+            })
+            .on_conflict(processor_status::processor)
+            .do_update()
+            .set(processor_status::last_success_version.eq(last_success_version))
+            .execute(&mut conn_pool.get().await.unwrap())
+            .await
+            .expect("Failed to save processor status");
+    }
+
     #[tokio::test]
     #[allow(clippy::needless_return)]
     async fn test_bootstrap_no_checkpoint_in_db() {
@@ -418,15 +694,9 @@ mod tests {
             .expect("Failed to create connection pool");
         run_migrations(db.get_db_url(), conn_pool.clone(), MIGRATIONS).await;
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
-        );
-        assert_eq!(starting_version, Some(initial_starting_version));
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
+        assert_eq!(starting_version, initial_starting_version);
         assert_eq!(end_version, None);
     }
 
@@ -460,16 +730,10 @@ mod tests {
             .await
             .expect("Failed to insert processor status");
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
 
-        assert_eq!(starting_version, Some(last_success_version as u64));
+        assert_eq!(starting_version, last_success_version as u64);
         assert_eq!(end_version, None);
     }
 
@@ -494,16 +758,10 @@ mod tests {
             }),
         );
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
 
-        assert_eq!(starting_version, Some(0));
+        assert_eq!(starting_version, 0);
         assert_eq!(end_version, Some(20));
     }
 
@@ -548,16 +806,10 @@ mod tests {
             .await
             .expect("Failed to insert backfill processor status");
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
 
-        assert_eq!(starting_version, Some(last_success_version as u64 + 1));
+        assert_eq!(starting_version, last_success_version as u64 + 1);
         assert_eq!(end_version, Some(20));
     }
 
@@ -600,14 +852,8 @@ mod tests {
             .await
             .expect("Failed to insert backfill processor status");
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool.clone()).await;
         let backfill_status = BackfillProcessorStatusQuery::get_by_processor(
             indexer_processor_config.processor_config.name(),
             &backfill_id,
@@ -617,10 +863,11 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert_eq!(starting_version, Some(0));
+        assert_eq!(starting_version, 0);
         assert_eq!(end_version, Some(20));
         assert_eq!(backfill_status.backfill_status, BackfillStatus::InProgress);
         assert_eq!(backfill_status.last_success_version, 0);
+        assert_eq!(backfill_status.backfill_end_version, Some(20));
     }
 
     #[tokio::test]
@@ -653,16 +900,10 @@ mod tests {
             .await
             .expect("Failed to insert processor status");
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
 
-        assert_eq!(starting_version, Some(0));
+        assert_eq!(starting_version, 0);
         assert_eq!(
             end_version,
             Some(head_processor_last_success_version as u64)
@@ -687,16 +928,10 @@ mod tests {
             }),
         );
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
-        );
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
 
-        assert_eq!(starting_version, Some(0));
+        assert_eq!(starting_version, 0);
         assert_eq!(end_version, Some(20));
     }
 
@@ -718,16 +953,143 @@ mod tests {
             }),
         );
 
-        let (starting_version, end_version) = (
-            get_starting_version(&indexer_processor_config, conn_pool.clone())
-                .await
-                .unwrap(),
-            get_end_version(&indexer_processor_config, conn_pool)
-                .await
-                .unwrap(),
+        let (starting_version, end_version) =
+            resolve_versions(&indexer_processor_config, conn_pool).await;
+
+        assert_eq!(starting_version, 0);
+        assert_eq!(end_version, Some(0));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::needless_return)]
+    async fn test_backfill_ending_version_none_without_checkpoint() {
+        let mut db = PostgresTestDatabase::new();
+        db.setup().await.unwrap();
+        let conn_pool = new_db_pool(db.get_db_url().as_str(), Some(10))
+            .await
+            .expect("Failed to create connection pool");
+        run_migrations(db.get_db_url(), conn_pool.clone(), MIGRATIONS).await;
+
+        let indexer_processor_config = create_indexer_config(
+            db.get_db_url(),
+            ProcessorMode::Backfill(BackfillConfig {
+                backfill_id: "backfill_id".to_string(),
+                initial_starting_version: 0,
+                ending_version: None,
+                overwrite_checkpoint: false,
+            }),
         );
 
-        assert_eq!(starting_version, Some(0));
-        assert_eq!(end_version, Some(0));
+        let Err(error) = ProcessorRun::resolve(&indexer_processor_config, conn_pool).await else {
+            panic!("resolved a backfill with no ending version");
+        };
+        assert!(error.to_string().contains("ending_version"), "{error}");
+    }
+
+    /// A backfill without `ending_version` ends where the live processor was when it started, also
+    /// after a restart, while the live processor moves on.
+    #[tokio::test]
+    #[allow(clippy::needless_return)]
+    async fn test_backfill_ending_version_none_keeps_its_ending_version() {
+        let backfill_id = "backfill_id".to_string();
+        let mut db = PostgresTestDatabase::new();
+        db.setup().await.unwrap();
+        let conn_pool = new_db_pool(db.get_db_url().as_str(), Some(10))
+            .await
+            .expect("Failed to create connection pool");
+        run_migrations(db.get_db_url(), conn_pool.clone(), MIGRATIONS).await;
+        let indexer_processor_config = create_indexer_config(
+            db.get_db_url(),
+            ProcessorMode::Backfill(BackfillConfig {
+                backfill_id: backfill_id.clone(),
+                initial_starting_version: 0,
+                ending_version: None,
+                overwrite_checkpoint: false,
+            }),
+        );
+        let get_status = async || {
+            let status = BackfillProcessorStatusQuery::get_by_processor(
+                indexer_processor_config.processor_config.name(),
+                &backfill_id,
+                &mut conn_pool.get().await.unwrap(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            (
+                status.backfill_status,
+                status.last_success_version,
+                status.backfill_end_version,
+            )
+        };
+
+        set_live_checkpoint(&indexer_processor_config, &conn_pool, 10).await;
+        let run = ProcessorRun::resolve(&indexer_processor_config, conn_pool.clone())
+            .await
+            .unwrap();
+        assert_eq!((run.starting_version, run.ending_version), (0, Some(10)));
+        save_checkpoint(&run, 5).await;
+        assert_eq!(
+            get_status().await,
+            (BackfillStatus::InProgress, 5, Some(10))
+        );
+
+        // Restart after the live processor moved on.
+        set_live_checkpoint(&indexer_processor_config, &conn_pool, 20).await;
+        let run = ProcessorRun::resolve(&indexer_processor_config, conn_pool.clone())
+            .await
+            .unwrap();
+        assert_eq!((run.starting_version, run.ending_version), (6, Some(10)));
+        save_checkpoint(&run, 10).await;
+        assert_eq!(get_status().await, (BackfillStatus::Complete, 10, Some(10)));
+
+        // Restart the complete backfill: it only processes its ending version again.
+        assert_eq!(
+            resolve_versions(&indexer_processor_config, conn_pool.clone()).await,
+            (10, Some(10))
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::needless_return)]
+    async fn test_backfill_complete_with_later_ending_version() {
+        let backfill_id = "backfill_id".to_string();
+        let mut db = PostgresTestDatabase::new();
+        db.setup().await.unwrap();
+        let conn_pool = new_db_pool(db.get_db_url().as_str(), Some(10))
+            .await
+            .expect("Failed to create connection pool");
+        run_migrations(db.get_db_url(), conn_pool.clone(), MIGRATIONS).await;
+        let indexer_processor_config = create_indexer_config(
+            db.get_db_url(),
+            ProcessorMode::Backfill(BackfillConfig {
+                backfill_id: backfill_id.clone(),
+                initial_starting_version: 0,
+                ending_version: Some(20),
+                overwrite_checkpoint: false,
+            }),
+        );
+        diesel::insert_into(crate::schema::backfill_processor_status::table)
+            .values(BackfillProcessorStatus {
+                backfill_alias: format!(
+                    "{}_{}",
+                    indexer_processor_config.processor_config.name(),
+                    backfill_id,
+                ),
+                backfill_status: BackfillStatus::Complete,
+                last_success_version: 10,
+                last_transaction_timestamp: None,
+                backfill_start_version: 0,
+                backfill_end_version: Some(10),
+            })
+            .execute(&mut conn_pool.clone().get().await.unwrap())
+            .await
+            .expect("Failed to insert backfill processor status");
+
+        // The backfill continues after its checkpoint instead of skipping to the new end.
+        assert_eq!(
+            resolve_versions(&indexer_processor_config, conn_pool).await,
+            (11, Some(20))
+        );
     }
 }
