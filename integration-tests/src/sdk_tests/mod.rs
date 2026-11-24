@@ -12,6 +12,8 @@ pub mod default_processor_tests;
 #[cfg(all(test, feature = "failpoints"))]
 pub mod event_file_processor_tests;
 #[cfg(test)]
+pub mod fixed_response_server;
+#[cfg(test)]
 pub mod fungible_asset_processor_tests;
 #[cfg(test)]
 pub mod objects_processor_tests;

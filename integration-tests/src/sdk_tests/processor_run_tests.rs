@@ -2,14 +2,19 @@
 // Licensed pursuant to the Innovation-Enabling Source Code License, available at https://github.com/aptos-labs/aptos-core/blob/main/LICENSE
 
 //! How a Postgres processor run ends, shown through the account transactions processor: a
-//! backfill without `ending_version` completes at the live checkpoint, and a run whose pipeline
-//! stops early returns an error instead of succeeding.
+//! backfill without `ending_version` completes at the live checkpoint, a run whose pipeline
+//! stops early returns an error instead of succeeding, and a batch from outside the requested
+//! range is rejected before anything from it is stored or checkpointed.
 
 use crate::sdk_tests::{
     account_transaction_processor_tests::setup_acc_txn_processor_config,
-    test_helpers::setup_test_environment,
+    fixed_response_server::serve_fixed_response, test_helpers::setup_test_environment,
 };
 use aptos_indexer_processor_sdk::{
+    aptos_protos::{
+        indexer::v1::{ProcessedRange, TransactionsResponse},
+        transaction::v1::Transaction,
+    },
     postgres::{
         processor_metadata_schema::processor_metadata::processor_status,
         utils::database::{new_db_pool, run_migrations},
@@ -27,7 +32,7 @@ use diesel::{
 use processor::{
     MIGRATIONS,
     config::processor_mode::{BackfillConfig, BootStrapConfig, ProcessorMode},
-    schema::backfill_processor_status,
+    schema::{account_transactions, backfill_processor_status},
 };
 use std::time::Duration;
 
@@ -60,12 +65,51 @@ async fn run(
     db_url: &str,
     processor_mode: ProcessorMode,
 ) -> anyhow::Result<()> {
+    run_from(test_context, db_url, processor_mode, None).await
+}
+
+/// Like `run`, but streams from `data_service` instead of the mock when one is given.
+async fn run_from(
+    test_context: &SdkTestContext,
+    db_url: &str,
+    processor_mode: ProcessorMode,
+    data_service: Option<url::Url>,
+) -> anyhow::Result<()> {
     let (mut config, processor_name) = setup_acc_txn_processor_config(test_context, db_url);
     assert_eq!(processor_name, PROCESSOR_NAME);
     config.processor_mode = processor_mode;
+    if let Some(data_service) = data_service {
+        config
+            .transaction_stream_config
+            .indexer_grpc_data_service_address = data_service;
+    }
     tokio::time::timeout(Duration::from_secs(60), config.run())
         .await
         .expect("the processor did not stop")
+}
+
+/// A response carrying the real mainnet transaction at `VERSION` that claims to cover
+/// `first_version..=last_version`, whatever was requested.
+fn response_with_real_transaction(first_version: u64, last_version: u64) -> TransactionsResponse {
+    let transaction: Transaction =
+        serde_json::from_slice(IMPORTED_MAINNET_TXNS_145959468_ACCOUNT_TRANSACTION).unwrap();
+    assert_eq!(transaction.version, VERSION);
+    TransactionsResponse {
+        transactions: vec![transaction],
+        // The mock data service's chain, which the processor records on its first run.
+        chain_id: Some(1),
+        processed_range: Some(ProcessedRange {
+            first_version,
+            last_version,
+        }),
+    }
+}
+
+fn account_transaction_rows(db_url: &str) -> i64 {
+    account_transactions::table
+        .count()
+        .get_result(&mut connect(db_url))
+        .unwrap()
 }
 
 fn backfill(backfill_id: &str, ending_version: Option<u64>) -> ProcessorMode {
@@ -73,6 +117,16 @@ fn backfill(backfill_id: &str, ending_version: Option<u64>) -> ProcessorMode {
         backfill_id: backfill_id.to_string(),
         initial_starting_version: VERSION,
         ending_version,
+        overwrite_checkpoint: false,
+    })
+}
+
+/// A backfill of the single version `version`, which the mock stream does not serve.
+fn single_version_backfill(backfill_id: &str, version: u64) -> ProcessorMode {
+    ProcessorMode::Backfill(BackfillConfig {
+        backfill_id: backfill_id.to_string(),
+        initial_starting_version: version,
+        ending_version: Some(version),
         overwrite_checkpoint: false,
     })
 }
@@ -258,4 +312,80 @@ async fn live_processor_fails_when_a_step_fails() {
     .expect_err("the run succeeded although its storer failed");
 
     assert!(error.to_string().contains("no ending version"), "{error:#}");
+}
+
+/// Shows the data service and the transaction that the next tests feed out of range: served in
+/// range, the transaction is stored and completes the backfill.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backfill_stores_a_batch_inside_its_range() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    let data_service = serve_fixed_response(response_with_real_transaction(VERSION, VERSION)).await;
+
+    run_from(
+        &test_context,
+        &db_url,
+        backfill("in_range", Some(VERSION)),
+        Some(data_service),
+    )
+    .await
+    .unwrap();
+
+    assert!(account_transaction_rows(&db_url) > 0);
+    assert_eq!(
+        backfill_checkpoint(&db_url, "in_range"),
+        Some(("complete".to_string(), VERSION as i64, Some(VERSION as i64))),
+    );
+}
+
+/// Asked for the version before `VERSION` alone, the data service answers with a batch that runs
+/// one version further and carries the real transaction there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backfill_rejects_a_batch_past_its_ending_version() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    let end = VERSION - 1;
+    let data_service = serve_fixed_response(response_with_real_transaction(end, VERSION)).await;
+
+    let error = run_from(
+        &test_context,
+        &db_url,
+        single_version_backfill("overlong", end),
+        Some(data_service),
+    )
+    .await
+    .expect_err("the run succeeded although its batch ran past the ending version");
+
+    assert!(
+        error.to_string().contains("before its ending version"),
+        "{error:#}"
+    );
+    assert_eq!(account_transaction_rows(&db_url), 0);
+    assert_eq!(backfill_checkpoint(&db_url, "overlong"), None);
+}
+
+/// The batch's `processed_range` claims exactly the requested version, but the transaction it
+/// carries is the next one: the processor must check the transactions, not just the range.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backfill_rejects_a_transaction_outside_its_batch_range() {
+    let (db, test_context) = setup().await;
+    let db_url = db.get_db_url();
+    let end = VERSION - 1;
+    let data_service = serve_fixed_response(response_with_real_transaction(end, end)).await;
+
+    let error = run_from(
+        &test_context,
+        &db_url,
+        single_version_backfill("false_range", end),
+        Some(data_service),
+    )
+    .await
+    .expect_err("the run succeeded although a transaction lay outside its batch range");
+
+    assert!(
+        error.to_string().contains("before its ending version"),
+        "{error:#}"
+    );
+    assert_eq!(account_transaction_rows(&db_url), 0);
+    assert_eq!(backfill_checkpoint(&db_url, "false_range"), None);
 }

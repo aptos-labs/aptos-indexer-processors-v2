@@ -18,7 +18,8 @@ pub fn setup_token_v2_processor_config(
     test_context: &SdkTestContext,
     db_url: &str,
 ) -> (IndexerProcessorConfig, &'static str) {
-    let transaction_stream_config = test_context.create_transaction_stream_config();
+    let transaction_stream_config =
+        crate::sdk_tests::test_helpers::create_fixture_transaction_stream_config(test_context);
     let postgres_config = PostgresConfig {
         connection_string: db_url.to_string(),
         db_pool_size: 100,
